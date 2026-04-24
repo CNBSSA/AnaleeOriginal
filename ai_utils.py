@@ -4,11 +4,11 @@ AI utilities module with enhanced error handling and rate limiting
 
 import logging
 import os
-from typing import Optional
-from openai import OpenAI, APIError, RateLimitError
+import json
+from typing import Optional, List, Dict
+import anthropic
 from datetime import datetime
 import time
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Configure logging with proper format
 logging.basicConfig(
@@ -17,84 +17,49 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global client instance with protection
-_openai_client = None
-_last_client_error = None
-_client_error_threshold = 3
+# Global Claude client
+_claude_client: Optional[anthropic.Anthropic] = None
 
-def get_openai_client() -> Optional[OpenAI]:
-    """
-    Get or create OpenAI client with improved error handling and caching
-    Returns None if client initialization fails after retries
-    """
-    global _openai_client, _last_client_error
-
+def get_openai_client() -> Optional[anthropic.Anthropic]:
+    """Get cached Anthropic Claude client (named for backward compatibility)."""
+    global _claude_client
     try:
-        # Return existing client if available and valid
-        if _openai_client is not None:
-            return _openai_client
-
-        # Get API key from environment with enhanced validation
-        api_key = os.getenv('OPENAI_API_KEY')
+        if _claude_client is not None:
+            return _claude_client
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
         if not api_key:
-            logger.error("OpenAI API key not found in environment variables")
+            logger.error("ANTHROPIC_API_KEY not found in environment variables")
             return None
-
-        # Initialize new client with proper configuration
-        _openai_client = OpenAI(api_key=api_key)
-
-        # Validate client with a test call
-        try:
-            _openai_client.models.list(limit=1)
-            logger.info("OpenAI client initialized and tested successfully")
-            _last_client_error = None
-            return _openai_client
-        except Exception as e:
-            logger.error(f"Client validation failed: {str(e)}")
-            _openai_client = None
-            _last_client_error = str(e)
-            return None
-
+        _claude_client = anthropic.Anthropic(api_key=api_key)
+        logger.info("Anthropic Claude client initialized")
+        return _claude_client
     except Exception as e:
         logger.error(f"Unexpected error during client initialization: {str(e)}")
-        _last_client_error = str(e)
         return None
 
-# Enhance the rate limit handler
 def handle_rate_limit(func, max_retries=3, base_delay=2):
-    """
-    Enhanced decorator to handle rate limiting with adaptive retry strategy
-    and comprehensive error handling
-    """
-    @retry(
-        retry=retry_if_exception_type((RateLimitError, APIError)),
-        stop=stop_after_attempt(max_retries),
-        wait=wait_exponential(multiplier=base_delay, min=4, max=30),
-        reraise=True
-    )
+    """Decorator to handle API errors with exponential backoff."""
     def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except RateLimitError as e:
-            logger.warning(f"Rate limit hit: {str(e)}")
-            retry_after = getattr(e, 'retry_after', None)
-            if retry_after:
-                logger.info(f"Waiting {retry_after} seconds as suggested by API")
-                time.sleep(retry_after)
-            raise
-        except APIError as e:
-            if e.status_code == 429:  # Rate limit
-                logger.warning(f"Rate limit hit via APIError: {str(e)}")
-                raise RateLimitError("Rate limit exceeded")
-            logger.error(f"API error: {str(e)}")
-            raise
-        except Exception as e:
-            error_msg = str(e).lower()
-            if "invalid api key" in error_msg:
-                logger.error("Invalid API key detected")
-                raise ValueError("Invalid OpenAI API key configuration")
-            logger.error(f"Unexpected error in API call: {str(e)}")
-            raise
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except anthropic.RateLimitError as e:
+                logger.warning(f"Rate limit hit (attempt {attempt + 1}): {str(e)}")
+                if attempt < max_retries - 1:
+                    wait = base_delay * (2 ** attempt)
+                    logger.info(f"Waiting {wait}s before retry")
+                    time.sleep(wait)
+                else:
+                    raise
+            except anthropic.APIError as e:
+                logger.error(f"API error: {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(base_delay * (2 ** attempt))
+                else:
+                    raise
+            except Exception as e:
+                logger.error(f"Unexpected error in API call: {str(e)}")
+                raise
     return wrapper
 
 def process_in_batches(items, process_func, batch_size=3):
@@ -227,16 +192,13 @@ Return 1-3 suggestions, ranked by confidence. Only suggest accounts that exist i
 
         @handle_rate_limit
         def get_account_suggestions():
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a financial accounting assistant helping to classify transactions into the correct accounts."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=500
+            response = client.messages.create(
+                model="claude-opus-4-7",
+                max_tokens=1024,
+                system="You are a financial accounting assistant helping to classify transactions into the correct accounts.",
+                messages=[{"role": "user", "content": prompt}]
             )
-            return response.choices[0].message.content.strip()
+            return response.content[0].text.strip()
 
         try:
             content = get_account_suggestions()
@@ -378,18 +340,14 @@ Provide analysis in this JSON structure:
 
         # Make API call
         try:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a financial analyst specialized in detecting transaction anomalies and patterns."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.2,
-                max_tokens=1000
+            response = client.messages.create(
+                model="claude-opus-4-7",
+                max_tokens=1024,
+                system="You are a financial analyst specialized in detecting transaction anomalies and patterns.",
+                messages=[{"role": "user", "content": prompt}]
             )
 
-            # Parse response
-            content = response.choices[0].message.content.strip()
+            content = response.content[0].text.strip()
             try:
                 analysis = json.loads(content)
                 return analysis
@@ -401,7 +359,7 @@ Provide analysis in this JSON structure:
                 }
 
         except Exception as e:
-            logger.error(f"Error in OpenAI API call: {str(e)}")
+            logger.error(f"Error in Claude API call: {str(e)}")
             raise
 
     except Exception as e:
@@ -497,19 +455,16 @@ Format your response as a JSON object with this structure:
 
         # Make API call
         try:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are an expert financial analyst specializing in expense forecasting and predictive analysis."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.2,
-                max_tokens=1000
+            response = client.messages.create(
+                model="claude-opus-4-7",
+                max_tokens=1024,
+                system="You are an expert financial analyst specializing in expense forecasting and predictive analysis.",
+                messages=[{"role": "user", "content": prompt}]
             )
 
             # Parse and validate the forecast
             try:
-                content = response.choices[0].message.content.strip()
+                content = response.content[0].text.strip()
                 if not content:
                     logger.error("Empty response from AI model")
                     return {
@@ -650,19 +605,16 @@ Provide a detailed financial analysis in this JSON structure:
 
         # Make API call with error handling
         try:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are an expert financial advisor specializing in business accounting, financial strategy, and predictive analysis. Focus on providing actionable insights and quantitative metrics."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=1000
+            response = client.messages.create(
+                model="claude-opus-4-7",
+                max_tokens=1024,
+                system="You are an expert financial advisor specializing in business accounting, financial strategy, and predictive analysis. Focus on providing actionable insights and quantitative metrics.",
+                messages=[{"role": "user", "content": prompt}]
             )
 
             # Parse and validate the response
             try:
-                advice = json.loads(response.choices[0].message.content.strip())
+                advice = json.loads(response.content[0].text.strip())
 
                 # Enhance the advice with more detailed natural language summaries
                 enhanced_advice = {
@@ -699,40 +651,12 @@ Provide a detailed financial analysis in this JSON structure:
         }
 
 def calculate_text_similarity(text1: str, text2: str) -> float:
-    """Calculate text similarity between two strings."""
+    """Calculate text similarity between two strings using RapidFuzz (no API call)."""
     try:
-        # Initialize OpenAI client
-        client = get_openai_client()
-
-        prompt = f"""Compare these two transaction descriptions and return their similarity score:
-        Text 1: {text1}
-        Text 2: {text2}
-
-        Consider both textual and semantic similarity. Return a single float between 0 and 1.
-        A score of 1 means identical or semantically equivalent descriptions.
-        A score of 0 means completely different descriptions.
-
-        Format: Return only the numerical score, e.g. "0.85"
-        """
-
-        try:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a text similarity analyzer. Provide similarity scores based on both textual and semantic similarity."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                max_tokens=10
-            )
-
-            similarity = float(response.choices[0].message.content.strip())
-            return min(max(similarity, 0.0), 1.0)  # Ensure score is between 0 and 1
-
-        except Exception as e:
-            logger.error(f"Error in OpenAI API call: {str(e)}")
+        from rapidfuzz import fuzz
+        if not text1 or not text2:
             return 0.0
-
+        return fuzz.token_sort_ratio(text1, text2) / 100.0
     except Exception as e:
         logger.error(f"Error calculating text similarity: {str(e)}")
         return 0.0
@@ -772,64 +696,13 @@ def rule_based_account_matching(description: str, available_accounts: List[Dict]
         return []
 
 def calculate_similarity(transaction_description: str, comparison_description: str) -> float:
-    """Calculate semantic similarity between two transaction descriptions with improved error handling"""
-    if not transaction_description or not comparison_description:
-        logger.warning("Empty description provided for similarity calculation")
-        return 0.0
-
-    prompt = f"""Compare these two transaction descriptions and rate their semantic similarity:
-    Description 1: {transaction_description.strip()}
-    Description 2: {comparison_description.strip()}
-
-    Consider both textual similarity and semantic meaning.
-    Your response must be ONLY a single number between 0 and 1.
-    For example: 0.75
-
-    DO NOT include any explanation or text, just the number."""
-
-    client = get_openai_client()
-    if not client:
-        logger.error("Failed to initialize OpenAI client")
-        return 0.0
-
-    @handle_rate_limit
-    def make_similarity_request():
-        try:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a similarity scoring system. You MUST respond with only a single float number between 0 and 1."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                max_tokens=10  # Reduced to prevent verbose responses
-            )
-
-            content = response.choices[0].message.content.strip()
-
-            # Clean the response to handle potential formatting issues
-            content = content.replace(',', '.').strip('%')
-
-            # Extract the first number found in the response
-            import re
-            numbers = re.findall(r"[-+]?\d*\.\d+|\d+", content)
-            if numbers:
-                value = float(numbers[0])
-                # Ensure the value is between 0 and 1
-                return max(0.0, min(1.0, value))
-            else:
-                logger.error(f"No valid number found in response: {content}")
-                return 0.0
-
-        except ValueError as ve:
-            logger.error(f"Error parsing similarity score: {str(ve)}")
-            return 0.0
-        except Exception as e:
-            logger.error(f"Error in similarity request: {str(e)}")
-            raise  # Let handle_rate_limit handle retries if needed
-    
+    """Calculate similarity between two transaction descriptions using RapidFuzz (no API call).
+    Uses token_set_ratio which handles word-order differences and partial overlaps well."""
     try:
-        return make_similarity_request()
+        from rapidfuzz import fuzz
+        if not transaction_description or not comparison_description:
+            return 0.0
+        return fuzz.token_set_ratio(transaction_description, comparison_description) / 100.0
     except Exception as e:
         logger.error(f"Error calculating similarity: {str(e)}")
         return 0.0
@@ -959,16 +832,13 @@ def suggest_explanation(description: str, similar_transactions: list = None) -> 
         
         @handle_rate_limit
         def get_explanation_suggestion():
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a financial transaction analyzer specializing in generating clear, professional explanations."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=250
+            response = client.messages.create(
+                model="claude-opus-4-7",
+                max_tokens=512,
+                system="You are a financial transaction analyzer specializing in generating clear, professional explanations.",
+                messages=[{"role": "user", "content": prompt}]
             )
-            return response.choices[0].message.content.strip()
+            return response.content[0].text.strip()
         
         try:
             content = get_explanation_suggestion()

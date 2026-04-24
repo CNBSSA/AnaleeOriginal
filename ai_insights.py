@@ -2,8 +2,8 @@ import os
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime
-from openai import OpenAI, APIError, RateLimitError
-from nlp_utils import get_openai_client, categorize_transaction
+import anthropic
+from nlp_utils import get_claude_client as get_openai_client, categorize_transaction
 
 # Enhanced logging configuration
 logger = logging.getLogger(__name__)
@@ -37,8 +37,7 @@ class FinancialInsightsGenerator:
     Handles both OpenAI-powered and fallback basic analysis.
     """
     def __init__(self):
-        self.api_key = os.environ.get('OPENAI_API_KEY')
-        self.client = get_openai_client() if self.api_key else None
+        self.client = get_openai_client()
         self.env = os.environ.get('FLASK_ENV', 'development')
         self.service_status = AIServiceStatus()
 
@@ -95,22 +94,19 @@ class FinancialInsightsGenerator:
                 max_tokens = 300 if self.env == 'production' else 500
                 temperature = 0.5 if self.env == 'production' else 0.7
 
-                response = self.client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a financial analyst providing insights on transaction data."},
-                        {"role": "user", "content": f"Analyze this financial transaction and provide key insights: {transaction_summary}"}
-                    ],
+                response = self.client.messages.create(
+                    model="claude-opus-4-7",
                     max_tokens=max_tokens,
-                    temperature=temperature
+                    system="You are a financial analyst providing insights on transaction data.",
+                    messages=[{"role": "user", "content": f"Analyze this financial transaction and provide key insights: {transaction_summary}"}]
                 )
 
-                insights = response.choices[0].message.content
+                insights = response.content[0].text
                 self.service_status.record_success()
                 self._log_service_status("generate_insights")
 
-            except (APIError, RateLimitError) as e:
-                logger.error(f"OpenAI API Error: {str(e)}")
+            except anthropic.APIError as e:
+                logger.error(f"Claude API Error: {str(e)}")
                 self.service_status.record_error(e)
                 return self._generate_fallback_insights([transaction], error=f"AI service error: {str(e)}")
             except Exception as e:
@@ -178,22 +174,19 @@ class FinancialInsightsGenerator:
                     max_tokens = 500
                     temperature = 0.7
 
-                response = self.client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a financial analyst providing insights on transaction data."},
-                        {"role": "user", "content": f"Analyze these financial transactions and provide key insights: {transaction_summary}"}
-                    ],
+                response = self.client.messages.create(
+                    model="claude-opus-4-7",
                     max_tokens=max_tokens,
-                    temperature=temperature
+                    system="You are a financial analyst providing insights on transaction data.",
+                    messages=[{"role": "user", "content": f"Analyze these financial transactions and provide key insights: {transaction_summary}"}]
                 )
 
-                insights = response.choices[0].message.content
+                insights = response.content[0].text
                 self.service_status.record_success()
                 self._log_service_status("generate_insights")
 
-            except (APIError, RateLimitError) as e:
-                logger.error(f"OpenAI API Error: {str(e)}")
+            except anthropic.APIError as e:
+                logger.error(f"Claude API Error: {str(e)}")
                 self.service_status.record_error(e)
                 return self._generate_fallback_insights(transactions, error=f"AI service error: {str(e)}")
             except Exception as e:

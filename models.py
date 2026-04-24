@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime, Enum as SQLEnum, Index
 from sqlalchemy.orm import relationship
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -127,9 +127,19 @@ class Transaction(db.Model):
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
     account_id = Column(Integer, ForeignKey('account.id', ondelete='CASCADE'))
     file_id = Column(Integer, ForeignKey('uploaded_file.id', ondelete='SET NULL'))
-    explanation = Column(String(200))
+    explanation = Column(String(500))
+    # AI-generated fields used by the iCountant interface
+    ai_category = Column(String(50))
+    ai_confidence = Column(Float)
+    ai_explanation = Column(String(500))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('ix_transaction_user_date', 'user_id', 'date'),
+        Index('ix_transaction_user_account', 'user_id', 'account_id'),
+        Index('ix_transaction_file', 'file_id'),
+    )
 
     # Define relationships with back_populates
     user = relationship('User', back_populates='transactions')
@@ -153,6 +163,11 @@ class Account(db.Model):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('ix_account_user_link', 'user_id', 'link', unique=True),
+        Index('ix_account_user_active', 'user_id', 'is_active'),
+    )
 
     # Define relationships with back_populates
     user = relationship('User', back_populates='accounts')

@@ -12,8 +12,7 @@ from difflib import SequenceMatcher
 import numpy as np
 from sqlalchemy import text
 from models import db, Transaction, Account
-from nlp_utils import get_openai_client
-from icecream import ic
+from nlp_utils import get_claude_client as get_openai_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -49,7 +48,7 @@ class PredictiveFeatures:
             transactions = Transaction.query.filter(
                 Transaction.explanation.isnot(None)
             ).all()
-            ic(transactions)
+            logger.debug(f"Found {len(transactions)} transactions with explanations")
 
             similar_transactions = []
             logger.info(f"Finding similar transactions for description: {description}")
@@ -57,7 +56,7 @@ class PredictiveFeatures:
             # Calculate semantic embeddings if client available and explanation provided
             current_embedding = None
             
-            ic(self.client, explanation)
+            logger.debug(f"Client available: {self.client is not None}, explanation provided: {bool(explanation)}")
             if self.client and explanation:
                 try:
                     response = self.client.embeddings.create(
@@ -82,7 +81,7 @@ class PredictiveFeatures:
                     description.lower(), 
                     transaction.description.lower()
                 ).ratio()
-                ic("Original Description: ", description, "Transaction Description: ", transaction.description, "Ratio: ", text_ratio)
+                logger.debug(f"Text similarity: '{description}' vs '{transaction.description}' = {text_ratio:.2f}")
 
                 semantic_ratio = 1.0  # Default if no semantic comparison possible
 
@@ -194,16 +193,14 @@ class PredictiveFeatures:
 
                     Format: account|confidence|reasoning"""
 
-                    response = self.client.chat.completions.create(
-                        model="gpt-3.5-turbo",
-                        messages=[
-                            {"role": "system", "content": "You are a financial account categorization expert."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=0.3
+                    response = self.client.messages.create(
+                        model="claude-opus-4-7",
+                        max_tokens=256,
+                        system="You are a financial account categorization expert.",
+                        messages=[{"role": "user", "content": prompt}]
                     )
 
-                    result = response.choices[0].message.content.strip().split('|')
+                    result = response.content[0].text.strip().split('|')
 
                     if len(result) == 3:
                         suggested_name = result[0].strip()

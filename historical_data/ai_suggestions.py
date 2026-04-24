@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
-from nlp_utils import get_openai_client, categorize_transaction
+from nlp_utils import get_claude_client as get_openai_client, categorize_transaction
 from utils.hybrid_predictor import HybridPredictor
 from models import HistoricalData, db
 from flask import current_app
@@ -56,18 +56,15 @@ class HistoricalDataAI:
             Provide a brief, professional explanation of the transaction purpose.
             Keep it concise (max 100 characters) and focus on the business context."""
 
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a financial transaction analyst."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=50,
-                temperature=0.3
+            response = self.client.messages.create(
+                model="claude-opus-4-7",
+                max_tokens=100,
+                system="You are a financial transaction analyst.",
+                messages=[{"role": "user", "content": prompt}]
             )
 
-            if response.choices:
-                return response.choices[0].message.content.strip()
+            if response.content:
+                return response.content[0].text.strip()
 
             return None
 

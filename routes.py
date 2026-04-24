@@ -16,10 +16,16 @@ from predictive_features import PredictiveFeatures
 
 
 from models import (
-    db, User, CompanySettings, Account, Transaction, 
-    UploadedFile, AdminChartOfAccounts
+    db, User, CompanySettings, Account, Transaction,
+    UploadedFile, AdminChartOfAccounts,
+    AlertHistory, AlertConfiguration, FinancialGoal,
+    FinancialRecommendation, RiskAssessment
 )
 from forms.company import CompanySettingsForm
+from ai_insights import FinancialInsightsGenerator
+from maintenance_monitor import MaintenanceMonitor
+from alert_system import AlertSystem
+from anomaly_detection import AnomalyDetectionService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -711,7 +717,7 @@ def financial_insights():
         return render_template('financial_insights.html',
                              transactions=transactions,
                              start_date=start_date,
-                             enddate=end_date,
+                             end_date=end_date,
                              financial_advice=financial_advice)
 
     except Exception as e:
@@ -744,7 +750,7 @@ def generate_insights():
             'date': t.date.isoformat(),
             'description': t.description,
             'amount': float(t.amount),
-            'category': t.account.category if t.account else'Uncategorized'
+            'category': t.account.category if t.account else 'Uncategorized'
         } for t in transactions]
 
         # Generate insights using AI
@@ -765,7 +771,7 @@ def generate_insights():
         else:
             flash('Unable to generate insights at this time', 'error')
 
-        return redirect(urlfor('main.financial_insights'))
+        return redirect(url_for('main.financial_insights'))
 
     except Exception as e:
         logger.error(f"Error generating AI insights: {str(e)}")
@@ -773,29 +779,77 @@ def generate_insights():
         return redirect(url_for('main.financial_insights'))
 
 def _parse_insights(insights_text):
-    """Parse AI-generated insights into structured format"""
+    """Return the AI insights text for display."""
     try:
-        # For now, return the raw insights text
-        # TODO: Implement more sophisticated parsing
+        if not insights_text:
+            return "No insights available."
         return insights_text
     except Exception as e:
         logger.error(f"Error parsing insights: {str(e)}")
-        return "Unable to parseinsights"
+        return "Unable to parse insights."
 
 def _extract_risk_factors(insights_text):
-    """Extract risk factors fromAI insights"""
-    # TODO: Implement risk factorextraction
-    return ["Risk analysis will be available in thenext update"]
+    """Extract risk factor bullet points from AI insights text."""
+    try:
+        if not insights_text:
+            return []
+        lines = insights_text.split('\n')
+        risk_factors = []
+        in_risk_section = False
+        for line in lines:
+            line = line.strip()
+            lower = line.lower()
+            if any(kw in lower for kw in ('risk', 'concern', 'warning', 'caution', 'threat')):
+                in_risk_section = True
+            if in_risk_section and line.startswith(('-', '•', '*', '·')) and len(line) > 3:
+                risk_factors.append(line.lstrip('-•*· '))
+            elif in_risk_section and line and not line.startswith(('-', '•', '*', '·')):
+                in_risk_section = False
+        return risk_factors if risk_factors else [insights_text[:200]] if insights_text else []
+    except Exception:
+        return []
 
 def _extract_opportunities(insights_text):
-    """Extract optimization opportunities from AI insights"""
-    # TODO: Implement opportunity extraction
-    return ["Optimization opportunities will be available in the next update"]
+    """Extract optimization opportunity bullet points from AI insights text."""
+    try:
+        if not insights_text:
+            return []
+        lines = insights_text.split('\n')
+        opportunities = []
+        in_opp_section = False
+        for line in lines:
+            line = line.strip()
+            lower = line.lower()
+            if any(kw in lower for kw in ('opportunit', 'optimiz', 'improve', 'saving', 'growth', 'potential')):
+                in_opp_section = True
+            if in_opp_section and line.startswith(('-', '•', '*', '·')) and len(line) > 3:
+                opportunities.append(line.lstrip('-•*· '))
+            elif in_opp_section and line and not line.startswith(('-', '•', '*', '·')):
+                in_opp_section = False
+        return opportunities if opportunities else []
+    except Exception:
+        return []
 
 def _extract_recommendations(insights_text):
-    """Extract strategic recommendations from AI insights"""
-    # TODO: Implement recommendation extraction
-    return ["Strategic recommendations will be available in the next update"]
+    """Extract strategic recommendation bullet points from AI insights text."""
+    try:
+        if not insights_text:
+            return []
+        lines = insights_text.split('\n')
+        recommendations = []
+        in_rec_section = False
+        for line in lines:
+            line = line.strip()
+            lower = line.lower()
+            if any(kw in lower for kw in ('recommend', 'suggest', 'action', 'strategy', 'consider', 'should')):
+                in_rec_section = True
+            if in_rec_section and line.startswith(('-', '•', '*', '·')) and len(line) > 3:
+                recommendations.append(line.lstrip('-•*· '))
+            elif in_rec_section and line and not line.startswith(('-', '•', '*', '·')):
+                in_rec_section = False
+        return recommendations if recommendations else []
+    except Exception:
+        return []
 
 def _analyze_cash_flow(transaction_data):
     """Analyze cash flow patterns from transaction data"""
@@ -1208,12 +1262,15 @@ def alert_dashboard():
 def create_alert_config():
     """Create new alert configuration"""
     try:
+        threshold_value = float(request.form['threshold_value'])
+        if threshold_value < 0:
+            raise ValueError("Threshold value must be non-negative")
         config = AlertConfiguration(
             user_id=current_user.id,
-            name=request.form['name'],
+            name=request.form['name'][:100],
             alert_type=request.form['alert_type'],
             threshold_type=request.form['threshold_type'],
-            threshold_value=float(request.form['threshold_value']),
+            threshold_value=threshold_value,
             notification_method=request.form.get('notification_method', 'web')
         )
         db.session.add(config)
@@ -1314,14 +1371,24 @@ def create_goal():
     """Create a new financial goal"""
     if request.method == 'POST':
         try:
+            target_amount = float(request.form['target_amount'])
+            current_amount = float(request.form.get('current_amount', 0))
+            if target_amount <= 0:
+                raise ValueError("Target amount must be positive")
+            deadline = None
+            if request.form.get('deadline'):
+                try:
+                    deadline = datetime.strptime(request.form['deadline'], '%Y-%m-%d')
+                except ValueError:
+                    raise ValueError("Invalid deadline date format. Use YYYY-MM-DD.")
             goal = FinancialGoal(
                 user_id=current_user.id,
-                name=request.form['name'],
+                name=request.form['name'][:100],
                 description=request.form.get('description'),
-                target_amount=float(request.form['target_amount']),
-                current_amount=float(request.form.get('current_amount', 0)),
+                target_amount=target_amount,
+                current_amount=current_amount,
                 category=request.form.get('category'),
-                deadline=datetime.strptime(request.form['deadline'], '%Y-%m-%d') if request.form.get('deadline') else None,
+                deadline=deadline,
                 is_recurring=bool(request.form.get('is_recurring')),
                 recurrence_period=request.form.get('recurrence_period')
             )

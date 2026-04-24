@@ -11,6 +11,7 @@ from flask_login import login_required, current_user
 from . import bank_statements
 from .forms import BankStatementUploadForm
 from .services import BankStatementService
+from .reconciliation import ReconciliationService
 from models import Account, BankStatementUpload, db, Transaction
 
 # Configure logging
@@ -73,7 +74,7 @@ def reconcile():
 @login_required
 def upload():
     """Handle bank statement upload with enhanced validation and error handling"""
-    print("upload part !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ")
+    logger.info(f"Bank statement upload request for user {current_user.id}")
     try:
         form = BankStatementUploadForm()
         logger.info(f"Processing bank statement upload request for user {current_user.id}")
