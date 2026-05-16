@@ -20,6 +20,7 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
 def maintenance_check(f):
     """Decorator to check if system is in maintenance mode"""
     @wraps(f)
@@ -29,7 +30,7 @@ def maintenance_check(f):
             flash('System is currently in maintenance mode. Please try again later.', 'warning')
             return redirect(url_for('main.dashboard'))
         return f(*args, **kwargs)
-    return maintenance_check
+    return decorated_function
 
 # Import routes after blueprint creation to avoid circular imports
 from . import routes

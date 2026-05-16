@@ -330,6 +330,7 @@ class RiskAssessment(db.Model):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user = relationship("User", back_populates="risk_assessments")
+    indicators = relationship('RiskIndicator', back_populates='assessment', cascade='all, delete-orphan')
 
     def __repr__(self):
         return f'<RiskAssessment {self.assessment_date}: {self.risk_level}>'
@@ -344,7 +345,7 @@ class RiskIndicator(db.Model):
     threshold_value = Column(Float, nullable=False)
     is_breach = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    assessment = relationship('RiskAssessment')
+    assessment = relationship('RiskAssessment', back_populates='indicators')
 
     def __repr__(self):
         return f'<RiskIndicator {self.indicator_name}: {self.indicator_value}>'

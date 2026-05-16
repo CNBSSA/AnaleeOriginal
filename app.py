@@ -104,6 +104,11 @@ def create_app(env=None):
             from chat import chat
             from reports import reports
             from admin import admin
+            from risk_assessment import risk_assessment
+            from recommendations import recommendations
+            from predictions import predictions
+            from suggestions import suggestions
+            from errors import errors
 
             # Register blueprints
             app.register_blueprint(auth)
@@ -113,6 +118,11 @@ def create_app(env=None):
             app.register_blueprint(chat)
             app.register_blueprint(reports)
             app.register_blueprint(admin)
+            app.register_blueprint(risk_assessment)
+            app.register_blueprint(recommendations)
+            app.register_blueprint(predictions)
+            app.register_blueprint(suggestions)
+            app.register_blueprint(errors)
 
             # Ensure database tables exist
             db.create_all()

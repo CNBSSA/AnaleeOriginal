@@ -10,8 +10,9 @@ from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from models import db, Transaction, Account, CompanySettings
-from sqlalchemy import text
+from sqlalchemy import text, and_
 from sqlalchemy.sql import func
+from sqlalchemy.orm import contains_eager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

@@ -268,3 +268,4 @@ class AnomalyDetectionService:
         except Exception as e:
             logger.error(f"Error generating alerts: {str(e)}")
             db.session.rollback()
+
