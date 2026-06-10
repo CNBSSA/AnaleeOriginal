@@ -1168,8 +1168,6 @@ def process_transaction_rows(df, uploaded_file, user):
         db.session.rollback()
         raise
         
-from predictive_utils import find_similar_transactions, TEXT_THRESHOLD, SEMANTIC_THRESHOLD
-        
 @main.route('/api/generate-insights', methods=['POST'])
 @login_required
 def generate_insights_api():
@@ -1474,25 +1472,7 @@ def suggest_explanation_api():
         logger.error(f"Error in ESF: {str(e)}")
         return jsonify({'error': str(e)}), 500
         
-from werkzeug.utils import secure_filename
-        
-def find_similar_transactions(description):
-    """Find similar transactions based on description"""
-    try:
-        similar_transactions = Transaction.query.filter(
-            Transaction.user_id == current_user.id,
-            Transaction.description.ilike(f"%{description}%")
-        ).all()
-        
-        return [{
-            'id': t.id,
-            'description': t.description,
-            'explanation': t.explanation
-        } for t in similar_transactions]
-    except Exception as e:
-        logger.error(f"Error finding similar transactions: {str(e)}")
-        return []
-        
+
 @main.route('/analyze/anomalies')
 @login_required
 def analyze_anomalies():

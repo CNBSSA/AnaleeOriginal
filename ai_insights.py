@@ -3,6 +3,7 @@ import logging
 from typing import Dict, List, Optional
 from datetime import datetime
 import anthropic
+from anthropic import APIError, RateLimitError
 from nlp_utils import get_claude_client as get_openai_client, categorize_transaction
 
 # Enhanced logging configuration

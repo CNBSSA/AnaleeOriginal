@@ -252,10 +252,17 @@ class AnomalyDetectionService:
                 is_active=True
             ).all()
             
+            if not alert_configs:
+                logger.info("No active alert configurations — skipping alert creation")
+                return
+
+            default_config = alert_configs[0]
+
             for anomaly in anomalies:
                 if anomaly['risk_level'] == 'high':
-                    # Create alert history entry
+                    # Create alert history entry with required FK (alert_config_id NOT NULL)
                     alert = AlertHistory(
+                        alert_config_id=default_config.id,
                         user_id=self.user_id,
                         alert_message=f"High-risk anomaly detected: {anomaly['reason']} "
                                     f"(Transaction ID: {anomaly['transaction_id']})",
@@ -268,3 +275,4 @@ class AnomalyDetectionService:
         except Exception as e:
             logger.error(f"Error generating alerts: {str(e)}")
             db.session.rollback()
+
