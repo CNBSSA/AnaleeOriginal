@@ -128,6 +128,27 @@ def create_app(env=None):
             db.create_all()
             logger.info("Database tables verified")
 
+            # Defensive schema guard: alert_history.alert_config_id was added to
+            # the model after some databases were already created. create_all()
+            # never ALTERs an existing table and this app does not run migrations
+            # on deploy, so add the column if an existing alert_history table is
+            # missing it. Wrapped so a failure can never block startup. (A proper
+            # migration also exists for environments that run `flask db upgrade`.)
+            try:
+                from sqlalchemy import inspect as _sa_inspect, text as _sa_text
+                _insp = _sa_inspect(db.engine)
+                if 'alert_history' in _insp.get_table_names():
+                    _cols = [c['name'] for c in _insp.get_columns('alert_history')]
+                    if 'alert_config_id' not in _cols:
+                        with db.engine.begin() as _conn:
+                            _conn.execute(_sa_text(
+                                'ALTER TABLE alert_history '
+                                'ADD COLUMN alert_config_id INTEGER'
+                            ))
+                        logger.info("Added missing alert_history.alert_config_id column")
+            except Exception as _e:
+                logger.error(f"alert_history column guard skipped: {_e}")
+
             return app
 
     except Exception as e:
