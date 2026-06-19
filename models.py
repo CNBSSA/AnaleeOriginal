@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime, Enum as SQLEnum, Index
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime, Enum as SQLEnum, Index, LargeBinary
 from sqlalchemy.orm import relationship
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -228,6 +228,10 @@ class CompanySettings(db.Model):
     vat_number = Column(String(50))
     address = Column(Text)
     financial_year_end = Column(Integer, nullable=False)
+    # Practice branding (Accountants Club P5 prerequisite, §13/§20): the firm logo
+    # used for white-label reports + the club attribution/watermark. Bytes + MIME.
+    logo = Column(LargeBinary, nullable=True)
+    logo_type = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user = relationship("User", back_populates="company_settings")
