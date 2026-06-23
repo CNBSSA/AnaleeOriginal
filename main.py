@@ -14,12 +14,16 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# Module-level WSGI application object. Production servers such as gunicorn import
+# this module and expect a callable named `app` (i.e. `gunicorn main:app`).
+# Mirrors wsgi.py so both `main:app` and `wsgi:app` resolve to the same app.
+app = create_app()
+
+
 def main():
     try:
         logger.info("Starting application initialization...")
 
-        # Initialize the Flask application
-        app = create_app()
         if not app:
             raise ValueError("Application creation failed")
         logger.info("Application created successfully")
@@ -28,7 +32,7 @@ def main():
         port = int(os.environ.get('PORT', 5000))
         logger.info(f"Using port: {port}")
 
-        # Start the Flask development server
+        # Start the Flask development server (only for `python main.py`)
         app.run(
             host='0.0.0.0',  # Allow external connections
             port=port,
