@@ -7,6 +7,14 @@ load_dotenv()
 # Override per-environment with the CLAUDE_MODEL env var, no code change needed.
 CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-opus-4-7')
 
+# Global ceiling on request body size (Flask MAX_CONTENT_LENGTH). Werkzeug rejects
+# larger requests with 413 before reading the body into memory, guarding against
+# memory exhaustion from oversized uploads. Must stay above the largest legitimate
+# upload — the OCR PDF statement limit (ocr.service.MAX_PDF_BYTES = 32 MB) — so 40 MB
+# leaves headroom for multipart overhead. Per-route checks give friendlier messages
+# under this ceiling. Override with MAX_UPLOAD_MB.
+MAX_UPLOAD_BYTES = int(os.environ.get('MAX_UPLOAD_MB', '40')) * 1024 * 1024
+
 class Config:
     """Base configuration"""
     SECRET_KEY = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
