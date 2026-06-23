@@ -8,8 +8,19 @@
     <p class="text-muted">
         Check the values read from <strong>{{ filename }}</strong>. Edit anything that's
         wrong, then confirm to import. Nothing is saved until you click
-        <em>Confirm &amp; import</em>. Low-confidence rows are highlighted.
+        <em>Confirm &amp; import</em>. Only ticked rows are imported. Low-confidence
+        rows are highlighted; rows that look like duplicates of transactions you
+        already have are flagged and <strong>unticked by default</strong> &mdash; tick
+        one to import it anyway.
     </p>
+
+    {% set duplicate_count = rows | selectattr('duplicate') | list | length %}
+    {% if duplicate_count %}
+        <div class="alert alert-warning">
+            {{ duplicate_count }} row(s) look like possible duplicates and have been
+            unticked. Review them before importing.
+        </div>
+    {% endif %}
 
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}
@@ -20,6 +31,7 @@
     <form method="POST" action="{{ url_for('ocr.confirm_receipt') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <input type="hidden" name="filename" value="{{ filename }}"/>
+        <input type="hidden" name="has_include_filter" value="1"/>
 
         <div class="mb-3" style="max-width: 420px;">
             <label for="account_id" class="form-label">Assign all rows to account (optional)</label>
@@ -35,15 +47,21 @@
             <table class="table table-bordered align-middle">
                 <thead>
                     <tr>
-                        <th style="width: 18%;">Date</th>
+                        <th style="width: 6%;">Import</th>
+                        <th style="width: 16%;">Date</th>
                         <th>Description</th>
-                        <th style="width: 16%;">Amount</th>
-                        <th style="width: 12%;">Confidence</th>
+                        <th style="width: 14%;">Amount</th>
+                        <th style="width: 10%;">Confidence</th>
+                        <th style="width: 12%;">Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in rows %}
-                        <tr class="{% if row.confidence < 0.6 %}table-warning{% endif %}">
+                        <tr class="{% if row.duplicate %}table-danger{% elif row.confidence < 0.6 %}table-warning{% endif %}">
+                            <td class="text-center">
+                                <input type="checkbox" class="form-check-input" name="include"
+                                       value="{{ loop.index0 }}" {% if not row.duplicate %}checked{% endif %}>
+                            </td>
                             <td>
                                 <input type="date" name="date" class="form-control"
                                        value="{{ row.date }}">
@@ -57,6 +75,11 @@
                                        value="{{ '%.2f'|format(row.amount) }}" required>
                             </td>
                             <td>{{ (row.confidence * 100)|round|int }}%</td>
+                            <td>
+                                {% if row.duplicate %}
+                                    <span class="badge bg-danger">Possible duplicate</span>
+                                {% endif %}
+                            </td>
                         </tr>
                     {% endfor %}
                 </tbody>
