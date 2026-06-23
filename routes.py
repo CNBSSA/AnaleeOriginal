@@ -1,5 +1,6 @@
 """Main application routes including core functionality"""
 import logging
+import pandas as pd
 from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_login import current_user, login_required, logout_user
