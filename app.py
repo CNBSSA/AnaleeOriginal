@@ -3,7 +3,8 @@ import os
 import logging
 import sys
 from datetime import datetime
-from flask import Flask, current_app, redirect, url_for
+from urllib.parse import urlparse
+from flask import Flask, current_app, redirect, url_for, request, flash, jsonify
 from flask_migrate import Migrate
 from dotenv import load_dotenv
 from sqlalchemy import text
@@ -33,6 +34,30 @@ migrate = Migrate()
 scheduler = APScheduler()
 csrf = CSRFProtect()
 login_manager = LoginManager()
+
+
+def _request_entity_too_large(error):
+    """Friendly handler for 413 (request body over MAX_CONTENT_LENGTH).
+
+    AJAX uploads (e.g. /upload, bank_statements) get a JSON error so their
+    client-side handlers can show it; normal form posts (e.g. OCR uploads) get a
+    flash and a redirect back to the page they came from instead of Werkzeug's
+    default 413 page.
+    """
+    message = 'That upload is too large. Please choose a smaller file and try again.'
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json:
+        return jsonify({'success': False, 'error': message}), 413
+
+    flash(message, 'error')
+    # Only redirect back to the referrer when it is a local URL (avoid open
+    # redirects and 405s on POST-only endpoints); otherwise the upload page.
+    referrer = request.referrer
+    if referrer:
+        parsed = urlparse(referrer)
+        if not parsed.netloc or parsed.netloc == request.host:
+            return redirect(referrer)
+    return redirect(url_for('main.upload'))
+
 
 def create_app(env=None):
     """Create and configure the Flask application"""
@@ -127,6 +152,9 @@ def create_app(env=None):
             app.register_blueprint(suggestions)
             app.register_blueprint(errors)
             app.register_blueprint(ocr)
+
+            # Friendly 413 handler for oversized uploads (MAX_CONTENT_LENGTH).
+            app.register_error_handler(413, _request_entity_too_large)
 
             # Ensure database tables exist
             db.create_all()
