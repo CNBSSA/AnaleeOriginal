@@ -111,6 +111,42 @@ def test_extract_and_normalize_end_to_end():
     assert out == [{"date": "2026-03-01", "description": "Taxi", "amount": 20.0, "confidence": 0.8}]
 
 
+# --- Phase 2: signed amounts + PDF statements -----------------------------
+def test_parse_amount_signed_preserves_sign_and_parentheses():
+    # receipts (default) make positive
+    assert service.parse_amount(-45) == 45.0
+    assert service.parse_amount("(45.00)") == 45.0
+    # statements preserve sign
+    assert service.parse_amount(-45, signed=True) == -45.0
+    assert service.parse_amount("(45.00)", signed=True) == -45.0
+    assert service.parse_amount("1,200.50", signed=True) == 1200.50
+
+
+def test_normalize_rows_signed_keeps_debits_negative():
+    raw = [
+        {"date": "2026-03-01", "description": "ATM withdrawal", "amount": -60, "confidence": 0.9},
+        {"date": "2026-03-02", "description": "Salary", "amount": 2500, "confidence": 0.95},
+    ]
+    out = service.normalize_rows(raw, signed=True)
+    assert out[0]["amount"] == -60.0
+    assert out[1]["amount"] == 2500.0
+
+
+def test_extract_statement_uses_pdf_document_block():
+    client = _FakeClient('[{"date":"2026-03-01","description":"ATM","amount":-60,"confidence":0.9}]')
+    rows = service.extract_statement(b"%PDF-1.7 fake", client=client)
+    assert rows == [{"date": "2026-03-01", "description": "ATM", "amount": -60, "confidence": 0.9}]
+    content = client.messages.last_kwargs["messages"][0]["content"]
+    assert content[0]["type"] == "document"
+    assert content[0]["source"]["media_type"] == "application/pdf"
+
+
+def test_extract_and_normalize_statement_signed_end_to_end():
+    client = _FakeClient('[{"date":"01/03/2026","description":"Card payment","amount":"(30.00)","confidence":0.7}]')
+    out = service.extract_and_normalize_statement(b"%PDF fake", client=client)
+    assert out == [{"date": "2026-03-01", "description": "Card payment", "amount": -30.0, "confidence": 0.7}]
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))
