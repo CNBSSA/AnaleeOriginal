@@ -5,7 +5,8 @@
     <div class="col-md-12 mb-4">
         <div class="card">
             <div class="card-body">
-                <h2 class="card-title">Upload New Bank Statement</h2>
+                <h2 class="card-title">Import Transactions (Excel/CSV)</h2>
+                <p class="text-muted">Upload a spreadsheet of transactions for a chosen account. To scan a paper receipt instead, use <a href="{{ url_for('ocr.upload_receipt') }}">Scan Receipt</a>.</p>
                 <form method="POST" enctype="multipart/form-data" id="uploadForm">
                     {{ form.csrf_token }}
                     <div class="mb-3">
@@ -38,7 +39,7 @@
                             </div>
                         {% endif %}
                         <div class="form-text">
-                            Upload bank statement in CSV or Excel format
+                            Accepted formats: CSV or Excel (.xlsx)
                         </div>
                     </div>
                     <div class="progress mb-3 d-none" id="upload-progress">
