@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Review Extracted Transactions{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Review extracted transactions</h2>
+    <p class="text-muted">
+        Check the values read from <strong>{{ filename }}</strong>. Edit anything that's
+        wrong, then confirm to import. Nothing is saved until you click
+        <em>Confirm &amp; import</em>. Low-confidence rows are highlighted.
+    </p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('ocr.confirm_receipt') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="hidden" name="filename" value="{{ filename }}"/>
+
+        <div class="mb-3" style="max-width: 420px;">
+            <label for="account_id" class="form-label">Assign all rows to account (optional)</label>
+            <select name="account_id" id="account_id" class="form-select">
+                <option value="">— Leave unassigned —</option>
+                {% for account in accounts %}
+                    <option value="{{ account.id }}" {% if account_id == account.id|string %}selected{% endif %}>{{ account.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-bordered align-middle">
+                <thead>
+                    <tr>
+                        <th style="width: 18%;">Date</th>
+                        <th>Description</th>
+                        <th style="width: 16%;">Amount</th>
+                        <th style="width: 12%;">Confidence</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr class="{% if row.confidence < 0.6 %}table-warning{% endif %}">
+                            <td>
+                                <input type="date" name="date" class="form-control"
+                                       value="{{ row.date }}">
+                            </td>
+                            <td>
+                                <input type="text" name="description" class="form-control"
+                                       value="{{ row.description }}" required>
+                            </td>
+                            <td>
+                                <input type="number" step="0.01" name="amount" class="form-control"
+                                       value="{{ '%.2f'|format(row.amount) }}" required>
+                            </td>
+                            <td>{{ (row.confidence * 100)|round|int }}%</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <button type="submit" class="btn btn-success">
+            <i class="fas fa-check"></i> Confirm &amp; import
+        </button>
+        <a href="{{ url_for('ocr.upload_receipt') }}" class="btn btn-outline-secondary">Cancel</a>
+    </form>
+</div>
+{% endblock %}
