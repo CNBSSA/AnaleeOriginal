@@ -3,6 +3,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Single source of truth for the Claude model id used by every AI feature.
+# Override per-environment with the CLAUDE_MODEL env var, no code change needed.
+CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-opus-4-7')
+
 class Config:
     """Base configuration"""
     SECRET_KEY = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
