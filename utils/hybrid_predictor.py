@@ -37,7 +37,7 @@ class HybridPredictor:
             logger.error(f"Error in keyword matching: {str(e)}")
             return []
 
-    async def get_suggestions(self, 
+    def get_suggestions(self,
                             description: str,
                             amount: float,
                             historical_data: List[Dict],
@@ -88,7 +88,7 @@ class HybridPredictor:
             
             if should_use_ai:
                 try:
-                    ai_suggestions = await predict_account(description, "", available_accounts)
+                    ai_suggestions = predict_account(description, "", available_accounts)
                     for ai_suggestion in ai_suggestions:
                         confidence_boost = 0.1 if pattern_confidence > 0.5 else 0
                         combined.append({
