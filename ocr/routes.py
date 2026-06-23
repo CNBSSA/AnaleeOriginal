@@ -1,6 +1,6 @@
 """Receipt OCR routes: upload an image, review extracted rows, confirm into transactions."""
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
@@ -10,6 +10,7 @@ from . import ocr
 from .service import (
     extract_and_normalize, ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES,
     extract_and_normalize_statement, ALLOWED_DOCUMENT_TYPES, MAX_PDF_BYTES,
+    mark_duplicates,
 )
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,34 @@ def _user_accounts():
             .filter_by(user_id=current_user.id, is_active=True)
             .order_by(Account.name)
             .all())
+
+
+def _flag_duplicate_rows(rows):
+    """Flag extracted rows that likely match the current user's existing
+    transactions, so the review screen can pre-exclude them. Best-effort: any
+    failure leaves rows unflagged rather than blocking the import."""
+    try:
+        date_strings = {r['date'] for r in rows if r.get('date')}
+        if not date_strings:
+            for r in rows:
+                r['duplicate'] = False
+            return rows
+        date_objs = [datetime.strptime(d, '%Y-%m-%d') for d in date_strings]
+        existing_q = Transaction.query.filter(
+            Transaction.user_id == current_user.id,
+            Transaction.date >= min(date_objs),
+            Transaction.date < max(date_objs) + timedelta(days=1),
+        ).all()
+        existing = [
+            (t.date.strftime('%Y-%m-%d'), t.amount, (t.description or ''))
+            for t in existing_q
+        ]
+        return mark_duplicates(rows, existing)
+    except Exception as e:
+        logger.error(f"Duplicate flagging skipped: {str(e)}")
+        for r in rows:
+            r.setdefault('duplicate', False)
+        return rows
 
 
 @ocr.route('/receipt', methods=['GET', 'POST'])
@@ -54,6 +83,7 @@ def upload_receipt():
                   'Try a clearer, well-lit photo or enter the transaction manually.', 'error')
             return redirect(url_for('ocr.upload_receipt'))
 
+        rows = _flag_duplicate_rows(rows)
         return render_template(
             'ocr/review.html',
             rows=rows,
@@ -96,6 +126,7 @@ def upload_statement():
                   'Make sure it is a real bank statement (not a scanned photo) and try again.', 'error')
             return redirect(url_for('ocr.upload_statement'))
 
+        rows = _flag_duplicate_rows(rows)
         return render_template(
             'ocr/review.html',
             rows=rows,
@@ -117,6 +148,13 @@ def confirm_receipt():
     account_id = request.form.get('account_id') or None
     filename = request.form.get('filename') or 'receipt'
 
+    # Per-row include filter (Phase 2.1). The review screen unchecks likely
+    # duplicates by default; only checked rows carry an 'include' value equal to
+    # their row index. The hidden 'has_include_filter' field disambiguates
+    # "filter present, nothing checked" from "no filter at all" (import everything).
+    has_include_filter = bool(request.form.get('has_include_filter'))
+    included_indexes = set(request.form.getlist('include'))
+
     # Resolve the (optional) target account, scoped to the current user.
     account = None
     if account_id:
@@ -127,7 +165,9 @@ def confirm_receipt():
             account = None
 
     parsed_rows = []
-    for raw_date, raw_desc, raw_amount in zip(dates, descriptions, amounts):
+    for index, (raw_date, raw_desc, raw_amount) in enumerate(zip(dates, descriptions, amounts)):
+        if has_include_filter and str(index) not in included_indexes:
+            continue
         description = (raw_desc or '').strip()
         if not description:
             continue

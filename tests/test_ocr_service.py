@@ -147,6 +147,43 @@ def test_extract_and_normalize_statement_signed_end_to_end():
     assert out == [{"date": "2026-03-01", "description": "Card payment", "amount": -30.0, "confidence": 0.7}]
 
 
+# --- Phase 2.1: duplicate flagging ----------------------------------------
+def test_mark_duplicates_flags_exact_match():
+    rows = [
+        {"date": "2026-03-01", "description": "Coffee Shop", "amount": -4.5},
+        {"date": "2026-03-02", "description": "Salary", "amount": 2500.0},
+    ]
+    existing = [("2026-03-01", -4.5, "coffee shop")]  # already imported
+    out = service.mark_duplicates(rows, existing)
+    assert out[0]["duplicate"] is True
+    assert out[1]["duplicate"] is False
+
+
+def test_mark_duplicates_amount_or_date_mismatch_not_flagged():
+    rows = [
+        {"date": "2026-03-01", "description": "Coffee", "amount": -4.5},   # diff amount
+        {"date": "2026-03-05", "description": "Coffee", "amount": -4.0},   # diff date
+    ]
+    existing = [("2026-03-01", -4.0, "coffee")]
+    out = service.mark_duplicates(rows, existing)
+    assert out[0]["duplicate"] is False
+    assert out[1]["duplicate"] is False
+
+
+def test_mark_duplicates_fuzzy_description_match():
+    rows = [{"date": "2026-03-01", "description": "AMZN Mktp US*2X4", "amount": -19.99}]
+    existing = [("2026-03-01", -19.99, "AMZN Mktp US*2X4 Amazon")]
+    out = service.mark_duplicates(rows, existing)
+    assert out[0]["duplicate"] is True
+
+
+def test_mark_duplicates_blank_date_not_flagged():
+    rows = [{"date": "", "description": "Coffee", "amount": -4.5}]
+    existing = [("2026-03-01", -4.5, "coffee")]
+    out = service.mark_duplicates(rows, existing)
+    assert out[0]["duplicate"] is False
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

@@ -13,6 +13,7 @@ import base64
 import json
 import logging
 from datetime import datetime
+from difflib import SequenceMatcher
 from typing import List, Dict, Optional
 
 from config import CLAUDE_MODEL
@@ -234,3 +235,52 @@ def extract_statement(pdf_bytes: bytes, client=None) -> List[Dict]:
 def extract_and_normalize_statement(pdf_bytes: bytes, client=None) -> List[Dict]:
     """Convenience: extract a PDF statement then normalize with signed amounts."""
     return normalize_rows(extract_statement(pdf_bytes, client=client), signed=True)
+
+
+# --- Phase 2.1: duplicate flagging ----------------------------------------
+
+_DUPLICATE_SIMILARITY = 0.85
+
+
+def _descriptions_match(a: str, b: str) -> bool:
+    """True if two descriptions are close enough to be the same transaction."""
+    a = (a or '').lower().strip()
+    b = (b or '').lower().strip()
+    if not a or not b:
+        # Same date+amount with a missing description on either side -> treat as a
+        # likely duplicate (conservative; the user can still re-include it).
+        return True
+    if a == b or a in b or b in a:
+        return True
+    return SequenceMatcher(None, a, b).ratio() >= _DUPLICATE_SIMILARITY
+
+
+def mark_duplicates(rows: List[Dict], existing: List) -> List[Dict]:
+    """Set ``row['duplicate']`` on each row that likely matches an existing row.
+
+    ``existing`` is an iterable of (date_str 'YYYY-MM-DD', amount float,
+    description str) for the user's already-stored transactions. A row is flagged
+    when an existing entry shares the same date and amount (to the cent) and a
+    matching description. Pure function — no DB access — so it is easily tested.
+    """
+    index: Dict = {}
+    for date_str, amount, description in existing:
+        try:
+            key = (date_str, round(float(amount), 2))
+        except (TypeError, ValueError):
+            continue
+        index.setdefault(key, []).append(description or '')
+
+    for row in rows:
+        row['duplicate'] = False
+        date_str = row.get('date')
+        amount = row.get('amount')
+        if not date_str or amount is None:
+            continue
+        candidates = index.get((date_str, round(float(amount), 2)))
+        if not candidates:
+            continue
+        description = row.get('description') or ''
+        if any(_descriptions_match(description, candidate) for candidate in candidates):
+            row['duplicate'] = True
+    return rows
