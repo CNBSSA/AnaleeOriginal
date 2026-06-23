@@ -10,6 +10,7 @@ from sqlalchemy import text
 from flask_apscheduler import APScheduler
 from flask_wtf.csrf import CSRFProtect
 from flask_login import LoginManager
+from config import MAX_UPLOAD_BYTES
 
 # Configure logging with detailed format
 logging.basicConfig(
@@ -58,6 +59,7 @@ def create_app(env=None):
             'SQLALCHEMY_DATABASE_URI': database_url,
             'SQLALCHEMY_TRACK_MODIFICATIONS': False,
             'TEMPLATES_AUTO_RELOAD': True,
+            'MAX_CONTENT_LENGTH': MAX_UPLOAD_BYTES,
             'WTF_CSRF_ENABLED': True,
             'WTF_CSRF_TIME_LIMIT': 3600,
             'SESSION_COOKIE_SECURE': False,
