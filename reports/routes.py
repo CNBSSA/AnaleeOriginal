@@ -160,7 +160,11 @@ def trial_balance():
             
         fy_dates = company_settings.get_financial_year()
         
-        # Get accounts with their transactions
+        # Get accounts with their transactions for the financial year.
+        # contains_eager populates account.transactions from the date-filtered
+        # join, so the per-account balance below only sums in-period
+        # transactions. Without it, account.transactions lazy-loads every
+        # transaction for the account regardless of date, inflating the totals.
         accounts = (Account.query
                    .filter_by(user_id=current_user.id)
                    .outerjoin(Account.transactions)
@@ -168,6 +172,7 @@ def trial_balance():
                        (Transaction.date >= fy_dates['start_date']) &
                        (Transaction.date <= fy_dates['end_date'])
                    )
+                   .options(contains_eager(Account.transactions))
                    .order_by(Account.link)
                    .all())
         
