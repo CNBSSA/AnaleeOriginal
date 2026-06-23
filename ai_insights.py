@@ -5,6 +5,7 @@ from datetime import datetime
 import anthropic
 from anthropic import APIError, RateLimitError
 from nlp_utils import get_claude_client as get_openai_client, categorize_transaction
+from config import CLAUDE_MODEL
 
 # Enhanced logging configuration
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ class FinancialInsightsGenerator:
                 temperature = 0.5 if self.env == 'production' else 0.7
 
                 response = self.client.messages.create(
-                    model="claude-opus-4-7",
+                    model=CLAUDE_MODEL,
                     max_tokens=max_tokens,
                     system="You are a financial analyst providing insights on transaction data.",
                     messages=[{"role": "user", "content": f"Analyze this financial transaction and provide key insights: {transaction_summary}"}]
@@ -176,7 +177,7 @@ class FinancialInsightsGenerator:
                     temperature = 0.7
 
                 response = self.client.messages.create(
-                    model="claude-opus-4-7",
+                    model=CLAUDE_MODEL,
                     max_tokens=max_tokens,
                     system="You are a financial analyst providing insights on transaction data.",
                     messages=[{"role": "user", "content": f"Analyze these financial transactions and provide key insights: {transaction_summary}"}]
