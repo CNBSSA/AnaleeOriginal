@@ -7,7 +7,10 @@ from flask_login import login_required, current_user
 
 from models import db, UploadedFile, Account, Transaction
 from . import ocr
-from .service import extract_and_normalize, ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES
+from .service import (
+    extract_and_normalize, ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES,
+    extract_and_normalize_statement, ALLOWED_DOCUMENT_TYPES, MAX_PDF_BYTES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +63,48 @@ def upload_receipt():
         )
 
     return render_template('ocr/upload.html', accounts=accounts)
+
+
+@ocr.route('/statement', methods=['GET', 'POST'])
+@login_required
+def upload_statement():
+    """Phase 2: upload a PDF bank statement; on success show the review screen."""
+    accounts = _user_accounts()
+
+    if request.method == 'POST':
+        file = request.files.get('file')
+        if not file or not file.filename:
+            flash('Please choose a PDF bank statement to upload.', 'error')
+            return redirect(url_for('ocr.upload_statement'))
+
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext not in ALLOWED_DOCUMENT_TYPES:
+            flash('Unsupported file type. Please upload a PDF.', 'error')
+            return redirect(url_for('ocr.upload_statement'))
+
+        pdf_bytes = file.read()
+        if not pdf_bytes:
+            flash('The uploaded file is empty.', 'error')
+            return redirect(url_for('ocr.upload_statement'))
+        if len(pdf_bytes) > MAX_PDF_BYTES:
+            flash('PDF is too large (max 32 MB).', 'error')
+            return redirect(url_for('ocr.upload_statement'))
+
+        rows = extract_and_normalize_statement(pdf_bytes)
+        if not rows:
+            flash('Could not read any transactions from that PDF. '
+                  'Make sure it is a real bank statement (not a scanned photo) and try again.', 'error')
+            return redirect(url_for('ocr.upload_statement'))
+
+        return render_template(
+            'ocr/review.html',
+            rows=rows,
+            accounts=accounts,
+            account_id=request.form.get('account_id', ''),
+            filename=file.filename,
+        )
+
+    return render_template('ocr/statement_upload.html', accounts=accounts)
 
 
 @ocr.route('/receipt/confirm', methods=['POST'])
@@ -126,5 +171,5 @@ def confirm_receipt():
         flash('Could not import the transactions. Please try again.', 'error')
         return redirect(url_for('ocr.upload_receipt'))
 
-    flash(f'Imported {len(parsed_rows)} transaction(s) from your receipt.', 'success')
+    flash(f'Imported {len(parsed_rows)} transaction(s).', 'success')
     return redirect(url_for('main.upload'))
