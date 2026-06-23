@@ -109,6 +109,7 @@ def create_app(env=None):
             from predictions import predictions
             from suggestions import suggestions
             from errors import errors
+            from ocr import ocr
 
             # Register blueprints
             app.register_blueprint(auth)
@@ -123,6 +124,7 @@ def create_app(env=None):
             app.register_blueprint(predictions)
             app.register_blueprint(suggestions)
             app.register_blueprint(errors)
+            app.register_blueprint(ocr)
 
             # Ensure database tables exist
             db.create_all()

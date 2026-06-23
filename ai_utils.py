@@ -9,6 +9,7 @@ from typing import Optional, List, Dict
 import anthropic
 from datetime import datetime
 import time
+from config import CLAUDE_MODEL
 
 # Configure logging with proper format
 logging.basicConfig(
@@ -193,7 +194,7 @@ Return 1-3 suggestions, ranked by confidence. Only suggest accounts that exist i
         @handle_rate_limit
         def get_account_suggestions():
             response = client.messages.create(
-                model="claude-opus-4-7",
+                model=CLAUDE_MODEL,
                 max_tokens=1024,
                 system="You are a financial accounting assistant helping to classify transactions into the correct accounts.",
                 messages=[{"role": "user", "content": prompt}]
@@ -341,7 +342,7 @@ Provide analysis in this JSON structure:
         # Make API call
         try:
             response = client.messages.create(
-                model="claude-opus-4-7",
+                model=CLAUDE_MODEL,
                 max_tokens=1024,
                 system="You are a financial analyst specialized in detecting transaction anomalies and patterns.",
                 messages=[{"role": "user", "content": prompt}]
@@ -456,7 +457,7 @@ Format your response as a JSON object with this structure:
         # Make API call
         try:
             response = client.messages.create(
-                model="claude-opus-4-7",
+                model=CLAUDE_MODEL,
                 max_tokens=1024,
                 system="You are an expert financial analyst specializing in expense forecasting and predictive analysis.",
                 messages=[{"role": "user", "content": prompt}]
@@ -606,7 +607,7 @@ Provide a detailed financial analysis in this JSON structure:
         # Make API call with error handling
         try:
             response = client.messages.create(
-                model="claude-opus-4-7",
+                model=CLAUDE_MODEL,
                 max_tokens=1024,
                 system="You are an expert financial advisor specializing in business accounting, financial strategy, and predictive analysis. Focus on providing actionable insights and quantitative metrics.",
                 messages=[{"role": "user", "content": prompt}]
@@ -833,7 +834,7 @@ def suggest_explanation(description: str, similar_transactions: list = None) -> 
         @handle_rate_limit
         def get_explanation_suggestion():
             response = client.messages.create(
-                model="claude-opus-4-7",
+                model=CLAUDE_MODEL,
                 max_tokens=512,
                 system="You are a financial transaction analyzer specializing in generating clear, professional explanations.",
                 messages=[{"role": "user", "content": prompt}]

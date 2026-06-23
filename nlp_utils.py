@@ -6,6 +6,7 @@ import anthropic
 import logging
 from typing import Optional, Tuple, List
 import time
+from config import CLAUDE_MODEL
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,7 +66,7 @@ def categorize_transaction(description: str) -> Tuple[str, float, str]:
 
     try:
         response = client.messages.create(
-            model="claude-opus-4-7",
+            model=CLAUDE_MODEL,
             max_tokens=150,
             system="You are a financial transaction categorization expert. Reply only with: category|confidence|explanation",
             messages=[{"role": "user", "content": get_category_prompt(description)}]
@@ -112,7 +113,7 @@ Reply with one line per transaction, exactly:
 No other text."""
 
         response = client.messages.create(
-            model="claude-opus-4-7",
+            model=CLAUDE_MODEL,
             max_tokens=max(512, len(descriptions) * 80),
             system="You are a financial transaction categorization expert. Reply only with numbered pipe-separated lines.",
             messages=[{"role": "user", "content": prompt}]

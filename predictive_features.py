@@ -13,6 +13,7 @@ import numpy as np
 from sqlalchemy import text
 from models import db, Transaction, Account
 from nlp_utils import get_claude_client as get_openai_client
+from config import CLAUDE_MODEL
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -151,7 +152,7 @@ class PredictiveFeatures:
                     Format: account|confidence|reasoning"""
 
                     response = self.client.messages.create(
-                        model="claude-opus-4-7",
+                        model=CLAUDE_MODEL,
                         max_tokens=256,
                         system="You are a financial account categorization expert.",
                         messages=[{"role": "user", "content": prompt}]
@@ -190,7 +191,7 @@ class PredictiveFeatures:
             if self.client:
                 try:
                     response = self.client.messages.create(
-                        model="claude-opus-4-7",
+                        model=CLAUDE_MODEL,
                         max_tokens=150,
                         system="You are a financial analyst. Given a bank transaction description, "
                                "provide a concise one-sentence explanation of what this transaction "
