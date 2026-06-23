@@ -52,17 +52,41 @@ def create_app(env=None):
 
         logger.info("Configuring application...")
 
+        # SECRET_KEY must come from the environment for stable sessions. If it's
+        # missing we still boot (don't take the app down) but warn LOUDLY: a random
+        # per-boot key logs every user out on each redeploy and is inconsistent
+        # across gunicorn workers. Set FLASK_SECRET_KEY to fix.
+        secret_key = os.environ.get('FLASK_SECRET_KEY')
+        if not secret_key:
+            logger.warning(
+                "FLASK_SECRET_KEY is NOT set — falling back to a random per-boot key. "
+                "Sessions will NOT survive a restart/redeploy and will be inconsistent "
+                "across workers. Set FLASK_SECRET_KEY in the environment to fix this.")
+            print("[SECURITY] FLASK_SECRET_KEY not set — sessions won't persist across "
+                  "redeploys; set FLASK_SECRET_KEY.", flush=True)
+            secret_key = os.urandom(32)
+
+        # Secure auth cookies in production (HTTPS). Gated so local HTTP dev still
+        # works: ON when on Railway / FLASK_ENV=production, unless explicitly
+        # overridden via SESSION_COOKIE_SECURE.
+        _override = os.environ.get('SESSION_COOKIE_SECURE')
+        if _override is not None:
+            secure_cookies = _override.strip().lower() in ('1', 'true', 'yes', 'on')
+        else:
+            secure_cookies = bool(os.environ.get('RAILWAY_ENVIRONMENT')
+                                  or os.environ.get('FLASK_ENV', '').lower() == 'production')
+
         # Configure Flask app
         app.config.update({
-            'SECRET_KEY': os.environ.get('FLASK_SECRET_KEY', os.urandom(32)),
+            'SECRET_KEY': secret_key,
             'SQLALCHEMY_DATABASE_URI': database_url,
             'SQLALCHEMY_TRACK_MODIFICATIONS': False,
             'TEMPLATES_AUTO_RELOAD': True,
             'WTF_CSRF_ENABLED': True,
             'WTF_CSRF_TIME_LIMIT': 3600,
-            'SESSION_COOKIE_SECURE': False,
+            'SESSION_COOKIE_SECURE': secure_cookies,
             'SESSION_COOKIE_HTTPONLY': True,
-            'REMEMBER_COOKIE_SECURE': False,
+            'REMEMBER_COOKIE_SECURE': secure_cookies,
             'REMEMBER_COOKIE_HTTPONLY': True
         })
 
