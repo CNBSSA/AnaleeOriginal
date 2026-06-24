@@ -36,3 +36,11 @@ dependencies = [
     "trafilatura>=2.0.0",
     "wtforms>=3.2.1",
 ]
+
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so tests can `import models`, `config`, `app`,
+# etc. when run as `pytest tests/` (the console script does not add the cwd the
+# way `python -m pytest` does).
+pythonpath = ["."]
+testpaths = ["tests"]
+
