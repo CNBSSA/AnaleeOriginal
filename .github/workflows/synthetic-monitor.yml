@@ -1,0 +1,37 @@
+name: Synthetic Monitor
+
+# Probes the live app (login + dashboard + one report) on a schedule. A failing
+# run (non-200, bounce to login, or slow response) fails the job and notifies via
+# GitHub; set MONITOR_ALERT_WEBHOOK to also post to Slack/Teams.
+#
+# NOTE: scheduled workflows only run from the default branch, so this becomes
+# active once merged to main. Configure these repo secrets first:
+#   MONITOR_BASE_URL, MONITOR_EMAIL, MONITOR_PASSWORD
+#   (optional) MONITOR_REPORT_PATH, MONITOR_MAX_SECONDS, MONITOR_ALERT_WEBHOOK
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # every 15 minutes (best-effort; GitHub may delay)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Run synthetic monitor
+        run: python scripts/synthetic_monitor.py
+        env:
+          MONITOR_BASE_URL: ${{ secrets.MONITOR_BASE_URL }}
+          MONITOR_EMAIL: ${{ secrets.MONITOR_EMAIL }}
+          MONITOR_PASSWORD: ${{ secrets.MONITOR_PASSWORD }}
+          MONITOR_REPORT_PATH: ${{ secrets.MONITOR_REPORT_PATH }}
+          MONITOR_MAX_SECONDS: ${{ secrets.MONITOR_MAX_SECONDS }}
+          MONITOR_ALERT_WEBHOOK: ${{ secrets.MONITOR_ALERT_WEBHOOK }}
