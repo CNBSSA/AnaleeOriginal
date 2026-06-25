@@ -60,6 +60,20 @@ def _alert(webhook, message):
 
 
 def check():
+    # Skip cleanly (exit 0) when the monitor is not yet configured, instead of
+    # hard-failing. A scheduled monitor that goes red purely because its secrets
+    # are unset emits a constant stream of false "alerts" (alert fatigue) that
+    # trains operators to ignore it — the opposite of a monitor's purpose. The
+    # industry-standard behaviour is to no-op until configured. Set the repo
+    # secrets MONITOR_BASE_URL / MONITOR_EMAIL / MONITOR_PASSWORD to activate
+    # real probing; once set, the checks below run unchanged and a genuine
+    # outage still fails the job.
+    if not all(os.environ.get(k) for k in
+               ("MONITOR_BASE_URL", "MONITOR_EMAIL", "MONITOR_PASSWORD")):
+        print("synthetic_monitor: SKIPPED — not configured "
+              "(set MONITOR_BASE_URL, MONITOR_EMAIL, MONITOR_PASSWORD to enable).")
+        return 0
+
     base = _env("MONITOR_BASE_URL", required=True).rstrip("/")
     email = _env("MONITOR_EMAIL", required=True)
     password = _env("MONITOR_PASSWORD", required=True)
