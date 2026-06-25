@@ -31,3 +31,25 @@ python scripts/synthetic_monitor.py
 to the default branch. Add the variables above as **repository secrets** first.
 Create a dedicated, low-privilege monitoring user in the app (with company
 settings configured so the report renders) — don't reuse a real customer login.
+
+## `create_monitor_user.py` — provision the monitoring user
+
+Idempotently creates (or resets the password of) the low-privilege monitoring
+user and ensures it has company settings, so you don't have to click through the
+UI. Run once on the deployment (e.g. Railway shell) with the **same** credentials
+you put in the GitHub secrets:
+
+```bash
+MONITOR_EMAIL=monitor@yourco.com MONITOR_PASSWORD='...' \
+    python scripts/create_monitor_user.py
+```
+
+Needs the app's normal environment (`DATABASE_URL`, etc.). Safe to re-run.
+
+### End-to-end setup checklist
+1. Pick a monitoring email + password.
+2. On the deployment: `MONITOR_EMAIL=... MONITOR_PASSWORD=... python scripts/create_monitor_user.py`.
+3. Add repo **secrets**: `MONITOR_BASE_URL`, `MONITOR_EMAIL`, `MONITOR_PASSWORD`
+   (+ optional `MONITOR_REPORT_PATH`, `MONITOR_MAX_SECONDS`, `MONITOR_ALERT_WEBHOOK`).
+4. The scheduled workflow starts probing within ~15 minutes; trigger it once
+   manually via **Actions → Synthetic Monitor → Run workflow** to confirm it's green.
