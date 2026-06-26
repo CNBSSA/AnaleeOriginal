@@ -11,7 +11,23 @@ from sqlalchemy import text
 from flask_apscheduler import APScheduler
 from flask_wtf.csrf import CSRFProtect
 from flask_login import LoginManager
+from flask.json.provider import DefaultJSONProvider
+from decimal import Decimal
 from config import MAX_UPLOAD_BYTES
+
+
+class _MoneyJSONProvider(DefaultJSONProvider):
+    """JSON provider that serialises Decimal (money columns are Numeric/Decimal).
+
+    Flask's default provider raises on Decimal; emit it as a JSON number so the
+    existing API/AJAX responses keep working unchanged.
+    """
+
+    @staticmethod
+    def default(o):
+        if isinstance(o, Decimal):
+            return float(o)
+        return DefaultJSONProvider.default(o)
 
 # Configure logging with detailed format.
 # Log to stdout only: the platform (Railway) captures stdout, and a file handler
@@ -70,6 +86,7 @@ def create_app(env=None):
         app = Flask(__name__,
                    template_folder='templates',
                    static_folder='static')
+        app.json = _MoneyJSONProvider(app)  # serialise Decimal money values
 
         # Get database URL
         database_url = os.environ.get('DATABASE_URL')
@@ -181,6 +198,38 @@ def create_app(env=None):
                         logger.info("Added missing alert_history.alert_config_id column")
             except Exception as _e:
                 logger.error(f"alert_history column guard skipped: {_e}")
+
+            # Money-precision guard: the currency columns were originally Float
+            # (double precision). create_all() never changes an existing column's
+            # type, so convert them to NUMERIC(18,2) on existing PostgreSQL
+            # databases — money must be exact to the cent. (SQLite has loose type
+            # affinity and the ORM already returns Decimal, so it is skipped.)
+            # Idempotent; wrapped so it can never block startup.
+            try:
+                from sqlalchemy import inspect as _sa_inspect2, text as _sa_text2
+                if db.engine.dialect.name == 'postgresql':
+                    _money_cols = [
+                        ('transaction', 'amount'),
+                        ('historical_data', 'amount'),
+                        ('financial_goal', 'target_amount'),
+                        ('financial_goal', 'current_amount'),
+                    ]
+                    _insp2 = _sa_inspect2(db.engine)
+                    _tables = set(_insp2.get_table_names())
+                    with db.engine.begin() as _conn2:
+                        for _table, _col in _money_cols:
+                            if _table not in _tables:
+                                continue
+                            _ctype = next((c['type'] for c in _insp2.get_columns(_table)
+                                           if c['name'] == _col), None)
+                            if _ctype is not None and 'NUMERIC' not in str(_ctype).upper():
+                                _conn2.execute(_sa_text2(
+                                    f'ALTER TABLE "{_table}" ALTER COLUMN {_col} '
+                                    f'TYPE NUMERIC(18, 2) USING {_col}::numeric(18, 2)'
+                                ))
+                                logger.info(f"Converted {_table}.{_col} to NUMERIC(18, 2)")
+            except Exception as _e:
+                logger.error(f"money precision guard skipped: {_e}")
 
             return app
 

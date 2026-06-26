@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime, Enum as SQLEnum, Index
+from sqlalchemy import Column, Integer, String, Float, Numeric, Boolean, ForeignKey, Text, DateTime, Enum as SQLEnum, Index
 from sqlalchemy.orm import relationship
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -80,8 +80,8 @@ class FinancialGoal(db.Model):
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
     name = Column(String(100), nullable=False)
     description = Column(Text)
-    target_amount = Column(Float, nullable=False)
-    current_amount = Column(Float, default=0.0)
+    target_amount = Column(Numeric(18, 2), nullable=False)
+    current_amount = Column(Numeric(18, 2), default=0)
     start_date = Column(DateTime, default=datetime.utcnow)
     deadline = Column(DateTime)
     category = Column(String(50))
@@ -94,9 +94,11 @@ class FinancialGoal(db.Model):
 
     def calculate_progress(self):
         """Calculate current progress as percentage"""
-        if self.target_amount == 0:
+        if not self.target_amount:
             return 0
-        return min(100, (self.current_amount / self.target_amount) * 100)
+        # Cast to float for the percentage so a freshly-assigned float amount and
+        # a Decimal column value never mix in arithmetic.
+        return min(100, (float(self.current_amount) / float(self.target_amount)) * 100)
 
     def get_status_details(self):
         """Get detailed status information"""
@@ -122,7 +124,7 @@ class Transaction(db.Model):
     id = Column(Integer, primary_key=True)
     date = Column(DateTime, nullable=False)
     description = Column(String(200), nullable=False)
-    amount = Column(Float, nullable=False)
+    amount = Column(Numeric(18, 2), nullable=False)
     category = Column(String(50))
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
     account_id = Column(Integer, ForeignKey('account.id', ondelete='CASCADE'))
@@ -303,7 +305,7 @@ class HistoricalData(db.Model):
     id = Column(Integer, primary_key=True)
     date = Column(DateTime, nullable=False)
     description = Column(String(200), nullable=False)
-    amount = Column(Float, nullable=False)
+    amount = Column(Numeric(18, 2), nullable=False)
     explanation = Column(String(200))
     account_id = Column(Integer, ForeignKey('account.id'))
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
