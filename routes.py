@@ -1091,7 +1091,7 @@ class ICountant:
         
     def process_transaction(self, transaction_data):
         # Placeholder for actual iCountant logic
-        message = "iCountant is processing this transaction. Please select an account."
+        message = "Analee is processing this transaction. Please select an account."
         transaction_info = {}
         return message, transaction_info
         
