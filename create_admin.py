@@ -1,47 +1,62 @@
-from app import create_app
-from models import db, User
+"""
+Create (or reset) the admin user from environment variables.
+
+No credentials are hardcoded. Set these before running:
+
+    ADMIN_EMAIL=you@example.com ADMIN_PASSWORD=YOUR_STRONG_PASSWORD \
+        [ADMIN_USERNAME=Admin] python create_admin.py
+"""
+import os
+import sys
 from datetime import datetime
 
+from app import create_app
+from models import db, User
+
+
 def create_admin_user():
-    """Create admin user if it doesn't exist"""
+    """Create the admin user if it doesn't exist, else reset its password."""
+    email = (os.environ.get('ADMIN_EMAIL') or '').lower().strip()
+    password = os.environ.get('ADMIN_PASSWORD') or ''
+    username = os.environ.get('ADMIN_USERNAME', 'Admin')
+
+    if not email or not password:
+        print("Set ADMIN_EMAIL and ADMIN_PASSWORD in the environment first.",
+              file=sys.stderr)
+        return 2
+
     app = create_app()
-    
     if not app:
-        print("Failed to create application")
-        return
-        
+        print("Failed to create application (is DATABASE_URL set?).", file=sys.stderr)
+        return 1
+
     with app.app_context():
         try:
-            # Check if admin exists
-            admin = User.query.filter_by(email='festusa@cnbs.co.za').first()
-            
+            admin = User.query.filter_by(email=email).first()
             if not admin:
-                # Create new admin user
                 admin = User(
-                    username='Admin',
-                    email='festusa@cnbs.co.za',
+                    username=username,
+                    email=email,
                     is_admin=True,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
-                    subscription_status='active'
+                    subscription_status='active',
                 )
-                admin.set_password('admin123')
+                admin.set_password(password)
                 db.session.add(admin)
-                db.session.commit()
-                print("Admin user created successfully")
+                print(f"Admin user created: {email}")
             else:
-                # Update existing admin
-                admin.set_password('admin123')
+                admin.set_password(password)
                 admin.is_admin = True
                 admin.subscription_status = 'active'
-                db.session.commit()
-                print("Admin user updated successfully")
-                
+                print(f"Admin user updated: {email}")
+            db.session.commit()
+            return 0
         except Exception as e:
-            print(f"Error creating/updating admin user: {str(e)}")
-            if db.session:
-                db.session.rollback()
-            raise
+            print(f"Error creating/updating admin user: {e}", file=sys.stderr)
+            db.session.rollback()
+            return 1
+
 
 if __name__ == '__main__':
-    create_admin_user()
+    sys.exit(create_admin_user())

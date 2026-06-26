@@ -159,30 +159,3 @@ def reset_password(token):
             flash('Invalid email address', 'error')
 
     return render_template('auth/reset_password.html', form=form)
-
-def create_admin_if_not_exists():
-    """Create admin user if it doesn't exist"""
-    try:
-        # Check if admin exists
-        admin = User.query.filter_by(email='festusa@cnbs.co.za').first()
-        if not admin:
-            # Create new admin user with proper fields
-            admin = User(
-                username='admin',
-                email='festusa@cnbs.co.za',
-                is_admin=True,
-            )
-            # Set password with proper hashing
-            admin.set_password('admin123')
-
-            # Add and commit to database
-            db.session.add(admin)
-            db.session.commit()
-            logger.info("Admin user created successfully")
-            return True
-        return True
-    except Exception as e:
-        logger.error(f"Error creating admin user: {str(e)}")
-        # Rollback on error
-        db.session.rollback()
-        return False
