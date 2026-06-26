@@ -13,13 +13,14 @@ from flask_wtf.csrf import CSRFProtect
 from flask_login import LoginManager
 from config import MAX_UPLOAD_BYTES
 
-# Configure logging with detailed format
+# Configure logging with detailed format.
+# Log to stdout only: the platform (Railway) captures stdout, and a file handler
+# would write to the ephemeral container filesystem (lost on every restart).
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('app.log')
     ]
 )
 
