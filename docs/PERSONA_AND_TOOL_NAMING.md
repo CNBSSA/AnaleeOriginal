@@ -34,9 +34,15 @@ Inspection-verified, zero logic touched (could not run the suite in-sandbox — 
 - `templates/base.html` — nav link → "Ask Analee".
 - `routes.py` — in-progress flash text → "Analee is processing…" (string only; `py_compile` clean).
 
-## REMAINING — internal rename (separate, FULLY-TESTED pass)
+## ~~REMAINING — internal rename~~ — DROPPED (repo frozen 2026-06-26)
 
-Do this only where the Flask app boots and the pytest suite runs (local venv or PC).
+**This work (#3) is no longer planned.** AnaleeOriginal was frozen to maintenance-only
+on 2026-06-26 once **Recall** was harvested into `booksxpert/analee` (see the FREEZE
+banner in `CLAUDE.md`). Renaming the internals of a frozen app is wasted effort, so the
+tiers below are kept only as a historical record — **do not action them** unless Festus
+re-opens the repo.
+
+~~Do this only where the Flask app boots and the pytest suite runs (local venv or PC).~~
 
 ### Tier 1 — zero-logic (safe; cosmetic clarity)
 Docstrings, comments, and **log-message prefixes** still say ERF/ASF/ESF in:

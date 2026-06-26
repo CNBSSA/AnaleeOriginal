@@ -1,5 +1,29 @@
 # Project Working Agreement
 
+## ❄️ STATUS: FROZEN — MAINTENANCE ONLY (Festus, 2026-06-26)
+
+**This standalone Analee repo is frozen.** It is no longer the place for new
+feature work. The canonical Analee is the **embedded `analee/` module inside
+`CNBSSA/booksxpert`** (Django, multi-tenant, real GL/journal posting, plus the
+BooksXperts Assistant). Standalone Analee and the embedded one were investigated
+side by side (2026-06-26): the embedded version is equal-or-better on every
+capability, and the **one** thing standalone had that it lacked — **Recall**
+(similarity-based "find my similar past transactions", formerly *ERF*) — has been
+**harvested into `booksxpert/analee/services/recall.py`** with an agent tool and
+tests. With that extracted, this repo's reason to grow is gone.
+
+**Rules while frozen:**
+- **Allowed:** security fixes, dependency CVEs, and keeping the deployed instance
+  running. Each still goes through the three audits below.
+- **Not allowed without Festus re-opening the repo:** new features, refactors, or
+  cosmetic churn — **including the previously-planned internal ERF/ASF/ESF symbol
+  rename (#3), which is now formally DROPPED** (see
+  `docs/PERSONA_AND_TOOL_NAMING.md`). Polishing the internals of a frozen app is
+  wasted effort.
+- New ideas for Analee go to **booksxpert** (the embedded module), not here.
+
+---
+
 ## Workflow & Audits Directive (standing)
 
 Every change goes through three audits, and nothing is committed/pushed that
