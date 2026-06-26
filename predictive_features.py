@@ -89,35 +89,6 @@ class PredictiveFeatures:
                 'similar_transactions': []
             }
 
-    def replicate_explanation(self, transaction_id: int, similar_transaction_id: int) -> bool:
-        """
-        ERF: Replicate explanation from a similar transaction to the current one
-
-        Args:
-            transaction_id: ID of the transaction to update
-            similar_transaction_id: ID of the transaction to copy explanation from
-
-        Returns:
-            Boolean indicating success
-        """
-        try:
-            source = Transaction.query.get(similar_transaction_id)
-            target = Transaction.query.get(transaction_id)
-
-            if not source or not target:
-                logger.error("Source or target transaction not found")
-                return False
-
-            target.explanation = source.explanation
-            db.session.commit()
-            logger.info(f"Successfully replicated explanation from {similar_transaction_id} to {transaction_id}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error replicating explanation: {str(e)}")
-            db.session.rollback()
-            return False
-
     def suggest_account(self, description: str, explanation: str) -> Dict:
         """ASF: Suggest account based on description and explanation"""
         try:
