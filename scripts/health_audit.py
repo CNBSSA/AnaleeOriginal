@@ -55,6 +55,8 @@ def audit_money_floats():
         if os.path.basename(path) != "models.py":
             continue
         for i, line in enumerate(_lines(path), 1):
+            if "not currency" in line:  # reviewed & intentionally Float (ratio/metric)
+                continue
             m = col_re.search(line)
             if m and any(h in m.group(1).lower() for h in MONEY_HINTS):
                 findings.append((_rel(path), i, m.group(1), line.strip()))

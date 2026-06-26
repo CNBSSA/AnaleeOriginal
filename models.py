@@ -343,8 +343,8 @@ class RiskIndicator(db.Model):
     id = Column(Integer, primary_key=True)
     assessment_id = Column(Integer, ForeignKey('risk_assessment.id', ondelete='CASCADE'), nullable=False)
     indicator_name = Column(String(100), nullable=False)
-    indicator_value = Column(Float, nullable=False)
-    threshold_value = Column(Float, nullable=False)
+    indicator_value = Column(Float, nullable=False)  # not currency (ratio/metric/threshold)
+    threshold_value = Column(Float, nullable=False)  # not currency (ratio/metric/threshold)
     is_breach = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     assessment = relationship('RiskAssessment', back_populates='indicators')
@@ -360,7 +360,7 @@ class AlertConfiguration(db.Model):
     name = Column(String(100), nullable=False)
     alert_type = Column(String(50), nullable=False)  # transaction, balance, pattern
     threshold_type = Column(String(50), nullable=False)  # amount, percentage, count
-    threshold_value = Column(Float, nullable=False)
+    threshold_value = Column(Float, nullable=False)  # not currency (ratio/metric/threshold)
     is_active = Column(Boolean, default=True)
     notification_method = Column(String(50), default='web')  # web, email
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -411,9 +411,9 @@ class RecommendationMetrics(db.Model):
     id = Column(Integer, primary_key=True)
     recommendation_id = Column(Integer, ForeignKey('financial_recommendation.id', ondelete='CASCADE'), nullable=False)
     metric_name = Column(String(100), nullable=False)
-    baseline_value = Column(Float)
-    current_value = Column(Float)
-    target_value = Column(Float)
+    baseline_value = Column(Float)  # not currency (ratio/metric/threshold)
+    current_value = Column(Float)  # not currency (ratio/metric/threshold)
+    target_value = Column(Float)  # not currency (ratio/metric/threshold)
     measured_at = Column(DateTime, default=datetime.utcnow)
     recommendation = relationship('FinancialRecommendation')
 

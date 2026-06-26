@@ -913,8 +913,11 @@ def expense_forecast():
         for transaction in transactions:
             month_key = transaction.date.strftime('%Y-%m')
             if month_key not in monthly_data:
-                monthly_data[month_key] = {'amount': 0, 'count': 0}
-            monthly_data[month_key]['amount'] += transaction.amount
+                monthly_data[month_key] = {'amount': 0.0, 'count': 0}
+            # float() here: this is a statistical forecast (stdev/confidence
+            # intervals), not the ledger — keep it in float, away from the
+            # Decimal money columns to avoid Decimal/float arithmetic mixing.
+            monthly_data[month_key]['amount'] += float(transaction.amount)
             monthly_data[month_key]['count'] += 1
 
         # Prepare data for charts
