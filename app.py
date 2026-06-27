@@ -205,6 +205,34 @@ def create_app(env=None):
             except Exception as _e:
                 logger.error(f"alert_history column guard skipped: {_e}")
 
+            # Defensive schema guard: company_settings.logo / logo_type were added
+            # to the model (the firm-logo feature) with an Alembic migration only.
+            # This app builds its schema with create_all() and does NOT run
+            # `flask db upgrade` on deploy, so on an existing database those columns
+            # are missing and EVERY CompanySettings query (company settings page,
+            # dashboard, reports, insights) fails with "column ... does not exist".
+            # Add the columns if missing. Idempotent; never blocks startup.
+            try:
+                from sqlalchemy import inspect as _sa_inspect_cs, text as _sa_text_cs
+                _insp_cs = _sa_inspect_cs(db.engine)
+                if 'company_settings' in _insp_cs.get_table_names():
+                    _cs_cols = [c['name'] for c in _insp_cs.get_columns('company_settings')]
+                    _blob = 'BYTEA' if db.engine.dialect.name == 'postgresql' else 'BLOB'
+                    _to_add = []
+                    if 'logo' not in _cs_cols:
+                        _to_add.append(('logo', _blob))
+                    if 'logo_type' not in _cs_cols:
+                        _to_add.append(('logo_type', 'VARCHAR(50)'))
+                    if _to_add:
+                        with db.engine.begin() as _conn_cs:
+                            for _col, _coltype in _to_add:
+                                _conn_cs.execute(_sa_text_cs(
+                                    f'ALTER TABLE company_settings ADD COLUMN {_col} {_coltype}'
+                                ))
+                        logger.info(f"Added missing company_settings columns: {[c for c, _ in _to_add]}")
+            except Exception as _e:
+                logger.error(f"company_settings logo column guard skipped: {_e}")
+
             return app
 
     except Exception as e:
