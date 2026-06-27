@@ -22,12 +22,12 @@ Analee treats every line as a dated, signed money movement.
 
 | Page | .xlsx | .csv |
 |---|---|---|
-| **Upload Data** | ✅ | ⚠️ not reliably read — use .xlsx |
-| **Bank Statements** | ✅ | ⚠️ not reliably read — use .xlsx |
+| **Upload Data** | ✅ | ✅ |
+| **Bank Statements** | ✅ | ✅ |
 | **Historical Data** | ✅ | ✅ |
 
-> **Recommendation: use the `.xlsx` files.** They work on every upload page. CSV
-> currently only parses reliably on the **Historical Data** page.
+**Both `.xlsx` and `.csv` work on every upload page.** Pick whichever is easier
+for you.
 
 ## The sign rule (important)
 
@@ -66,8 +66,8 @@ supplier bill you owe is **negative**; a credit note / refund flips the sign.
   couple of typos won't fail the whole upload.
 - **One account per upload** — you choose the bank/account on the upload page; all
   rows in the file are imported against it.
-- **CSV encoding** (Historical Data): UTF-8 is best; Latin-1 is also accepted.
-- **Max file size: 40 MB.** Allowed types: `.xlsx` (everywhere), `.csv` (Historical Data).
+- **CSV encoding**: UTF-8 is best; Latin-1 is also accepted automatically.
+- **Max file size: 40 MB.** Allowed types: `.xlsx` and `.csv` (both on every page).
 - **Scanned PDFs / photos** of statements or receipts do **not** go here — use the
   **Scan Receipt** / **Import PDF Statement** pages (OCR) for those.
 - **Duplicates**: re-uploading the same file imports the rows again (the OCR
