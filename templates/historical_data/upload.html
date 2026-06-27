@@ -5,6 +5,12 @@
 {% block content %}
 <div class="container mt-4">
     <h2>Import Historical Data (Excel/CSV)</h2>
+    <div class="alert alert-info py-2">
+        <i class="fas fa-download me-1"></i> Need a template? Download
+        <a href="{{ url_for('static', filename='samples/Analee_Bank_Statement_Template.xlsx') }}">.xlsx</a> ·
+        <a href="{{ url_for('static', filename='samples/Analee_Bank_Statement_Template.csv') }}">.csv</a> ·
+        <a href="{{ url_for('static', filename='samples/Analee_Upload_Guide.md') }}">Guide</a>
+    </div>
 
     <!-- Upload Form -->
     <div class="card mb-4">

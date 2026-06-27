@@ -1,0 +1,11 @@
+Date,Description,Amount
+2026-01-03,Bill INV-1001 - Office Supplies Co,-450.0
+2026-01-07,Bill INV-1002 - Cloud Hosting (monthly),-120.0
+2026-01-09,Sales Invoice SI-2001 - Customer X,3200.0
+2026-01-11,Bill INV-1003 - Courier services,-75.5
+2026-01-14,Sales Invoice SI-2002 - Customer Y,980.25
+2026-01-16,Bill INV-1004 - Utilities (electricity),-310.4
+2026-01-19,Sales Invoice SI-2003 - Customer Z,"$5,500.00"
+2026-01-21,Bill INV-1005 - Professional fees,-1500.0
+2026-01-24,Credit note CN-3001 (refund to customer),-200.0
+2026-01-27,Sales Invoice SI-2004 - Retainer,2400.0

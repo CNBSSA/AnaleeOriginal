@@ -18,6 +18,12 @@
     <!-- Upload Form -->
     <div class="card mb-4">
         <div class="card-body">
+            <div class="alert alert-info py-2">
+                <i class="fas fa-download me-1"></i> Need a template? Download
+                <a href="{{ url_for('static', filename='samples/Analee_Bank_Statement_Template.xlsx') }}">Bank statement (.xlsx)</a> ·
+                <a href="{{ url_for('static', filename='samples/Analee_Bank_Statement_Template.csv') }}">.csv</a> ·
+                <a href="{{ url_for('static', filename='samples/Analee_Upload_Guide.md') }}">Guide</a>
+            </div>
             <form method="POST" enctype="multipart/form-data" id="uploadForm">
                 {{ form.csrf_token }}
 

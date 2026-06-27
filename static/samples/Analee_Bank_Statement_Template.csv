@@ -1,0 +1,16 @@
+Date,Description,Amount
+2026-01-02,Opening balance / deposit,10000.0
+2026-01-05,Salary - ACME Corp (EFT),5250.75
+2026-01-08,ATM cash withdrawal,-200.0
+2026-01-12,EFT to Supplier ABC Ltd,-1234.56
+2026-01-15,POS card purchase - Grocery,-89.99
+2026-01-18,Customer payment received,1500.0
+2026-01-20,Interest received,12.34
+2026-01-22,Bank service charges,-45.0
+2026-01-25,Refund from vendor,300.0
+2026-01-28,Loan repayment - instalment,-2000.0
+2026-02-01,Big deposit with formatting,1250.0
+2026-02-03,Amount shown with symbols,"$1,999.95"
+2026-02-05,Small decimal amount,0.99
+2026-02-08,Zero-value memo line,0
+2026-02-10,Large round figure,1000000.0
