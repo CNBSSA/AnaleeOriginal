@@ -157,8 +157,8 @@ class BankStatementService:
 
             # Process file and create transactions
             try:
-                # Read and validate Excel file
-                df = self.excel_reader.read_excel(temp_path)
+                # Read and validate the file (.xlsx or .csv)
+                df = self.excel_reader.read_file(temp_path)
 
                 if df is None or df.empty:
                     error_msg = self.get_friendly_error_message('empty_file')

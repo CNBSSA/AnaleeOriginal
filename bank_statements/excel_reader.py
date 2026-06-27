@@ -1,31 +1,60 @@
 """
-Excel reader service for bank statements
-Handles CNBS Business Bank Statement format
+Bank statement reader service.
+Reads .xlsx and .csv files into a cleaned Date/Description/Amount DataFrame.
 """
 import logging
-from typing import Dict, List, Optional
+from typing import List, Optional
 import pandas as pd
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 class BankStatementExcelReader:
-    """Handles reading and validation of bank statement Excel files"""
+    """Handles reading and validation of bank statement files (.xlsx / .csv)."""
 
     def __init__(self):
         self.required_columns = ['Date', 'Description', 'Amount']
         self.errors = []
 
+    def read_file(self, file_path: str) -> Optional[pd.DataFrame]:
+        """Read a bank statement file, dispatching by extension (.csv or .xlsx)."""
+        if str(file_path).lower().endswith('.csv'):
+            return self.read_csv(file_path)
+        return self.read_excel(file_path)
+
     def read_excel(self, file_path: str) -> Optional[pd.DataFrame]:
-        """
-        Read bank statement Excel file with enhanced error handling
-        Returns DataFrame if successful, None if failed
-        """
+        """Read a .xlsx bank statement. Returns a cleaned DataFrame or None."""
         try:
-            # Read Excel file with explicit engine
             logger.info(f"Attempting to read Excel file: {file_path}")
             df = pd.read_excel(file_path, engine='openpyxl')
+        except Exception as e:
+            error_msg = f"Error reading Excel file: {str(e)}"
+            logger.error(error_msg)
+            self.errors.append(error_msg)
+            return None
+        return self._process(df)
 
+    def read_csv(self, file_path: str) -> Optional[pd.DataFrame]:
+        """Read a .csv bank statement (UTF-8 with a latin-1 fallback)."""
+        try:
+            logger.info(f"Attempting to read CSV file: {file_path}")
+            try:
+                df = pd.read_csv(file_path, encoding='utf-8')
+            except UnicodeDecodeError:
+                df = pd.read_csv(file_path, encoding='latin1')
+        except Exception as e:
+            error_msg = f"Error reading CSV file: {str(e)}"
+            logger.error(error_msg)
+            self.errors.append(error_msg)
+            return None
+        return self._process(df)
+
+    def _process(self, df: pd.DataFrame) -> Optional[pd.DataFrame]:
+        """Validate required columns and clean Date/Amount/Description.
+
+        Shared by the Excel and CSV readers so both formats behave identically.
+        Invalid dates/amounts drop their row; missing required columns fail.
+        """
+        try:
             # Log the columns found
             logger.info(f"Found columns: {df.columns.tolist()}")
 
@@ -53,7 +82,6 @@ class BankStatementExcelReader:
             # Convert date column to datetime
             try:
                 df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-                # Remove rows with invalid dates
                 invalid_dates = df['Date'].isna()
                 if invalid_dates.any():
                     logger.warning(f"Found {invalid_dates.sum()} rows with invalid dates")
@@ -69,8 +97,6 @@ class BankStatementExcelReader:
                 # Remove any currency symbols and commas
                 df['Amount'] = df['Amount'].astype(str).str.replace('$', '').str.replace(',', '').str.strip()
                 df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce')
-
-                # Check for invalid amounts
                 invalid_amounts = df['Amount'].isna()
                 if invalid_amounts.any():
                     logger.warning(f"Found {invalid_amounts.sum()} rows with invalid amounts")
@@ -84,12 +110,11 @@ class BankStatementExcelReader:
             # Clean up description field
             df['Description'] = df['Description'].astype(str).str.strip()
 
-            # Log success
             logger.info(f"Successfully processed {len(df)} valid rows")
             return df
 
         except Exception as e:
-            error_msg = f"Error reading Excel file: {str(e)}"
+            error_msg = f"Error processing bank statement data: {str(e)}"
             logger.error(error_msg)
             self.errors.append(error_msg)
             return None
@@ -117,7 +142,6 @@ class BankStatementExcelReader:
                         self.errors.append(f"Found {count} empty values in {col}")
                 return False
 
-            # Additional validation checks
             # Validate date range
             date_range = df['Date'].agg(['min', 'max'])
             if (date_range['max'] - date_range['min']).days > 366:
