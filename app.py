@@ -173,6 +173,13 @@ def create_app(env=None):
             except Exception as _e:
                 logger.error(f"alert_history column guard skipped: {_e}")
 
+            from services.entity_chart_schema import ensure_entity_chart_schema
+            schema_ready = ensure_entity_chart_schema()
+            if not schema_ready:
+                logger.error(
+                    'Entity chart schema guard failed — charts may be empty until fixed'
+                )
+
             @app.cli.command('seed-charts')
             def seed_charts_command():
                 """Seed entity types and master chart (BooksXperts parity)."""
@@ -183,10 +190,14 @@ def create_app(env=None):
 
             try:
                 from services.chart_of_accounts import seed_entities, seed_admin_charts
-                seed_entities()
-                seed_admin_charts()
+                if schema_ready:
+                    seed_entities()
+                    created, skipped = seed_admin_charts()
+                    logger.info(
+                        'Chart seed on boot: %s created, %s skipped', created, skipped
+                    )
             except Exception as chart_seed_exc:
-                logger.warning('Chart seed on boot skipped: %s', chart_seed_exc)
+                logger.error('Chart seed on boot failed: %s', chart_seed_exc)
 
             return app
 
