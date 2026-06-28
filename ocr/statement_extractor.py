@@ -17,7 +17,9 @@ from typing import Any, Dict, List, Optional
 from config import OCR_MODEL
 from nlp_utils import get_claude_client
 
-from .pdf_text_extraction import PdfStatementError, extract_pdf_statement
+from .pdf_text_extraction import PdfStatementError, extract_pdf_statement, extract_text
+from .pdf_chunking import needs_chunking, split_pdf_bytes, count_pdf_pages
+from .bank_profiles import detect_profile
 from .statement_integrity import (
     ExtractionResult,
     ReportCard,
@@ -67,6 +69,14 @@ Rules (critical):
 - Do NOT invent rows. Lower confidence when unsure.
 - Read ALL pages. Multi-page statements must return ALL transaction lines.
 """
+
+
+_CHUNK_NOTE = (
+    "\n\nNOTE: This PDF is one section of a longer multi-page statement. "
+    "Extract EVERY transaction line visible on THESE pages only. "
+    "Include opening_balance only if it appears on this section; "
+    "include closing_balance only if it appears on this section."
+)
 
 
 @dataclass
@@ -166,17 +176,68 @@ def _payload_to_result(
     )
 
 
-def _extract_via_claude(
+def _bank_hint_from_pdf(pdf_bytes: bytes) -> Optional[str]:
+    """Best-effort bank detection from digital PDF text (for Claude prompt)."""
+    try:
+        profile = detect_profile(extract_text(pdf_bytes))
+        if profile.profile_id != "generic":
+            return profile.display_name
+    except Exception:
+        pass
+    return None
+
+
+def _merge_chunk_payloads(payloads: List[dict]) -> dict:
+    """Merge line arrays from multi-chunk Claude responses; dedupe overlaps."""
+    merged_lines: list[dict] = []
+    seen: set[tuple] = set()
+    opening = None
+    closing = None
+    bank = None
+    account_number = None
+    period_start = None
+    period_end = None
+
+    for payload in payloads:
+        if payload.get("bank"):
+            bank = payload["bank"]
+        if payload.get("account_number"):
+            account_number = payload["account_number"]
+        if payload.get("period_start"):
+            period_start = payload["period_start"]
+        if payload.get("period_end"):
+            period_end = payload["period_end"]
+        ob = payload.get("opening_balance")
+        if ob not in (None, "", "null") and opening is None:
+            opening = ob
+        cb = payload.get("closing_balance")
+        if cb not in (None, "", "null"):
+            closing = cb
+        for line in payload.get("lines") or []:
+            if not isinstance(line, dict):
+                continue
+            key = (line.get("date"), line.get("description"), str(line.get("amount")))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged_lines.append(line)
+
+    return {
+        "bank": bank,
+        "account_number": account_number,
+        "period_start": period_start,
+        "period_end": period_end,
+        "opening_balance": opening,
+        "closing_balance": closing,
+        "lines": merged_lines,
+    }
+
+
+def _claude_extract_pdf_payload(
     pdf_bytes: bytes,
-    client=None,
-    opening_override: Optional[Decimal] = None,
-    closing_override: Optional[Decimal] = None,
-) -> ExtractionResult:
-    client = client or get_claude_client()
-    if not client:
-        raise RuntimeError(
-            "AI service unavailable — set ANTHROPIC_API_KEY in the server environment."
-        )
+    prompt: str,
+    client,
+) -> dict:
     encoded = base64.standard_b64encode(pdf_bytes).decode("ascii")
     response = client.messages.create(
         model=OCR_MODEL,
@@ -192,12 +253,46 @@ def _extract_via_claude(
                         "data": encoded,
                     },
                 },
-                {"type": "text", "text": _SA_BANK_STATEMENT_PROMPT},
+                {"type": "text", "text": prompt},
             ],
         }],
     )
     text = response.content[0].text.strip()
-    payload = _parse_claude_json(text)
+    return _parse_claude_json(text)
+
+
+def _extract_via_claude(
+    pdf_bytes: bytes,
+    client=None,
+    opening_override: Optional[Decimal] = None,
+    closing_override: Optional[Decimal] = None,
+) -> ExtractionResult:
+    client = client or get_claude_client()
+    if not client:
+        raise RuntimeError(
+            "AI service unavailable — set ANTHROPIC_API_KEY in the server environment."
+        )
+
+    prompt = _SA_BANK_STATEMENT_PROMPT
+    bank_hint = _bank_hint_from_pdf(pdf_bytes)
+    if bank_hint:
+        prompt += f"\n\nBank detected (text layer): {bank_hint}. Apply that bank's column layout."
+
+    if needs_chunking(pdf_bytes):
+        chunks = split_pdf_bytes(pdf_bytes)
+        page_count = count_pdf_pages(pdf_bytes)
+        logger.info("Chunking %d-page statement into %d Claude call(s)", page_count, len(chunks))
+        payloads = []
+        for idx, chunk in enumerate(chunks):
+            chunk_prompt = (
+                f"{prompt}{_CHUNK_NOTE} "
+                f"(section {idx + 1} of {len(chunks)})."
+            )
+            payloads.append(_claude_extract_pdf_payload(chunk, chunk_prompt, client))
+        payload = _merge_chunk_payloads(payloads)
+    else:
+        payload = _claude_extract_pdf_payload(pdf_bytes, prompt, client)
+
     return _payload_to_result(payload, opening_override, closing_override)
 
 
@@ -263,6 +358,8 @@ def extract_bank_statement(
                 closing_override=closing_dec,
             )
             method = "claude_vision"
+            if needs_chunking(pdf_bytes):
+                method = "claude_vision_chunked"
             logger.info(
                 "Bank statement Tier-2 OK: %d lines, bank=%s",
                 len(result.lines), result.header.bank,

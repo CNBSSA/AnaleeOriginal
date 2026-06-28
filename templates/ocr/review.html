@@ -30,7 +30,7 @@
                 </div>
                 {% if extraction_method %}
                     <div class="text-muted small mt-1">
-                        Extracted via {{ 'digital PDF parse' if extraction_method == 'digital_pdf' else 'Claude Vision (scan/complex layout)' }}.
+                        Extracted via {{ 'digital PDF parse' if extraction_method == 'digital_pdf' else ('Claude Vision (chunked)' if extraction_method == 'claude_vision_chunked' else 'Claude Vision (scan/complex layout)') }}.
                     </div>
                 {% endif %}
             </div>

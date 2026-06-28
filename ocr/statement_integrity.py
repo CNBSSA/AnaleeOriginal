@@ -54,7 +54,7 @@ def normalize_amount(raw) -> Decimal:
     elif low.endswith("cr"):
         s = s[:-2].strip()
 
-    s = s.replace("R", "").replace("r", "").replace(" ", "").replace(",", "")
+    s = s.replace("R", "").replace("r", "").replace("$", "").replace(" ", "").replace(",", "")
     if s in ("", "."):
         raise ValueError(f"unparseable amount: {raw!r}")
     try:
