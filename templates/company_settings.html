@@ -52,7 +52,7 @@
                                     {% endfor %}
                                 </select>
                                 <div class="form-text" id="financial_year_info">
-                                    {% if settings %}
+                                    {% if settings and settings.financial_year_end %}
                                         {% set fy = settings.get_financial_year() %}
                                         Financial Year: {{ fy.start_date.strftime('%B %d, %Y') }} to {{ fy.end_date.strftime('%B %d, %Y') }}
                                     {% endif %}

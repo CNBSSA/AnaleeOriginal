@@ -17,13 +17,17 @@ from predictive_features import PredictiveFeatures
 
 from models import (
     db, User, CompanySettings, Account, Transaction,
-    UploadedFile, AdminChartOfAccounts, Entity,
+    UploadedFile, Entity,
     AlertHistory, AlertConfiguration, FinancialGoal,
     FinancialRecommendation, RiskAssessment
 )
 from forms.company import CompanySettingsForm
 from services.chart_of_accounts import set_entity_for_user, seed_entities, seed_admin_charts
-from services.entity_chart_schema import ensure_entity_chart_schema
+from services.entity_chart_schema import (
+    ensure_company_settings_schema,
+    ensure_entity_chart_schema,
+    prepare_subscriber_chart_access,
+)
 from ai_insights import FinancialInsightsGenerator
 from maintenance_monitor import MaintenanceMonitor
 from alert_system import AlertSystem
@@ -135,7 +139,13 @@ def dashboard():
 def settings():
     """Protected Chart of Accounts management"""
     try:
-        ensure_entity_chart_schema()
+        if not prepare_subscriber_chart_access():
+            flash(
+                'Chart of accounts is temporarily unavailable. Please try again shortly.',
+                'warning',
+            )
+            return redirect(url_for('main.dashboard'))
+
         if request.method == 'POST':
             account = Account(
                 link=request.form['link'],
@@ -162,22 +172,14 @@ def settings():
                     )
                     db.session.rollback()
 
-        # Get user's accounts
         accounts = Account.query.filter_by(
             user_id=current_user.id,
             is_active=True
         ).all()
 
-        # Get system-wide Chart of Accounts for reference
-        system_accounts = AdminChartOfAccounts.query.all()
-
-        return render_template(
-            'settings.html',
-            accounts=accounts,
-            system_accounts=system_accounts
-        )
+        return render_template('settings.html', accounts=accounts)
     except Exception as e:
-        logger.error(f'Error in settings route: {str(e)}')
+        logger.exception('Error in settings route: %s', e)
         db.session.rollback()
         flash('Error accessing Chart of Accounts', 'error')
         return redirect(url_for('main.dashboard'))
@@ -185,6 +187,9 @@ def settings():
 @main.route('/settings/import-charts', methods=['GET'])
 @login_required
 def import_chart_of_accounts():
+    if not prepare_subscriber_chart_access():
+        flash('Could not import Chart of Accounts. Please try again.', 'error')
+        return redirect(url_for('main.settings'))
     settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
     if not settings or not settings.entity_id:
         flash('Choose your entity type in Company Settings first.', 'warning')
@@ -206,65 +211,76 @@ def import_chart_of_accounts():
 @login_required
 def company_settings():
     """Handle company settings with CSRF protection"""
-    ensure_entity_chart_schema()
-    seed_entities()
-    entities = Entity.query.order_by(Entity.name).all()
-    entity_choices = [(e.id, e.name) for e in entities]
+    try:
+        ensure_company_settings_schema()
+        ensure_entity_chart_schema()
+        seed_entities()
+        entities = Entity.query.order_by(Entity.name).all()
+        entity_choices = [(e.id, e.name) for e in entities]
 
-    form = CompanySettingsForm()
-    form.entity_id.choices = entity_choices
-    settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
+        form = CompanySettingsForm()
+        form.entity_id.choices = entity_choices
+        settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
 
-    if request.method == 'POST' and form.validate_on_submit():
-        try:
-            if not settings:
-                settings = CompanySettings(user_id=current_user.id)
-                db.session.add(settings)
+        if request.method == 'POST' and form.validate_on_submit():
+            try:
+                if not settings:
+                    settings = CompanySettings(
+                        user_id=current_user.id,
+                        company_name=form.company_name.data,
+                        financial_year_end=int(form.financial_year_end.data),
+                    )
+                    db.session.add(settings)
 
-            settings.company_name = form.company_name.data
-            settings.registration_number = form.registration_number.data
-            settings.tax_number = form.tax_number.data
-            settings.vat_number = form.vat_number.data
-            settings.address = form.address.data
-            settings.financial_year_end = int(form.financial_year_end.data)
-            settings.entity_id = form.entity_id.data
-            db.session.flush()
-            added = set_entity_for_user(current_user.id, form.entity_id.data)
-            flash(
-                f'Company settings updated. Chart of accounts provisioned '
-                f'({added} new account(s) added).',
-                'success',
-            )
-            return redirect(url_for('main.company_settings'))
+                settings.company_name = form.company_name.data
+                settings.registration_number = form.registration_number.data
+                settings.tax_number = form.tax_number.data
+                settings.vat_number = form.vat_number.data
+                settings.address = form.address.data
+                settings.financial_year_end = int(form.financial_year_end.data)
+                settings.entity_id = form.entity_id.data
+                db.session.flush()
+                added = set_entity_for_user(current_user.id, form.entity_id.data)
+                flash(
+                    f'Company settings updated. Chart of accounts provisioned '
+                    f'({added} new account(s) added).',
+                    'success',
+                )
+                return redirect(url_for('main.company_settings'))
 
-        except Exception as e:
-            logger.error(f'Error updating company settings: {str(e)}')
-            flash('Error updating company settings', 'error')
-            db.session.rollback()
+            except Exception as e:
+                logger.error(f'Error updating company settings: {str(e)}')
+                flash('Error updating company settings', 'error')
+                db.session.rollback()
 
-    if settings:
-        form.company_name.data = settings.company_name
-        form.registration_number.data = settings.registration_number
-        form.tax_number.data = settings.tax_number
-        form.vat_number.data = settings.vat_number
-        form.address.data = settings.address
-        form.financial_year_end.data = str(settings.financial_year_end)
-        if settings.entity_id:
-            form.entity_id.data = settings.entity_id
+        if settings:
+            form.company_name.data = settings.company_name
+            form.registration_number.data = settings.registration_number
+            form.tax_number.data = settings.tax_number
+            form.vat_number.data = settings.vat_number
+            form.address.data = settings.address
+            if settings.financial_year_end is not None:
+                form.financial_year_end.data = str(settings.financial_year_end)
+            if settings.entity_id:
+                form.entity_id.data = settings.entity_id
 
-    months = [
-        (1, 'January'), (2, 'February'), (3, 'March'),
-        (4, 'April'), (5, 'May'), (6, 'June'),
-        (7, 'July'), (8, 'August'), (9, 'September'),
-        (10, 'October'), (11, 'November'), (12, 'December')
-    ]
+        months = [
+            (1, 'January'), (2, 'February'), (3, 'March'),
+            (4, 'April'), (5, 'May'), (6, 'June'),
+            (7, 'July'), (8, 'August'), (9, 'September'),
+            (10, 'October'), (11, 'November'), (12, 'December')
+        ]
 
-    return render_template(
-        'company_settings.html',
-        form=form,
-        settings=settings,
-        months=months
-    )
+        return render_template(
+            'company_settings.html',
+            form=form,
+            settings=settings,
+            months=months
+        )
+    except Exception as e:
+        logger.exception('company_settings page failed: %s', e)
+        flash('Error loading company settings. Please try again.', 'error')
+        return redirect(url_for('main.dashboard'))
 
 @main.route('/analyze')
 @login_required
@@ -315,7 +331,11 @@ def analyze(file_id):
 
             if not transactions:
                 logger.warning(f"No transactions found for file {file_id}")
-                flash('No transactions found in this file')
+                flash(
+                    'No transactions found for this file. The upload may have failed parsing — '
+                    're-upload using Date plus Amount or Debit/Credit columns, then analyze again.',
+                    'warning',
+                )
                 return redirect(url_for('main.upload'))
 
             # Load accounts for the user
@@ -583,26 +603,39 @@ def upload():
                     user_id=current_user.id
                 )
 
-                # Create upload record
-                # uploaded_file = UploadedFile(
-                #     filename=filename,
-                #     user_id=current_user.id,
-                #     upload_date=datetime.utcnow()
-                # )
-                # db.session.add(uploaded_file)
-                # db.session.commit()
-                logger.info(f"File upload record created: {filename}")
-                
-                
+                if not success:
+                    error_message = response.get('error', 'Upload processing failed')
+                    logger.error('Upload processing failed: %s', error_message)
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                        return jsonify({
+                            'success': False,
+                            'error': error_message,
+                            'details': response.get('details', []),
+                        }), 400
+                    flash(error_message, 'error')
+                    for detail in response.get('details', []) or []:
+                        flash(str(detail), 'warning')
+                    return redirect(url_for('main.upload'))
+
+                logger.info(
+                    'File processed: %s transactions (file_id=%s)',
+                    response.get('transactions_processed'),
+                    response.get('file_id'),
+                )
 
                 if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                     return jsonify({
                         'success': True,
                         'message': 'File uploaded successfully',
-                        #'file_id': uploaded_file.id
+                        'file_id': response.get('file_id'),
+                        'transactions_processed': response.get('transactions_processed', 0),
                     })
 
-                flash('File uploaded successfully')
+                flash(
+                    f'File uploaded successfully '
+                    f'({response.get("transactions_processed", 0)} transactions imported)',
+                    'success',
+                )
                 return redirect(url_for('main.upload'))
 
             except Exception as e:
