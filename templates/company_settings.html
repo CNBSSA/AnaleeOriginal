@@ -62,7 +62,11 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="entity_id" class="form-label">Entity Type</label>
-                                <select class="form-select" id="entity_id" name="entity_id" required>
+                                {% if entity_change_locked and settings and settings.entity_id %}
+                                    <input type="hidden" name="entity_id" value="{{ settings.entity_id }}">
+                                {% endif %}
+                                <select class="form-select" id="entity_id" name="entity_id" required
+                                        {% if entity_change_locked %}disabled{% endif %}>
                                     <option value="">Select entity type…</option>
                                     {% for ent_id, ent_name in form.entity_id.choices %}
                                         <option value="{{ ent_id }}"
@@ -71,9 +75,13 @@
                                         </option>
                                     {% endfor %}
                                 </select>
-                                <div class="form-text">
-                                    Choosing an entity copies the matching chart of accounts into your books.
-                                </div>
+                                {% if entity_change_locked %}
+                                    <div class="form-text text-warning">{{ entity_change_locked_message }}</div>
+                                {% else %}
+                                    <div class="form-text">
+                                        You can change entity type to refresh your chart until the first transaction is posted.
+                                    </div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>

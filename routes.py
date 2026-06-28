@@ -34,6 +34,13 @@ from services.analyze_processing import (
     transaction_needs_processing,
 )
 from services.chart_of_accounts import set_entity_for_user, seed_entities, seed_admin_charts
+from services.entity_chart_rules import (
+    EntityChangeBlocked,
+    ENTITY_CHANGE_LOCKED_MESSAGE,
+    apply_entity_change,
+    provision_chart_if_missing,
+    user_has_posted_transactions,
+)
 from services.entity_chart_schema import (
     ensure_company_settings_schema,
     ensure_entity_chart_schema,
@@ -176,7 +183,7 @@ def settings():
         if company and company.entity_id:
             if Account.query.filter_by(user_id=current_user.id).count() == 0:
                 try:
-                    set_entity_for_user(current_user.id, company.entity_id)
+                    provision_chart_if_missing(current_user.id)
                 except Exception as prov_exc:
                     logger.warning(
                         'Auto chart provision on settings failed: %s', prov_exc
@@ -206,9 +213,9 @@ def import_chart_of_accounts():
         flash('Choose your entity type in Company Settings first.', 'warning')
         return redirect(url_for('main.company_settings'))
     try:
-        added = set_entity_for_user(current_user.id, settings.entity_id)
+        added = provision_chart_if_missing(current_user.id)
         flash(
-            f'Chart of Accounts updated — {added} new account(s) copied for your entity.',
+            f'Chart of Accounts updated — {added} account(s) available for your entity.',
             'success',
         )
     except Exception as exc:
@@ -235,6 +242,12 @@ def company_settings():
 
         if request.method == 'POST' and form.validate_on_submit():
             try:
+                new_entity_id = form.entity_id.data
+                if settings and settings.entity_id and settings.entity_id != new_entity_id:
+                    if user_has_posted_transactions(current_user.id):
+                        flash(ENTITY_CHANGE_LOCKED_MESSAGE, 'error')
+                        return redirect(url_for('main.company_settings'))
+
                 if not settings:
                     settings = CompanySettings(
                         user_id=current_user.id,
@@ -249,16 +262,27 @@ def company_settings():
                 settings.vat_number = form.vat_number.data
                 settings.address = form.address.data
                 settings.financial_year_end = int(form.financial_year_end.data)
-                settings.entity_id = form.entity_id.data
                 db.session.flush()
-                added = set_entity_for_user(current_user.id, form.entity_id.data)
-                flash(
-                    f'Company settings updated. Chart of accounts provisioned '
-                    f'({added} new account(s) added).',
-                    'success',
-                )
+
+                added, chart_rebuilt = apply_entity_change(current_user.id, new_entity_id)
+                if chart_rebuilt:
+                    flash(
+                        f'Entity type updated and chart of accounts refreshed ({added} account(s)).',
+                        'success',
+                    )
+                elif added:
+                    flash(
+                        f'Company settings updated. Chart of accounts provisioned '
+                        f'({added} new account(s) added).',
+                        'success',
+                    )
+                else:
+                    flash('Company settings updated.', 'success')
                 return redirect(url_for('main.company_settings'))
 
+            except EntityChangeBlocked as exc:
+                flash(str(exc), 'error')
+                db.session.rollback()
             except Exception as e:
                 logger.error(f'Error updating company settings: {str(e)}')
                 flash('Error updating company settings', 'error')
@@ -286,7 +310,9 @@ def company_settings():
             'company_settings.html',
             form=form,
             settings=settings,
-            months=months
+            months=months,
+            entity_change_locked=user_has_posted_transactions(current_user.id),
+            entity_change_locked_message=ENTITY_CHANGE_LOCKED_MESSAGE,
         )
     except Exception as e:
         logger.exception('company_settings page failed: %s', e)

@@ -91,22 +91,23 @@ def test_provision_user_chart_defaults_to_private_company(app, sample_user):
         assert settings.entity_id == default_entity.id
 
 
-def test_entity_switch_adds_only_new_accounts(app, sample_user):
+def test_entity_switch_rebuilds_chart_when_no_transactions(app, sample_user):
+    """Switching entity without transactions replaces the chart (BooksXperts parity)."""
     with app.app_context():
         seed_entities()
         seed_admin_charts()
         private = Entity.query.filter_by(name='Private Company').first()
         npo = Entity.query.filter_by(name='NPO').first()
-        private_added = set_entity_for_user(sample_user, private.id)
-        npo_added = set_entity_for_user(sample_user, npo.id)
-        assert private_added > 0
-        assert npo_added > 0
-        total = Account.query.filter_by(user_id=sample_user).count()
-        assert total == private_added + npo_added
-        npo_only = AdminChartOfAccounts.query.filter_by(
-            entity_id=npo.id, link='i.600.000'
-        ).first()
-        assert npo_only is not None
+        from services.entity_chart_rules import apply_entity_change
+
+        apply_entity_change(sample_user, private.id)
+        private_count = Account.query.filter_by(user_id=sample_user).count()
+
+        added, rebuilt = apply_entity_change(sample_user, npo.id)
+        assert rebuilt is True
+        assert added > 0
+        npo_count = Account.query.filter_by(user_id=sample_user).count()
+        assert npo_count > 0
         assert Account.query.filter_by(user_id=sample_user, link='i.600.000').first()
 
 
