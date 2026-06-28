@@ -17,13 +17,17 @@ from predictive_features import PredictiveFeatures
 
 from models import (
     db, User, CompanySettings, Account, Transaction,
-    UploadedFile, AdminChartOfAccounts, Entity,
+    UploadedFile, Entity,
     AlertHistory, AlertConfiguration, FinancialGoal,
     FinancialRecommendation, RiskAssessment
 )
 from forms.company import CompanySettingsForm
 from services.chart_of_accounts import set_entity_for_user, seed_entities, seed_admin_charts
-from services.entity_chart_schema import ensure_company_settings_schema, ensure_entity_chart_schema
+from services.entity_chart_schema import (
+    ensure_company_settings_schema,
+    ensure_entity_chart_schema,
+    prepare_subscriber_chart_access,
+)
 from ai_insights import FinancialInsightsGenerator
 from maintenance_monitor import MaintenanceMonitor
 from alert_system import AlertSystem
@@ -135,7 +139,13 @@ def dashboard():
 def settings():
     """Protected Chart of Accounts management"""
     try:
-        ensure_entity_chart_schema()
+        if not prepare_subscriber_chart_access():
+            flash(
+                'Chart of accounts is temporarily unavailable. Please try again shortly.',
+                'warning',
+            )
+            return redirect(url_for('main.dashboard'))
+
         if request.method == 'POST':
             account = Account(
                 link=request.form['link'],
@@ -162,22 +172,14 @@ def settings():
                     )
                     db.session.rollback()
 
-        # Get user's accounts
         accounts = Account.query.filter_by(
             user_id=current_user.id,
             is_active=True
         ).all()
 
-        # Get system-wide Chart of Accounts for reference
-        system_accounts = AdminChartOfAccounts.query.all()
-
-        return render_template(
-            'settings.html',
-            accounts=accounts,
-            system_accounts=system_accounts
-        )
+        return render_template('settings.html', accounts=accounts)
     except Exception as e:
-        logger.error(f'Error in settings route: {str(e)}')
+        logger.exception('Error in settings route: %s', e)
         db.session.rollback()
         flash('Error accessing Chart of Accounts', 'error')
         return redirect(url_for('main.dashboard'))
@@ -185,6 +187,9 @@ def settings():
 @main.route('/settings/import-charts', methods=['GET'])
 @login_required
 def import_chart_of_accounts():
+    if not prepare_subscriber_chart_access():
+        flash('Could not import Chart of Accounts. Please try again.', 'error')
+        return redirect(url_for('main.settings'))
     settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
     if not settings or not settings.entity_id:
         flash('Choose your entity type in Company Settings first.', 'warning')

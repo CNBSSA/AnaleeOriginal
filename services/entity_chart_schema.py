@@ -186,3 +186,16 @@ def default_entity_id() -> int | None:
         return row[0]
     row = db.session.execute(text('SELECT id FROM entity ORDER BY id LIMIT 1')).first()
     return row[0] if row else None
+
+
+def prepare_subscriber_chart_access() -> bool:
+    """Heal schema and seed charts before subscriber settings/import routes."""
+    if not ensure_entity_chart_schema():
+        return False
+    try:
+        from services.chart_of_accounts import seed_entities, seed_admin_charts
+        seed_entities()
+        seed_admin_charts()
+    except Exception as exc:
+        logger.error('Chart seed during subscriber route prep failed: %s', exc)
+    return True
