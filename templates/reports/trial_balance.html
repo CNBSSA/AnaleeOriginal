@@ -8,9 +8,17 @@
                 <h2 class="card-title mb-0">Trial Balance</h2>
                 <p class="text-muted mb-0">{{ start_date.strftime('%Y-%m-%d') }} to {{ end_date.strftime('%Y-%m-%d') }}</p>
             </div>
-            <a href="{{ url_for('reports.trial_balance_export') }}" class="btn btn-primary btn-sm">
-                Export trial balance
-            </a>
+            <div class="d-flex flex-wrap gap-2">
+                <a href="{{ url_for('reports.trial_balance_export') }}" class="btn btn-primary btn-sm">
+                    Download Excel
+                </a>
+                <a href="{{ url_for('reports.trial_balance_api') }}" class="btn btn-outline-primary btn-sm" target="_blank" rel="noopener">
+                    View JSON API
+                </a>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="tbShareLinkBtn">
+                    Copy share link
+                </button>
+            </div>
         </div>
         <div class="card-body">
             {% if not tb_balanced %}
@@ -26,6 +34,12 @@
                 <strong>The Accountants</strong> trial balance intake.
                 This is a <strong>cash-basis summary</strong> from categorised bank activity — not an accrual GL.
             </p>
+            <p class="text-muted small mb-0">
+                <strong>API transmission:</strong> authenticated JSON at
+                <code>{{ url_for('reports.trial_balance_api', _external=True) }}</code>
+                or a <strong>24-hour signed share link</strong> for BooksXperts / Accountants to pull the same payload.
+            </p>
+            <div id="tbShareStatus" class="small mt-2" style="display:none;"></div>
             <div class="table-responsive">
                 <table class="table table-striped">
                     <thead>
@@ -59,4 +73,36 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const btn = document.getElementById('tbShareLinkBtn');
+    const status = document.getElementById('tbShareStatus');
+    if (!btn) return;
+
+    btn.addEventListener('click', async function () {
+        btn.disabled = true;
+        status.style.display = 'block';
+        status.className = 'small mt-2 text-muted';
+        status.textContent = 'Generating share link…';
+        try {
+            const response = await fetch('{{ url_for("reports.trial_balance_share_link") }}');
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Could not create share link');
+            }
+            await navigator.clipboard.writeText(data.share_url);
+            status.className = 'small mt-2 text-success';
+            status.textContent = 'Share link copied (valid 24 hours). Downstream systems can GET this URL for JSON.';
+        } catch (err) {
+            status.className = 'small mt-2 text-danger';
+            status.textContent = err.message || 'Failed to create share link';
+        } finally {
+            btn.disabled = false;
+        }
+    });
+});
+</script>
 {% endblock %}
