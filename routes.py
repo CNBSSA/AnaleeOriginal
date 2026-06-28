@@ -449,11 +449,21 @@ def find_similar_transactions_api():
             return jsonify({'error': 'Description is required'}), 400
 
         predictor = PredictiveFeatures()
-        similar_transactions = predictor.find_similar_transactions(description, explanation)
+        result = predictor.find_similar_transactions(
+            description,
+            explanation,
+            user_id=current_user.id,
+        )
+
+        similar_transactions = (
+            result.get('similar_transactions', [])
+            if isinstance(result, dict)
+            else []
+        )
 
         return jsonify({
             'success': True,
-            'similar_transactions': similar_transactions
+            'similar_transactions': similar_transactions,
         })
 
     except Exception as e:
@@ -473,12 +483,53 @@ def suggest_account():
             return jsonify({'error': 'Description is required'}), 400
 
         predictor = PredictiveFeatures()
-        suggestion = predictor.suggest_account(description, explanation)
+        suggestion = predictor.suggest_account(
+            description,
+            explanation,
+            user_id=current_user.id,
+        )
 
         return jsonify(suggestion)
 
     except Exception as e:
         logger.error(f"Error suggesting account: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/analyze/replicate-explanation', methods=['POST'])
+@login_required
+def replicate_explanation_api():
+    """ERF: Copy an explanation from a similar transaction."""
+    try:
+        data = request.get_json()
+        transaction_id = data.get('transaction_id', type=int)
+        similar_transaction_id = data.get('similar_transaction_id', type=int)
+
+        if not transaction_id or not similar_transaction_id:
+            return jsonify({'error': 'transaction_id and similar_transaction_id are required'}), 400
+
+        target = Transaction.query.filter_by(
+            id=transaction_id,
+            user_id=current_user.id,
+        ).first()
+        source = Transaction.query.filter_by(
+            id=similar_transaction_id,
+            user_id=current_user.id,
+        ).first()
+
+        if not target or not source:
+            return jsonify({'error': 'Transaction not found'}), 404
+
+        target.explanation = source.explanation
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'explanation': target.explanation,
+        })
+
+    except Exception as e:
+        logger.error(f"Error replicating explanation: {str(e)}")
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 @main.route('/analyze/suggest-explanation', methods=['POST'])

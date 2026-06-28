@@ -206,6 +206,7 @@
 
         {% if transactions %}
         <form method="POST" id="analyzeForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="page" value="{{ page }}">
             <div class="table-responsive">
                 <table class="table transaction-table">
@@ -237,12 +238,8 @@
                                         data-transaction-id="{{ transaction.id }}"
                                         data-description="{{ transaction.description }}"
                                     >{{ transaction.explanation or '' }}</textarea>
-                                    <div class="similar-transactions mt-2" id="similar-transactions-{{ transaction.id }}" style="display: none;">
-                                        <h6 class="text-muted">Similar Transactions</h6>
-                                        <div class="list-group">
-                                            <!-- Similar transactions will be populated here -->
-                                        </div>
-                                    </div>
+                                    <div class="similar-transactions mt-2" id="similar-transactions-{{ transaction.id }}" style="display: none;"></div>
+                                    <div id="explanation-suggestions-{{ transaction.id }}" class="mt-1" style="display: none;"></div>
                                 </div>
                             </td>
                             <td>
@@ -257,24 +254,27 @@
                                 </select>
                             </td>
                             <td>
-                                <button type="button" 
-                                        class="btn btn-outline-primary suggest-btn suggest-account-btn"
-                                        data-transaction-id="{{ transaction.id }}"
-                                        data-description="{{ transaction.description }}"
-                                        data-explanation="{{ transaction.explanation or '' }}"
-                                        {% if not ai_available %}
-                                        data-bs-toggle="tooltip"
-                                        title="AI suggestions temporarily unavailable. You can still enter explanations manually."
-                                        {% endif %}
-                                        {{ 'disabled' if not ai_available else '' }}>
-                                    <i class="fas fa-magic"></i> {{ 'AI Suggest' if ai_available else 'Manual Mode' }}
-                                </button>
-                                {% if not ai_available %}
-                                <small class="text-muted d-block mt-1">
-                                    <i class="fas fa-edit"></i> Manual entry available
-                                </small>
-                                {% endif %}
+                                <div class="d-flex flex-column gap-1">
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-primary suggest-btn suggest-account-btn"
+                                            data-transaction-id="{{ transaction.id }}"
+                                            data-description="{{ transaction.description }}"
+                                            data-explanation="{{ transaction.explanation or '' }}"
+                                            title="Account Suggestion (ASF)"
+                                            {% if not ai_available %}disabled{% endif %}>
+                                        <i class="fas fa-magic"></i> ASF
+                                    </button>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary suggest-explanation-btn"
+                                            data-transaction-id="{{ transaction.id }}"
+                                            data-description="{{ transaction.description }}"
+                                            title="Explanation Suggestion (ESF)"
+                                            {% if not ai_available %}disabled{% endif %}>
+                                        <i class="fas fa-lightbulb"></i> ESF
+                                    </button>
+                                </div>
                                 <div id="suggestions-{{ transaction.id }}" class="suggestions mt-2" style="display: none;"></div>
+                                <small class="text-muted d-block mt-1">ERF: type explanation to find similar rows</small>
                             </td>
                         </tr>
                         {% endfor %}
@@ -389,15 +389,14 @@
     import AnalyzeApplication from "{{ url_for('static', filename='js/analyze/main.js') }}";
     import BatchProcessor from "{{ url_for('static', filename='js/analyze/batchProcessor.js') }}";
 
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
         const app = new AnalyzeApplication();
-        app.initialize().catch((error) => {
-            console.error('Failed to initialize application:', error);
-        });
+        await app.initialize();
 
-        const fileId = {{ file.id }};
-        const batchProcessor = new BatchProcessor(fileId);
+        {% if file is defined and file %}
+        const batchProcessor = new BatchProcessor({{ file.id }});
         batchProcessor.bindUI();
+        {% endif %}
     });
 </script>
 
