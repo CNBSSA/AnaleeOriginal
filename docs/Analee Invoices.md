@@ -54,6 +54,60 @@ For the target user, **revenue and expenses are recognised when cash moves** (ba
 
 The **trial balance** is therefore a **summary of categorised bank activity** for a period, not an audit-grade accrual GL.
 
+### 2.4 Fixed assets — Analee categorises; BooksXperts interprets
+
+A critical part of the handoff is that **Analee and BooksXperts share the same chart `account_link` codes** (`services/chart_seed_data.py` is ported from BooksXperts `seed_chart_of_accounts.py`). Analee does **not** need to know that an item is depreciable, furniture, or a fixed asset. It only needs to **listen to the user** and categorise the bank line to the **correct assets account**.
+
+BooksXperts **already knows** what that link means.
+
+**Example — five furniture purchases in one year**
+
+| Step | System | What happens |
+|------|--------|--------------|
+| 1 | User in Analee | Five bank payments categorised to `na.040.000` **Office Furniture - Cost** (not repairs expense) |
+| 2 | Analee TB export | One line: `na.040.000` \| Office Furniture - Cost \| **R total** (sum of five purchases) |
+| 3 | BooksXperts import | Maps link → `CompanyAccount` → non-current asset / PPE subcategory |
+| 4 | BooksXperts asset register | `AssetClassAccountMap` ties cost account to class *Office Furniture*, with paired acc-dep, depreciation expense, and gain/loss accounts |
+| 5 | BooksXperts | **Commission** from GL debits on that cost account (or work from TB balance); run **depreciation**; populate Note 3 / acc-dep |
+
+Analee's job ends at step 2. It does **not** commission assets, post depreciation, or split five items — **BooksXperts does**, because it understands the chart semantics that the **link** carries.
+
+```
+Analee                          BooksXperts / The Accountants
+──────                          ─────────────────────────────
+Bank line                       TB import
+   ↓                                ↓
+User picks account LINK  ──────→  Chart knows: PPE cost / depreciable
+   ↓                                ↓
+TB row (Link, Name, Amt) ──────→  Commission + depreciation + AFS
+```
+
+**What Analee must do for PPE**
+
+| Responsibility | Owner |
+|----------------|-------|
+| Categorise capital bank outflows to **PPE cost links** (`na.*` non-current asset), not expense | **User**, guided by Analee analyse UI |
+| Sum those lines into the TB export | **Analee** |
+| Know furniture vs vehicle vs depreciation | **Not Analee** |
+
+**What Analee must not do**
+
+- Build an asset register  
+- Calculate accumulated depreciation  
+- Split one TB line into five assets (BooksXperts commission can use bank descriptions / GL debits for that)  
+
+**User education (Analee analyse)**
+
+When a bank line looks like a capital purchase, prompt: *“Use the **cost** account for this asset class (e.g. Office Furniture - Cost), not repairs expense. BooksXperts will handle depreciation.”*
+
+**The Accountants path**
+
+Same TB line arrives. The accountant posts **adjusting journals** for depreciation and accumulated depreciation manually (or via their workflow). Analee still only owed the correct **cost** balance on the right link.
+
+**Revised view on “one cost value”**
+
+Collapsing five purchases into one TB line per account is **correct for a trial balance**. The “loss” is asset-level detail, which was never the TB's job. BooksXperts recovers detail through **commission** (per debit / description) or a single commissioned asset at total cost — imperfect but acceptable, as noted. Analee should not try to fix that inside the TB export.
+
 ---
 
 ## 3. Repository map — where “invoice” lives today
@@ -173,9 +227,12 @@ Each phase is independently shippable. **No phase adds invoice logic.**
 |------|-------|
 | Define `ACCRUAL_CONTROL_LINKS` constant | `services/chart_of_accounts.py` or new `cash_basis.py` |
 | Warn on analyse when user picks AR/AP/accrued | `routes.py` / analyse JS |
+| **Encourage** PPE **cost** links (`na.*`) for capital purchases; warn on repairs expense mispost | `analyze.html`, tooltips |
 | Optional: filter AR/AP out of analyse dropdown | `analyze.html`, API |
 
-**Acceptance:** TB export for a typical user contains only bank, cash, income, expense, equity — no AR/AP balances.
+**Acceptance:** TB export for a typical user contains bank, cash, income, expense, equity, and **PPE cost** where capitalised — no AR/AP balances.
+
+**Do not** hide PPE cost accounts from the chart — they are essential for the BooksXperts handoff.
 
 ### Phase 4 — Report rationalisation
 
@@ -211,8 +268,9 @@ Positive = debit, negative = credit, rows must sum to zero.
 - VAT tax invoices (§16(2) input VAT needs valid tax invoice)  
 - Bank ↔ invoice matching (BooksXperts only)  
 - Stock / inventory COGS automation (BooksXperts inventory module)  
+- **Asset register, commissioning, or depreciation runs** — BooksXperts `assetregister` / The Accountants adjusting journals  
 
----
+**In scope for Analee:** user categorisation to the correct **chart link**, including PPE **cost** accounts.
 
 ## 6. What we keep unchanged
 
@@ -220,7 +278,7 @@ Positive = debit, negative = credit, rows must sum to zero.
 |------|-----|
 | Bank statement pipeline | Core product |
 | Analyse + batch AI | Core product |
-| Entity-scoped chart + lock rules | BooksXperts parity for `account_link` |
+| Entity-scoped chart + lock rules | BooksXperts parity for `account_link` — **includes PPE cost links** |
 | Trial balance + Excel export | Primary handoff |
 | Historical data / recall | Improves categorisation quality |
 | iCountant / chat (bank-focused) | UX for categorisation |
@@ -236,6 +294,8 @@ Positive = debit, negative = credit, rows must sum to zero.
 | User expects AFS from Analee | Hide accrual reports; point to BooksXperts / Accountants |
 | Confusion with BooksXperts “Analee” module | Rename in docs: **“Analee Bank”** (standalone) vs **“BooksXperts Bank Reconciliation”** (embedded) |
 | AR/AP on chart tempts wrong categorisation | Phase 3 guardrails |
+| User posts capital purchase to **repairs expense** instead of PPE **cost** link | Analyse prompt: “Use asset cost account; BooksXperts will depreciate” |
+| User expects Analee to depreciate | Document §2.4; TB export footer |
 
 ---
 
@@ -255,10 +315,10 @@ pytest tests/ -q
 
 Manual:
 
-1. Upload bank statement → analyse all lines to income/expense/bank  
+1. Upload bank statement → analyse lines to income/expense/bank **and PPE cost where applicable**  
 2. Open Trial Balance → Export for BooksXperts  
-3. Upload file in BooksXperts Data Imports → map links → post  
-4. Repeat upload in The Accountants portal (if available)  
+3. Upload file in BooksXperts Data Imports → map links → post → **Asset Register → Commission** on PPE cost accounts  
+4. Repeat upload in The Accountants portal (if available); post depreciation adjusting journals  
 
 ---
 
@@ -270,6 +330,7 @@ Manual:
 | What is the main “removal” work? | **UX, chart guardrails, accrual report hiding**, not deleting modules |
 | What is the primary output? | **Trial balance Excel** → BooksXperts or The Accountants |
 | Where do invoices belong? | **BooksXperts** (full GL + bank match) |
+| Does Analee handle depreciation? | **No** — user posts to PPE **cost** link; BooksXperts / Accountants handle acc-dep |
 | Smallest next code PR? | **Phase 1** — nav labels, hide Financial Position, dual-target export footer |
 
 ---
@@ -283,6 +344,10 @@ Manual:
 | BooksXperts bank + invoice reconciliation | `booksxpert/docs/RECONCILIATION_GOALS.md` |
 | Accountants TB intake | `accountants/dataimports/`, `portal/views.py` |
 | Analee master chart links | `services/chart_seed_data.py` |
+| BooksXperts PPE cost / acc-dep pairs | `booksxpert/app/management/commands/seed_chart_of_accounts.py` (e.g. `na.040.000` / `na.040.001`) |
+| Asset class → GL account map | `booksxpert/assetregister/models.py` (`AssetClassAccountMap`) |
+| Asset commission from GL | `booksxpert/assetregister/views.py` (`asset_commission`) |
+| TB-first PPE in AFS | `booksxpert/docs/AFS_PPE_FROM_GL_RUNBOOK.md` |
 
 ---
 
