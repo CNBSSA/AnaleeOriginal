@@ -331,7 +331,11 @@ def analyze(file_id):
 
             if not transactions:
                 logger.warning(f"No transactions found for file {file_id}")
-                flash('No transactions found in this file')
+                flash(
+                    'No transactions found for this file. The upload may have failed parsing — '
+                    're-upload using Date plus Amount or Debit/Credit columns, then analyze again.',
+                    'warning',
+                )
                 return redirect(url_for('main.upload'))
 
             # Load accounts for the user
@@ -599,26 +603,39 @@ def upload():
                     user_id=current_user.id
                 )
 
-                # Create upload record
-                # uploaded_file = UploadedFile(
-                #     filename=filename,
-                #     user_id=current_user.id,
-                #     upload_date=datetime.utcnow()
-                # )
-                # db.session.add(uploaded_file)
-                # db.session.commit()
-                logger.info(f"File upload record created: {filename}")
-                
-                
+                if not success:
+                    error_message = response.get('error', 'Upload processing failed')
+                    logger.error('Upload processing failed: %s', error_message)
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                        return jsonify({
+                            'success': False,
+                            'error': error_message,
+                            'details': response.get('details', []),
+                        }), 400
+                    flash(error_message, 'error')
+                    for detail in response.get('details', []) or []:
+                        flash(str(detail), 'warning')
+                    return redirect(url_for('main.upload'))
+
+                logger.info(
+                    'File processed: %s transactions (file_id=%s)',
+                    response.get('transactions_processed'),
+                    response.get('file_id'),
+                )
 
                 if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                     return jsonify({
                         'success': True,
                         'message': 'File uploaded successfully',
-                        #'file_id': uploaded_file.id
+                        'file_id': response.get('file_id'),
+                        'transactions_processed': response.get('transactions_processed', 0),
                     })
 
-                flash('File uploaded successfully')
+                flash(
+                    f'File uploaded successfully '
+                    f'({response.get("transactions_processed", 0)} transactions imported)',
+                    'success',
+                )
                 return redirect(url_for('main.upload'))
 
             except Exception as e:
