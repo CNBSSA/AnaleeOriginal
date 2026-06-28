@@ -12,12 +12,13 @@ helpers so the latter can be unit-tested without any network access.
 import base64
 import json
 import logging
-from datetime import datetime
 from difflib import SequenceMatcher
 from typing import List, Dict, Optional
 
-from config import CLAUDE_MODEL
+from config import OCR_MODEL
 from nlp_utils import get_claude_client
+from .sa_normalize import parse_sa_amount, parse_sa_date
+from .statement_extractor import extract_bank_statement, BankStatementExtraction
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +39,18 @@ ALLOWED_DOCUMENT_TYPES = {
 MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_PDF_BYTES = 32 * 1024 * 1024    # 32 MB (Anthropic PDF request limit)
 
-_EXTRACTION_PROMPT = (
-    "You are a precise financial document reader. Extract the purchase line items "
-    "from this receipt image. Respond with ONLY a JSON array and nothing else.\n"
-    "Each element must be an object: "
-    '{"date": "YYYY-MM-DD" or null, "description": "<item or merchant>", '
-    '"amount": <positive number>, "confidence": <number 0..1>}.\n'
-    "Use the receipt's transaction date for every row. If individual line items are "
-    "unclear, return a single row for the receipt total. Amounts are positive numbers "
-    "without currency symbols. Do not invent data; set confidence lower when unsure."
+_SA_RECEIPT_PROMPT = (
+    "You are an expert reader of South African retail receipts and till slips. "
+    "Extract purchase line items from this receipt image. Respond with ONLY a JSON "
+    "array and nothing else.\n"
+    "Each element: "
+    '{"date": "<DD/MM/YYYY or YYYY-MM-DD or null>", "description": "<item or merchant>", '
+    '"amount": "<ZAR amount as printed, e.g. R 45.00 or 45.00>", '
+    '"confidence": <0.0-1.0>}.\n'
+    "Rules: SA dates are usually DD/MM/YYYY. Amounts are in ZAR (R). Use the "
+    "receipt date for every row. If line items are unclear, return one row for the "
+    "total. Amounts are positive (expense). Include VAT/tip as separate rows only if "
+    "clearly itemised. Do not invent data; lower confidence when unsure."
 )
 
 
@@ -63,7 +67,7 @@ def extract_receipt(image_bytes: bytes, media_type: str, client=None) -> List[Di
     try:
         encoded = base64.standard_b64encode(image_bytes).decode('ascii')
         response = client.messages.create(
-            model=CLAUDE_MODEL,
+            model=OCR_MODEL,
             max_tokens=1024,
             messages=[{
                 'role': 'user',
@@ -76,7 +80,7 @@ def extract_receipt(image_bytes: bytes, media_type: str, client=None) -> List[Di
                             'data': encoded,
                         },
                     },
-                    {'type': 'text', 'text': _EXTRACTION_PROMPT},
+                    {'type': 'text', 'text': _SA_RECEIPT_PROMPT},
                 ],
             }],
         )
@@ -119,8 +123,8 @@ def normalize_rows(raw_rows: List[Dict], signed: bool = False) -> List[Dict]:
         if not isinstance(row, dict):
             continue
         description = str(row.get('description') or '').strip()
-        amount = parse_amount(row.get('amount'), signed=signed)
-        date_str = parse_date(row.get('date'))
+        amount = parse_sa_amount(row.get('amount'), signed=signed)
+        date_str = parse_sa_date(row.get('date'))
         if not description and amount is None:
             continue
         try:
@@ -142,99 +146,41 @@ def extract_and_normalize(image_bytes: bytes, media_type: str, client=None) -> L
 
 
 def parse_amount(value, signed: bool = False) -> Optional[float]:
-    """Parse a currency-ish value to a float, or None if unparseable.
-
-    Handles thousands separators, currency symbols and accounting-style
-    parentheses for negatives. When ``signed`` is False the result is made
-    positive (receipts); when True the sign is preserved (bank statements).
-    """
-    if value is None:
-        return None
-    try:
-        if isinstance(value, str):
-            text = value.replace(',', '').replace('$', '').strip()
-            negative = text.startswith('(') and text.endswith(')')
-            text = text.strip('()').strip()
-            if not text:
-                return None
-            number = float(text)
-            if negative:
-                number = -number
-        else:
-            number = float(value)
-        if not signed:
-            number = abs(number)
-        return round(number, 2)
-    except (TypeError, ValueError):
-        return None
+    """Parse a currency value (SA-aware). Delegates to :mod:`sa_normalize`."""
+    return parse_sa_amount(value, signed=signed)
 
 
 def parse_date(value) -> str:
-    """Parse a date in several common formats to 'YYYY-MM-DD', or '' if unknown."""
-    if not value:
-        return ''
-    text = str(value).strip()
-    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d', '%d-%m-%Y', '%d %b %Y', '%d %B %Y'):
-        try:
-            return datetime.strptime(text, fmt).strftime('%Y-%m-%d')
-        except ValueError:
-            continue
-    return ''
+    """Parse a date (SA-aware). Delegates to :mod:`sa_normalize`."""
+    return parse_sa_date(value)
 
 
-# --- Phase 2: PDF bank statements -----------------------------------------
-
-_STATEMENT_PROMPT = (
-    "You are a precise bank-statement reader. Extract EVERY transaction line from "
-    "this bank statement. Respond with ONLY a JSON array and nothing else.\n"
-    "Each element: {\"date\": \"YYYY-MM-DD\", \"description\": \"<narration or merchant>\", "
-    "\"amount\": <number>, \"confidence\": <number 0..1>}.\n"
-    "Sign convention: amount is NEGATIVE for money leaving the account (debits, "
-    "withdrawals, payments) and POSITIVE for money entering (credits, deposits).\n"
-    "Use each transaction's own date. Do NOT include opening/closing balances or "
-    "summary totals. Do not invent rows; lower the confidence when unsure."
-)
+# --- Phase 2+: SA bank statements (Tier-1 digital PDF + Tier-2 Claude Vision) ---
 
 
-def extract_statement(pdf_bytes: bytes, client=None) -> List[Dict]:
-    """Send a PDF bank statement to Claude (document block) and return raw rows.
+def extract_and_normalize_statement(
+    pdf_bytes: bytes,
+    client=None,
+    opening_balance: Optional[str] = None,
+    closing_balance: Optional[str] = None,
+) -> List[Dict]:
+    """Extract a PDF bank statement via the full SA pipeline.
 
-    Never raises. ``client`` may be injected for testing.
+    Returns review-ready row dicts, or [] on failure (legacy contract for callers
+    that only check emptiness). Prefer :func:`extract_bank_statement` when you
+    need error detail and the integrity report card.
     """
-    client = client or get_claude_client()
-    if not client:
-        logger.error("OCR: AI client unavailable for statement extraction")
+    outcome = extract_bank_statement(
+        pdf_bytes,
+        opening_balance=opening_balance,
+        closing_balance=closing_balance,
+        client=client,
+    )
+    if not outcome.ok:
+        if outcome.error:
+            logger.error("OCR statement extraction: %s", outcome.error)
         return []
-    try:
-        encoded = base64.standard_b64encode(pdf_bytes).decode('ascii')
-        response = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=4096,
-            messages=[{
-                'role': 'user',
-                'content': [
-                    {
-                        'type': 'document',
-                        'source': {
-                            'type': 'base64',
-                            'media_type': 'application/pdf',
-                            'data': encoded,
-                        },
-                    },
-                    {'type': 'text', 'text': _STATEMENT_PROMPT},
-                ],
-            }],
-        )
-        text = response.content[0].text.strip()
-        return parse_rows(text)
-    except Exception as e:
-        logger.error(f"OCR statement extraction error: {str(e)}")
-        return []
-
-
-def extract_and_normalize_statement(pdf_bytes: bytes, client=None) -> List[Dict]:
-    """Convenience: extract a PDF statement then normalize with signed amounts."""
-    return normalize_rows(extract_statement(pdf_bytes, client=client), signed=True)
+    return outcome.rows
 
 
 # --- Phase 2.1: duplicate flagging ----------------------------------------

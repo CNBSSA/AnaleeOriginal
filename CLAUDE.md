@@ -42,11 +42,19 @@ skips them:
 Changes are kept small and separate (one logical change per commit), and broad
 refactors are avoided inside a fix.
 
-## Autonomous Directive (standing)
+## Autonomous Directive (standing — non-negotiable)
 
-When the user issues an **autonomous directive** ("go on autonomously", "just do
-it", etc.), the autonomous directive is **contingent on the Workflow & Audits
-Directive above** — autonomy never waives the three audits. Each time the user
-issues an autonomous directive, explicitly note that the autonomous directive is
-contingent on our workflow and audits directive, then proceed, asking only for
-decisions that cannot be made from the code or sensible defaults.
+When Festus issues an **autonomous directive** ("go on autonomously", "just do
+it", "only ask what you cannot decide", etc.), that autonomy is **always
+contingent on the Workflow & Audits Directive above** — autonomy **never**
+waives the three audits (pre-planning, pre-implementation, post-implementation).
+
+**Each time Festus issues an autonomous directive, the agent MUST restate this
+contingency in the reply** — this restatement is a rule, not a courtesy.
+
+Operating under an autonomous directive means:
+- **Do** proceed and decide what can be decided from the code or sensible defaults.
+- **Still always** run all three audits on every change so existing application
+  wins are not damaged.
+- **Stop and ask only** for questions/decisions that genuinely cannot be made
+  without Festus.

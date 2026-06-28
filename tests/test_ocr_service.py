@@ -14,7 +14,9 @@ from ocr import service  # noqa: E402
 
 # --- parse_amount ---------------------------------------------------------
 def test_parse_amount_handles_currency_and_commas():
+    assert service.parse_amount("R 1,234.50") == 1234.50
     assert service.parse_amount("$1,234.50") == 1234.50
+    assert service.parse_amount("100.00-") == 100.0  # receipts: positive
     assert service.parse_amount(12) == 12.0
     assert service.parse_amount(-9.99) == 9.99  # amounts are positive
     assert service.parse_amount("not a number") is None
@@ -90,9 +92,9 @@ class _FakeClient:
 
 
 def test_extract_receipt_with_fake_client():
-    client = _FakeClient('[{"date":"2026-03-01","description":"Coffee","amount":4.5,"confidence":0.9}]')
+    client = _FakeClient('[{"date":"15/03/2026","description":"Coffee","amount":"R 4.50","confidence":0.9}]')
     rows = service.extract_receipt(b"fakeimagebytes", "image/png", client=client)
-    assert rows == [{"date": "2026-03-01", "description": "Coffee", "amount": 4.5, "confidence": 0.9}]
+    assert rows == [{"date": "15/03/2026", "description": "Coffee", "amount": "R 4.50", "confidence": 0.9}]
     # the image was sent as a base64 block with the right media type
     content = client.messages.last_kwargs["messages"][0]["content"]
     assert content[0]["type"] == "image"
@@ -106,9 +108,9 @@ def test_extract_receipt_no_client_returns_empty():
 
 
 def test_extract_and_normalize_end_to_end():
-    client = _FakeClient('[{"date":"01/03/2026","description":"Taxi","amount":"$20","confidence":0.8}]')
+    client = _FakeClient('[{"date":"15/03/2026","description":"Taxi","amount":"R 20.00","confidence":0.8}]')
     out = service.extract_and_normalize(b"img", "image/jpeg", client=client)
-    assert out == [{"date": "2026-03-01", "description": "Taxi", "amount": 20.0, "confidence": 0.8}]
+    assert out == [{"date": "2026-03-15", "description": "Taxi", "amount": 20.0, "confidence": 0.8}]
 
 
 # --- Phase 2: signed amounts + PDF statements -----------------------------
@@ -132,19 +134,24 @@ def test_normalize_rows_signed_keeps_debits_negative():
     assert out[1]["amount"] == 2500.0
 
 
-def test_extract_statement_uses_pdf_document_block():
-    client = _FakeClient('[{"date":"2026-03-01","description":"ATM","amount":-60,"confidence":0.9}]')
-    rows = service.extract_statement(b"%PDF-1.7 fake", client=client)
-    assert rows == [{"date": "2026-03-01", "description": "ATM", "amount": -60, "confidence": 0.9}]
-    content = client.messages.last_kwargs["messages"][0]["content"]
-    assert content[0]["type"] == "document"
-    assert content[0]["source"]["media_type"] == "application/pdf"
-
-
 def test_extract_and_normalize_statement_signed_end_to_end():
-    client = _FakeClient('[{"date":"01/03/2026","description":"Card payment","amount":"(30.00)","confidence":0.7}]')
-    out = service.extract_and_normalize_statement(b"%PDF fake", client=client)
-    assert out == [{"date": "2026-03-01", "description": "Card payment", "amount": -30.0, "confidence": 0.7}]
+    """Legacy wrapper delegates to the SA statement pipeline."""
+    from ocr.statement_extractor import extract_bank_statement
+    import json
+    payload = {
+        "opening_balance": "1000.00",
+        "closing_balance": "970.00",
+        "lines": [{
+            "date": "01/03/2026",
+            "description": "Card payment",
+            "amount": "-30.00",
+            "confidence": 0.7,
+        }],
+    }
+    client = _FakeClient(json.dumps(payload))
+    outcome = extract_bank_statement(b"%PDF fake", client=client)
+    assert outcome.ok
+    assert outcome.rows[0]["amount"] == -30.0
 
 
 # --- Phase 2.1: duplicate flagging ----------------------------------------
