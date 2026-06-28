@@ -134,3 +134,39 @@ def build_booksxperts_trial_balance_xlsx(
 
 def export_filename(period_end: datetime) -> str:
     return f'analee-trial-balance-{period_end.strftime("%Y-%m-%d")}.xlsx'
+
+
+def build_trial_balance_payload(
+    ctx: TrialBalanceContext,
+    *,
+    user_id: int,
+    company_name: str = '',
+    registration_number: str | None = None,
+) -> dict:
+    """JSON-serialisable trial balance for API transmission (Phase 5).
+
+    Contract for BooksXperts / The Accountants intake:
+    ``{ company_id, as_at, rows: [{link, name, amount}] }``
+    """
+    rows = [
+        {
+            'link': row.link,
+            'name': row.account_name,
+            'amount': float(row.amount),
+        }
+        for row in ctx.rows
+    ]
+    return {
+        'format_version': 1,
+        'source': 'analee',
+        'company_id': user_id,
+        'company_name': company_name,
+        'registration_number': registration_number or '',
+        'as_at': ctx.end_date.strftime('%Y-%m-%d'),
+        'period_start': ctx.start_date.strftime('%Y-%m-%d'),
+        'period_end': ctx.end_date.strftime('%Y-%m-%d'),
+        'rows': rows,
+        'balanced': ctx.total_debits == ctx.total_credits,
+        'total_debits': float(ctx.total_debits),
+        'total_credits': float(ctx.total_credits),
+    }
