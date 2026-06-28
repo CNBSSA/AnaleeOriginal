@@ -23,6 +23,7 @@ from models import (
 )
 from forms.company import CompanySettingsForm
 from services.chart_of_accounts import set_entity_for_user, seed_entities, seed_admin_charts
+from services.entity_chart_schema import ensure_entity_chart_schema
 from ai_insights import FinancialInsightsGenerator
 from maintenance_monitor import MaintenanceMonitor
 from alert_system import AlertSystem
@@ -134,6 +135,7 @@ def dashboard():
 def settings():
     """Protected Chart of Accounts management"""
     try:
+        ensure_entity_chart_schema()
         if request.method == 'POST':
             account = Account(
                 link=request.form['link'],
@@ -147,6 +149,18 @@ def settings():
             db.session.commit()
             flash('Account added successfully', 'success')
             logger.info(f'New account added: {account.name}')
+
+        # Auto-provision when user has an entity but no accounts yet (post-deploy).
+        company = CompanySettings.query.filter_by(user_id=current_user.id).first()
+        if company and company.entity_id:
+            if Account.query.filter_by(user_id=current_user.id).count() == 0:
+                try:
+                    set_entity_for_user(current_user.id, company.entity_id)
+                except Exception as prov_exc:
+                    logger.warning(
+                        'Auto chart provision on settings failed: %s', prov_exc
+                    )
+                    db.session.rollback()
 
         # Get user's accounts
         accounts = Account.query.filter_by(
@@ -192,6 +206,7 @@ def import_chart_of_accounts():
 @login_required
 def company_settings():
     """Handle company settings with CSRF protection"""
+    ensure_entity_chart_schema()
     seed_entities()
     entities = Entity.query.order_by(Entity.name).all()
     entity_choices = [(e.id, e.name) for e in entities]

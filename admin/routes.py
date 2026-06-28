@@ -12,6 +12,7 @@ import os
 from . import admin, admin_required
 from models import db, User, AdminChartOfAccounts, Account, Transaction, CompanySettings, UploadedFile, BankStatementUpload, Entity
 from services.chart_of_accounts import seed_entities, seed_admin_charts
+from services.entity_chart_schema import default_entity_id, ensure_entity_chart_schema
 from .forms import AdminChartOfAccountsForm, ChartOfAccountsUploadForm, CompanySettingsForm
 
 @admin.route('/charts-of-accounts', methods=['GET'])
@@ -19,6 +20,7 @@ from .forms import AdminChartOfAccountsForm, ChartOfAccountsUploadForm, CompanyS
 @admin_required
 def charts_of_accounts():
     """Manage system-wide Chart of Accounts"""
+    ensure_entity_chart_schema()
     seed_entities()
     seed_admin_charts()
     entities = Entity.query.order_by(Entity.name).all()
@@ -30,8 +32,8 @@ def charts_of_accounts():
     upload_form.entity_id.choices = entity_choices
 
     selected_entity_id = request.args.get('entity_id', type=int)
-    if not selected_entity_id and entities:
-        selected_entity_id = entities[0].id
+    if not selected_entity_id:
+        selected_entity_id = default_entity_id()
 
     query = AdminChartOfAccounts.query
     if selected_entity_id:
