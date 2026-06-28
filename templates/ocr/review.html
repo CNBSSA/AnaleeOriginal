@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Review Extracted Transactions{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Review extracted transactions</h2>
+    <p class="text-muted">
+        Check the values read from <strong>{{ filename }}</strong>. Edit anything that's
+        wrong, then confirm to import. Nothing is saved until you click
+        <em>Confirm &amp; import</em>. Only ticked rows are imported.
+    </p>
+
+    {% if statement_header %}
+        <div class="card mb-3">
+            <div class="card-body py-2">
+                <div class="row small">
+                    {% if statement_header.bank %}
+                        <div class="col-md-3"><strong>Bank:</strong> {{ statement_header.bank }}</div>
+                    {% endif %}
+                    {% if statement_header.account_number %}
+                        <div class="col-md-3"><strong>Account:</strong> {{ statement_header.account_number }}</div>
+                    {% endif %}
+                    <div class="col-md-3">
+                        <strong>Opening:</strong> R {{ '%.2f'|format(statement_header.opening_balance) }}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Closing:</strong> R {{ '%.2f'|format(statement_header.closing_balance) }}
+                    </div>
+                </div>
+                {% if extraction_method %}
+                    <div class="text-muted small mt-1">
+                        Extracted via {{ 'digital PDF parse' if extraction_method == 'digital_pdf' else 'Claude Vision (scan/complex layout)' }}.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+
+    {% if report_card %}
+        {% if report_card.reconciled %}
+            <div class="alert alert-success">
+                <strong>Statement balances.</strong>
+                Opening + {{ report_card.line_count }} transaction(s) = closing
+                (variance R {{ '%.2f'|format(report_card.variance) }}).
+            </div>
+        {% else %}
+            <div class="alert alert-warning">
+                <strong>Review carefully — statement does not fully reconcile.</strong>
+                Variance: R {{ '%.2f'|format(report_card.variance) }}
+                (declared movement R {{ '%.2f'|format(report_card.declared_net) }},
+                computed R {{ '%.2f'|format(report_card.computed_net) }}).
+                {% if report_card.low_confidence_lines %}
+                    {{ report_card.low_confidence_lines|length }} low-confidence row(s) flagged.
+                {% endif %}
+            </div>
+        {% endif %}
+    {% endif %}
+
+    <p class="text-muted small">
+        Low-confidence rows are highlighted; rows that look like duplicates of transactions you
+        already have are flagged and <strong>unticked by default</strong>.
+    </p>
+
+    {% set duplicate_count = rows | selectattr('duplicate') | list | length %}
+    {% if duplicate_count %}
+        <div class="alert alert-warning">
+            {{ duplicate_count }} row(s) look like possible duplicates and have been
+            unticked. Review them before importing.
+        </div>
+    {% endif %}
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('ocr.confirm_receipt') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <input type="hidden" name="filename" value="{{ filename }}"/>
+        <input type="hidden" name="has_include_filter" value="1"/>
+
+        <div class="mb-3" style="max-width: 420px;">
+            <label for="account_id" class="form-label">Assign all rows to account (optional)</label>
+            <select name="account_id" id="account_id" class="form-select">
+                <option value="">— Leave unassigned —</option>
+                {% for account in accounts %}
+                    <option value="{{ account.id }}" {% if account_id == account.id|string %}selected{% endif %}>{{ account.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-bordered align-middle">
+                <thead>
+                    <tr>
+                        <th style="width: 6%;">Import</th>
+                        <th style="width: 16%;">Date</th>
+                        <th>Description</th>
+                        <th style="width: 14%;">Amount</th>
+                        <th style="width: 10%;">Confidence</th>
+                        <th style="width: 12%;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr class="{% if row.duplicate %}table-danger{% elif row.confidence < 0.6 %}table-warning{% endif %}">
+                            <td class="text-center">
+                                <input type="checkbox" class="form-check-input" name="include"
+                                       value="{{ loop.index0 }}" {% if not row.duplicate %}checked{% endif %}>
+                            </td>
+                            <td>
+                                <input type="date" name="date" class="form-control"
+                                       value="{{ row.date }}">
+                            </td>
+                            <td>
+                                <input type="text" name="description" class="form-control"
+                                       value="{{ row.description }}" required>
+                            </td>
+                            <td>
+                                <input type="number" step="0.01" name="amount" class="form-control"
+                                       value="{{ '%.2f'|format(row.amount) }}" required>
+                            </td>
+                            <td>{{ (row.confidence * 100)|round|int }}%</td>
+                            <td>
+                                {% if row.duplicate %}
+                                    <span class="badge bg-danger">Possible duplicate</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <button type="submit" class="btn btn-success">
+            <i class="fas fa-check"></i> Confirm &amp; import
+        </button>
+        <a href="{{ url_for('ocr.upload_statement') if statement_header else url_for('ocr.upload_receipt') }}"
+           class="btn btn-outline-secondary">Cancel</a>
+    </form>
+</div>
+{% endblock %}

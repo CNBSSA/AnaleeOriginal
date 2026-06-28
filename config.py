@@ -3,6 +3,23 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Single source of truth for the Claude model id used by every AI feature.
+# Override per-environment with the CLAUDE_MODEL env var, no code change needed.
+# Vision/OCR uses OCR_MODEL (defaults to Sonnet — best balance of accuracy + cost for
+# bank-statement reading). claude-opus-4-7 was the old default but is not always
+# available on all API keys; Sonnet is the production standard across sister products.
+_OCR_DEFAULT = 'claude-sonnet-4-6'
+OCR_MODEL = os.environ.get('OCR_MODEL', _OCR_DEFAULT)
+CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', OCR_MODEL)
+
+# Global ceiling on request body size (Flask MAX_CONTENT_LENGTH). Werkzeug rejects
+# larger requests with 413 before reading the body into memory, guarding against
+# memory exhaustion from oversized uploads. Must stay above the largest legitimate
+# upload — the OCR PDF statement limit (ocr.service.MAX_PDF_BYTES = 32 MB) — so 40 MB
+# leaves headroom for multipart overhead. Per-route checks give friendlier messages
+# under this ceiling. Override with MAX_UPLOAD_MB.
+MAX_UPLOAD_BYTES = int(os.environ.get('MAX_UPLOAD_MB', '40')) * 1024 * 1024
+
 class Config:
     """Base configuration"""
     SECRET_KEY = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
