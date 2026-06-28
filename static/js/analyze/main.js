@@ -8,6 +8,7 @@ import { AccountSuggestionHandler } from './accountSuggestions.js';
 import { ExplanationSuggestionHandler } from './explanationSuggestions.js';
 import { SimilarTransactionHandler } from './similarTransactions.js';
 import TutorialManager from './tutorial.js';
+import { bindCashBasisGuardrails } from './cashBasisGuardrails.js';
 
 class AnalyzeApplication {
     constructor() {
@@ -36,6 +37,7 @@ class AnalyzeApplication {
         this.similarTransactionHandler.initialize();
 
         this.setupEventListeners();
+        bindCashBasisGuardrails();
         this.initializeTooltips();
         this.initialized = true;
     }

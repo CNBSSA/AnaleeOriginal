@@ -32,13 +32,21 @@ def test_build_xlsx_uses_booksxperts_columns():
         TrialBalanceRow('ca.810.001', 'Bank Cheque Account 1', Decimal('50000')),
         TrialBalanceRow('i.100.000', 'Sales', Decimal('-50000')),
     )
-    data = build_booksxperts_trial_balance_xlsx(rows)
+    data = build_booksxperts_trial_balance_xlsx(
+        rows,
+        company_name='Test Co',
+        period_end=datetime(2026, 2, 28),
+    )
     wb = openpyxl.load_workbook(BytesIO(data))
     ws = wb.active
     assert list(ws.iter_rows(min_row=1, max_row=1, values_only=True))[0] == BOOKSXPERTS_TB_COLUMNS
     data_rows = list(ws.iter_rows(min_row=2, max_row=3, values_only=True))
     assert data_rows[0] == ('ca.810.001', 'Bank Cheque Account 1', 50000.0)
     assert data_rows[1] == ('i.100.000', 'Sales', -50000.0)
+    footer_rows = [row[0] for row in ws.iter_rows(min_row=5, values_only=True) if row[0]]
+    footer_text = ' '.join(str(cell) for cell in footer_rows)
+    assert 'BooksXperts' in footer_text
+    assert 'Accountants' in footer_text
 
 
 def test_export_filename_includes_period_end():

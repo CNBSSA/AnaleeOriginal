@@ -9,20 +9,22 @@
                 <p class="text-muted mb-0">{{ start_date.strftime('%Y-%m-%d') }} to {{ end_date.strftime('%Y-%m-%d') }}</p>
             </div>
             <a href="{{ url_for('reports.trial_balance_export') }}" class="btn btn-primary btn-sm">
-                <i class="fas fa-file-excel me-1"></i> Export for BooksXperts
+                Export trial balance
             </a>
         </div>
         <div class="card-body">
             {% if not tb_balanced %}
             <div class="alert alert-warning py-2">
                 Debits and credits do not match on this report. You can still export, but review
-                categorisation before importing into BooksXperts.
+                categorisation before importing downstream.
             </div>
             {% endif %}
             <p class="text-muted small">
                 Download produces an Excel file with columns <strong>Link</strong>, <strong>Account Name</strong>,
-                and <strong>Amount</strong> (positive = debit, negative = credit) for
-                <strong>Data Imports → Upload Trial Balance</strong> in BooksXperts.
+                and <strong>Amount</strong> (positive = debit, negative = credit) for import into
+                <strong>BooksXperts</strong> (Data Imports → Upload Trial Balance) or
+                <strong>The Accountants</strong> trial balance intake.
+                This is a <strong>cash-basis summary</strong> from categorised bank activity — not an accrual GL.
             </p>
             <div class="table-responsive">
                 <table class="table table-striped">

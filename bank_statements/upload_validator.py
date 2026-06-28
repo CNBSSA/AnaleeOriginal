@@ -17,6 +17,7 @@ class BankStatementValidator:
 
     REQUIRED_COLUMNS = ['Date', 'Description', 'Amount']
     ALLOWED_EXTENSIONS = {'.csv', '.xlsx'}
+    REJECTED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'}
 
     def __init__(self):
         self.errors = []
@@ -33,6 +34,12 @@ class BankStatementValidator:
             # Validate file extension
             filename = secure_filename(file.filename)
             file_ext = os.path.splitext(filename)[1].lower()
+            if file_ext in self.REJECTED_EXTENSIONS:
+                self.errors.append(
+                    'Analee accepts bank statements only (CSV or Excel). '
+                    'PDF and other document uploads are not supported.'
+                )
+                return False
             if file_ext not in self.ALLOWED_EXTENSIONS:
                 self.errors.append(f"Invalid file format. Allowed formats: {', '.join(self.ALLOWED_EXTENSIONS)}")
                 return False
