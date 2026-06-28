@@ -16,8 +16,9 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from typing import List, Dict, Optional
 
-from config import CLAUDE_MODEL
+from config import CLAUDE_MODEL, OCR_MODEL
 from nlp_utils import get_claude_client
+from .statement_extractor import extract_bank_statement, BankStatementExtraction
 
 logger = logging.getLogger(__name__)
 
@@ -182,59 +183,32 @@ def parse_date(value) -> str:
     return ''
 
 
-# --- Phase 2: PDF bank statements -----------------------------------------
-
-_STATEMENT_PROMPT = (
-    "You are a precise bank-statement reader. Extract EVERY transaction line from "
-    "this bank statement. Respond with ONLY a JSON array and nothing else.\n"
-    "Each element: {\"date\": \"YYYY-MM-DD\", \"description\": \"<narration or merchant>\", "
-    "\"amount\": <number>, \"confidence\": <number 0..1>}.\n"
-    "Sign convention: amount is NEGATIVE for money leaving the account (debits, "
-    "withdrawals, payments) and POSITIVE for money entering (credits, deposits).\n"
-    "Use each transaction's own date. Do NOT include opening/closing balances or "
-    "summary totals. Do not invent rows; lower the confidence when unsure."
-)
+# --- Phase 2+: SA bank statements (Tier-1 digital PDF + Tier-2 Claude Vision) ---
 
 
-def extract_statement(pdf_bytes: bytes, client=None) -> List[Dict]:
-    """Send a PDF bank statement to Claude (document block) and return raw rows.
+def extract_and_normalize_statement(
+    pdf_bytes: bytes,
+    client=None,
+    opening_balance: Optional[str] = None,
+    closing_balance: Optional[str] = None,
+) -> List[Dict]:
+    """Extract a PDF bank statement via the full SA pipeline.
 
-    Never raises. ``client`` may be injected for testing.
+    Returns review-ready row dicts, or [] on failure (legacy contract for callers
+    that only check emptiness). Prefer :func:`extract_bank_statement` when you
+    need error detail and the integrity report card.
     """
-    client = client or get_claude_client()
-    if not client:
-        logger.error("OCR: AI client unavailable for statement extraction")
+    outcome = extract_bank_statement(
+        pdf_bytes,
+        opening_balance=opening_balance,
+        closing_balance=closing_balance,
+        client=client,
+    )
+    if not outcome.ok:
+        if outcome.error:
+            logger.error("OCR statement extraction: %s", outcome.error)
         return []
-    try:
-        encoded = base64.standard_b64encode(pdf_bytes).decode('ascii')
-        response = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=4096,
-            messages=[{
-                'role': 'user',
-                'content': [
-                    {
-                        'type': 'document',
-                        'source': {
-                            'type': 'base64',
-                            'media_type': 'application/pdf',
-                            'data': encoded,
-                        },
-                    },
-                    {'type': 'text', 'text': _STATEMENT_PROMPT},
-                ],
-            }],
-        )
-        text = response.content[0].text.strip()
-        return parse_rows(text)
-    except Exception as e:
-        logger.error(f"OCR statement extraction error: {str(e)}")
-        return []
-
-
-def extract_and_normalize_statement(pdf_bytes: bytes, client=None) -> List[Dict]:
-    """Convenience: extract a PDF statement then normalize with signed amounts."""
-    return normalize_rows(extract_statement(pdf_bytes, client=client), signed=True)
+    return outcome.rows
 
 
 # --- Phase 2.1: duplicate flagging ----------------------------------------

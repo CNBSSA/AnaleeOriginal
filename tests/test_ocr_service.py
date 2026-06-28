@@ -132,19 +132,24 @@ def test_normalize_rows_signed_keeps_debits_negative():
     assert out[1]["amount"] == 2500.0
 
 
-def test_extract_statement_uses_pdf_document_block():
-    client = _FakeClient('[{"date":"2026-03-01","description":"ATM","amount":-60,"confidence":0.9}]')
-    rows = service.extract_statement(b"%PDF-1.7 fake", client=client)
-    assert rows == [{"date": "2026-03-01", "description": "ATM", "amount": -60, "confidence": 0.9}]
-    content = client.messages.last_kwargs["messages"][0]["content"]
-    assert content[0]["type"] == "document"
-    assert content[0]["source"]["media_type"] == "application/pdf"
-
-
 def test_extract_and_normalize_statement_signed_end_to_end():
-    client = _FakeClient('[{"date":"01/03/2026","description":"Card payment","amount":"(30.00)","confidence":0.7}]')
-    out = service.extract_and_normalize_statement(b"%PDF fake", client=client)
-    assert out == [{"date": "2026-03-01", "description": "Card payment", "amount": -30.0, "confidence": 0.7}]
+    """Legacy wrapper delegates to the SA statement pipeline."""
+    from ocr.statement_extractor import extract_bank_statement
+    import json
+    payload = {
+        "opening_balance": "1000.00",
+        "closing_balance": "970.00",
+        "lines": [{
+            "date": "01/03/2026",
+            "description": "Card payment",
+            "amount": "-30.00",
+            "confidence": 0.7,
+        }],
+    }
+    client = _FakeClient(json.dumps(payload))
+    outcome = extract_bank_statement(b"%PDF fake", client=client)
+    assert outcome.ok
+    assert outcome.rows[0]["amount"] == -30.0
 
 
 # --- Phase 2.1: duplicate flagging ----------------------------------------

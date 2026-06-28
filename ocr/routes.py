@@ -9,9 +9,9 @@ from models import db, UploadedFile, Account, Transaction
 from . import ocr
 from .service import (
     extract_and_normalize, ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES,
-    extract_and_normalize_statement, ALLOWED_DOCUMENT_TYPES, MAX_PDF_BYTES,
-    mark_duplicates,
+    ALLOWED_DOCUMENT_TYPES, mark_duplicates,
 )
+from .statement_extractor import extract_bank_statement, MAX_PDF_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -120,19 +120,25 @@ def upload_statement():
             flash('PDF is too large (max 32 MB).', 'error')
             return redirect(url_for('ocr.upload_statement'))
 
-        rows = extract_and_normalize_statement(pdf_bytes)
-        if not rows:
-            flash('Could not read any transactions from that PDF. '
-                  'Make sure it is a real bank statement (not a scanned photo) and try again.', 'error')
+        outcome = extract_bank_statement(
+            pdf_bytes,
+            opening_balance=request.form.get('opening_balance'),
+            closing_balance=request.form.get('closing_balance'),
+        )
+        if not outcome.ok:
+            flash(outcome.error or 'Could not read any transactions from that PDF.', 'error')
             return redirect(url_for('ocr.upload_statement'))
 
-        rows = _flag_duplicate_rows(rows)
+        rows = _flag_duplicate_rows(outcome.rows)
         return render_template(
             'ocr/review.html',
             rows=rows,
             accounts=accounts,
             account_id=request.form.get('account_id', ''),
             filename=file.filename,
+            statement_header=outcome.header,
+            report_card=outcome.report_card,
+            extraction_method=outcome.method,
         )
 
     return render_template('ocr/statement_upload.html', accounts=accounts)
