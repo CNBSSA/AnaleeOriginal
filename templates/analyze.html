@@ -182,6 +182,11 @@
         </div>
 
         {% if unprocessed_count > 0 %}
+        <div class="alert alert-secondary py-2 small mb-3">
+            <strong>Cash-basis tip:</strong> categorise bank lines to income, expense, bank, or PPE <strong>cost</strong>
+            accounts (e.g. Office Furniture - Cost). Avoid trade receivables/payables — BooksXperts or
+            The Accountants handle depreciation and accrual adjustments after trial balance import.
+        </div>
         <div class="card mb-4 border-primary">
             <div class="card-body">
                 <h5 class="card-title">Phased auto-processing</h5>
@@ -246,7 +251,8 @@
                                 <select class="form-select account-select" name="account_{{ transaction.id }}" data-transaction-id="{{ transaction.id }}">
                                     <option value="">Select Account</option>
                                     {% for account in accounts %}
-                                    <option value="{{ account.id }}" 
+                                    <option value="{{ account.id }}"
+                                            data-link="{{ account.link }}"
                                             {% if transaction.account_id == account.id %}selected{% endif %}>
                                         {{ account.name }} ({{ account.category }})
                                     </option>

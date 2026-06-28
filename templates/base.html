@@ -43,9 +43,6 @@
                             </li>
                             <!-- Additional Features -->
                             <li class="nav-item">
-                                <a class="nav-link" href="{{ url_for('main.upload') }}">Upload Data</a>
-                            </li>
-                            <li class="nav-item">
                                 <a class="nav-link" href="{{ url_for('chat.chat_interface') }}">AI Assistant Chat</a>
                             </li>
                             <li class="nav-item">
@@ -60,11 +57,12 @@
                                 </a>
                                 <ul class="dropdown-menu">
                                     <li><a class="dropdown-item" href="{{ url_for('reports.cashbook') }}">Cashbook</a></li>
-                                    <li><a class="dropdown-item" href="{{ url_for('reports.general_ledger') }}">General Ledger</a></li>
-                                    <li><a class="dropdown-item" href="{{ url_for('reports.trial_balance') }}">Trial Balance</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('reports.trial_balance') }}">Trial Balance <span class="badge bg-primary">Export</span></a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('reports.general_ledger') }}">Account Activity</a></li>
                                     <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="{{ url_for('reports.financial_position') }}">Financial Position</a></li>
-                                    <li><a class="dropdown-item" href="{{ url_for('reports.income_statement') }}">Income Statement</a></li>
+                                    <li><h6 class="dropdown-header">Advanced preview (cash-based, not for filing)</h6></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('reports.income_statement') }}">Cash-based P&amp;L Summary</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('reports.financial_position') }}">Draft Financial Position</a></li>
                                 </ul>
                             </li>
                         </ul>

@@ -121,8 +121,11 @@ def build_booksxperts_trial_balance_xlsx(
         if period_end:
             meta += f' — as at {period_end.strftime("%Y-%m-%d")}'
         ws.append([meta])
-        ws.append(['Import in BooksXperts: Data Imports → Upload Trial Balance.'])
+        ws.append(['Import targets: BooksXperts (Data Imports → Upload Trial Balance) '
+                   'or The Accountants (trial balance intake).'])
         ws.append(['Amount: positive = debit, negative = credit. Rows must sum to zero.'])
+        ws.append(['Analee produces cash-basis balances from bank categorisation — '
+                   'not an accrual GL or official AFS.'])
 
     buf = BytesIO()
     wb.save(buf)

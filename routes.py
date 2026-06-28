@@ -329,7 +329,7 @@ def analyze_list():
     except Exception as e:
         logger.error(f"Error loading files for analysis: {str(e)}")
         flash('Error loading files', 'error')
-        return redirect(url_for('main.upload'))
+        return redirect(url_for('bank_statements.upload'))
 
 @main.route('/analyze/<int:file_id>', methods=['GET', 'POST'])
 @login_required
@@ -351,7 +351,7 @@ def analyze(file_id):
                 'or Debit/Credit columns, then analyze again.',
                 'warning',
             )
-            return redirect(url_for('main.upload'))
+            return redirect(url_for('bank_statements.upload'))
 
         if request.method == 'POST':
             page = request.form.get('page', page, type=int)
@@ -629,105 +629,8 @@ def delete_account(account_id):
 @main.route('/upload', methods=['GET', 'POST'])
 @login_required
 def upload():
-    """Handle file uploads with comprehensive error handling and validation"""
-    try:
-        form = UploadForm()
-
-        # Get uploaded files with detailed logging
-        files = UploadedFile.query.filter_by(user_id=current_user.id).order_by(UploadedFile.upload_date.desc()).all()
-        logger.info(f"Retrieved {len(files)} existing files for user {current_user.id}")
-
-        if request.method == 'POST':
-            logger.info("Processing upload request")
-
-            # Form validation with CSRF protection
-            if not form.validate_on_submit():
-                logger.error(f"Form validation failed: {form.errors}")
-                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                    return jsonify({'success': False, 'error': 'Form validation failed'}), 400
-                flash('Please ensure all fields are filled correctly', 'error')
-                return redirect(url_for('main.upload'))
-
-            try:
-                file = form.file.data
-                if not file or not file.filename:
-                    logger.warning("No file selected")
-                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                        return jsonify({'success': False, 'error': 'No file selected'}), 400
-                    flash('No file selected', 'error')
-                    return redirect(url_for('main.upload'))
-
-                # Secure the filename
-                filename = secure_filename(file.filename)
-
-                # Validate file format
-                if not filename.lower().endswith(('.csv', '.xlsx')):
-                    logger.warning(f"Invalid file format: {filename}")
-                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                        return jsonify({'success': False, 'error': 'Invalid file format'}), 400
-                    flash('Invalid file format. Please upload a CSV or Excel file.', 'error')
-                    return redirect(url_for('main.upload'))
-                
-                bank_statement_service = BankStatementService()
-                account_id = int(form.account.data)
-                success, response = bank_statement_service.process_upload(
-                    file=file,
-                    account_id=account_id,
-                    user_id=current_user.id
-                )
-
-                if not success:
-                    error_message = response.get('error', 'Upload processing failed')
-                    logger.error('Upload processing failed: %s', error_message)
-                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                        return jsonify({
-                            'success': False,
-                            'error': error_message,
-                            'details': response.get('details', []),
-                        }), 400
-                    flash(error_message, 'error')
-                    for detail in response.get('details', []) or []:
-                        flash(str(detail), 'warning')
-                    return redirect(url_for('main.upload'))
-
-                logger.info(
-                    'File processed: %s transactions (file_id=%s)',
-                    response.get('transactions_processed'),
-                    response.get('file_id'),
-                )
-
-                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                    return jsonify({
-                        'success': True,
-                        'message': 'File uploaded successfully',
-                        'file_id': response.get('file_id'),
-                        'transactions_processed': response.get('transactions_processed', 0),
-                    })
-
-                flash(
-                    f'File uploaded successfully '
-                    f'({response.get("transactions_processed", 0)} transactions imported)',
-                    'success',
-                )
-                return redirect(url_for('main.upload'))
-
-            except Exception as e:
-                logger.error(f"Error processing upload: {str(e)}")
-                db.session.rollback()
-                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                    return jsonify({'success': False, 'error': str(e)}), 500
-                flash(f'Error processing file: {str(e)}', 'error')
-                return redirect(url_for('main.upload'))
-
-        # GET request - render upload form
-        return render_template('upload.html', form=form, files=files)
-
-    except Exception as e:
-        logger.error(f"Unexpected error in upload route: {str(e)}")
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'success': False, 'error': 'An unexpected error occurred'}), 500
-        flash('An unexpected error occurred')
-        return redirect(url_for('main.upload'))
+    """Legacy upload URL — consolidated on bank statement upload."""
+    return redirect(url_for('bank_statements.upload'))
 
 @main.route('/file/<int:file_id>/delete', methods=['POST'])
 @login_required
@@ -738,12 +641,12 @@ def delete_file(file_id):
         db.session.delete(file)
         db.session.commit()
         flash('File and associated transactions deleted successfully')
-        return redirect(url_for('main.upload'))
+        return redirect(url_for('bank_statements.upload'))
     except Exception as e:
         logger.error(f'Error deleting file: {str(e)}')
         db.session.rollback()
         flash('Error deleting file')
-        return redirect(url_for('main.upload'))
+        return redirect(url_for('bank_statements.upload'))
 
 @main.route('/update_explanation', methods=['POST'])
 @login_required
