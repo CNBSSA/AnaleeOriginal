@@ -3,11 +3,27 @@
 {% block content %}
 <div class="container">
     <div class="card">
-        <div class="card-header">
-            <h2 class="card-title mb-0">Trial Balance</h2>
-            <p class="text-muted mb-0">{{ start_date.strftime('%Y-%m-%d') }} to {{ end_date.strftime('%Y-%m-%d') }}</p>
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h2 class="card-title mb-0">Trial Balance</h2>
+                <p class="text-muted mb-0">{{ start_date.strftime('%Y-%m-%d') }} to {{ end_date.strftime('%Y-%m-%d') }}</p>
+            </div>
+            <a href="{{ url_for('reports.trial_balance_export') }}" class="btn btn-primary btn-sm">
+                <i class="fas fa-file-excel me-1"></i> Export for BooksXperts
+            </a>
         </div>
         <div class="card-body">
+            {% if not tb_balanced %}
+            <div class="alert alert-warning py-2">
+                Debits and credits do not match on this report. You can still export, but review
+                categorisation before importing into BooksXperts.
+            </div>
+            {% endif %}
+            <p class="text-muted small">
+                Download produces an Excel file with columns <strong>Link</strong>, <strong>Account Name</strong>,
+                and <strong>Amount</strong> (positive = debit, negative = credit) for
+                <strong>Data Imports → Upload Trial Balance</strong> in BooksXperts.
+            </p>
             <div class="table-responsive">
                 <table class="table table-striped">
                     <thead>

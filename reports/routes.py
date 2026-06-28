@@ -7,7 +7,8 @@ general ledger, and trial balance.
 import logging
 import calendar
 from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from io import BytesIO
+from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file
 from flask_login import login_required, current_user
 from models import db, Transaction, Account, CompanySettings
 from sqlalchemy import text, and_
@@ -20,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 # Import the blueprint instance from __init__.py
 from . import reports
+from .trial_balance_service import (
+    build_booksxperts_trial_balance_xlsx,
+    export_filename,
+    load_trial_balance,
+)
 
 def get_last_day_of_month(year: int, month: int) -> int:
     """
@@ -153,46 +159,55 @@ def general_ledger():
 def trial_balance():
     """Display trial balance report"""
     try:
-        company_settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
-        if not company_settings:
-            flash('Please configure company settings first.')
-            return redirect(url_for('main.company_settings'))
-            
-        fy_dates = company_settings.get_financial_year()
-        
-        # Get accounts with their transactions
-        accounts = (Account.query
-                   .filter_by(user_id=current_user.id)
-                   .outerjoin(Account.transactions)
-                   .filter(
-                       (Transaction.date >= fy_dates['start_date']) &
-                       (Transaction.date <= fy_dates['end_date'])
-                   )
-                   .order_by(Account.link)
-                   .all())
-        
-        # Calculate totals
-        total_debits = 0
-        total_credits = 0
-        
-        for account in accounts:
-            balance = sum(t.amount for t in account.transactions)
-            if balance > 0:
-                total_debits += balance
-            else:
-                total_credits += abs(balance)
-        
-        return render_template('reports/trial_balance.html',
-                             accounts=accounts,
-                             start_date=fy_dates['start_date'],
-                             end_date=fy_dates['end_date'],
-                             total_debits=total_debits,
-                             total_credits=total_credits)
-                             
+        ctx = load_trial_balance(current_user.id)
+        return render_template(
+            'reports/trial_balance.html',
+            accounts=ctx.accounts,
+            start_date=ctx.start_date,
+            end_date=ctx.end_date,
+            total_debits=ctx.total_debits,
+            total_credits=ctx.total_credits,
+            tb_balanced=ctx.total_debits == ctx.total_credits,
+        )
+    except ValueError:
+        flash('Please configure company settings first.')
+        return redirect(url_for('main.company_settings'))
     except Exception as e:
         logger.error(f"Error generating trial balance: {str(e)}, Stack trace: {str(e.__traceback__)}")
         flash('Error loading transaction data. Please try again.')
         return redirect(url_for('main.dashboard'))
+
+
+@reports.route('/trial-balance/export')
+@login_required
+def trial_balance_export():
+    """Download trial balance as BooksXperts-compatible Excel."""
+    try:
+        company_settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
+        if not company_settings:
+            flash('Please configure company settings first.')
+            return redirect(url_for('main.company_settings'))
+
+        ctx = load_trial_balance(current_user.id)
+        if not ctx.rows:
+            flash('No trial balance amounts to export for this period.')
+            return redirect(url_for('reports.trial_balance'))
+
+        xlsx = build_booksxperts_trial_balance_xlsx(
+            ctx.rows,
+            company_name=company_settings.company_name,
+            period_end=ctx.end_date,
+        )
+        return send_file(
+            BytesIO(xlsx),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=export_filename(ctx.end_date),
+        )
+    except Exception as e:
+        logger.error(f"Error exporting trial balance: {str(e)}, Stack trace: {str(e.__traceback__)}")
+        flash('Could not export trial balance. Please try again.')
+        return redirect(url_for('reports.trial_balance'))
 
 @reports.route('/financial-position')
 @login_required
