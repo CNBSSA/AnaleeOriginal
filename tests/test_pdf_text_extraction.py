@@ -7,11 +7,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ocr.pdf_text_extraction import (  # noqa: E402
-    PdfStatementError,
-    extract_pdf_statement,
-    parse_transaction_lines,
-)
+from ocr.bank_profiles import parse_transaction_lines  # noqa: E402
+from ocr.pdf_text_extraction import PdfStatementError, extract_pdf_statement  # noqa: E402
 
 
 _SAMPLE_TEXT = """
