@@ -173,6 +173,21 @@ def create_app(env=None):
             except Exception as _e:
                 logger.error(f"alert_history column guard skipped: {_e}")
 
+            @app.cli.command('seed-charts')
+            def seed_charts_command():
+                """Seed entity types and master chart (BooksXperts parity)."""
+                from services.chart_of_accounts import seed_entities, seed_admin_charts
+                seed_entities()
+                created, skipped = seed_admin_charts()
+                print(f'Chart seed complete: {created} created, {skipped} skipped.')
+
+            try:
+                from services.chart_of_accounts import seed_entities, seed_admin_charts
+                seed_entities()
+                seed_admin_charts()
+            except Exception as chart_seed_exc:
+                logger.warning('Chart seed on boot skipped: %s', chart_seed_exc)
+
             return app
 
     except Exception as e:

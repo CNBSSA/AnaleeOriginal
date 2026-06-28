@@ -17,11 +17,12 @@ from predictive_features import PredictiveFeatures
 
 from models import (
     db, User, CompanySettings, Account, Transaction,
-    UploadedFile, AdminChartOfAccounts,
+    UploadedFile, AdminChartOfAccounts, Entity,
     AlertHistory, AlertConfiguration, FinancialGoal,
     FinancialRecommendation, RiskAssessment
 )
 from forms.company import CompanySettingsForm
+from services.chart_of_accounts import set_entity_for_user, seed_entities, seed_admin_charts
 from ai_insights import FinancialInsightsGenerator
 from maintenance_monitor import MaintenanceMonitor
 from alert_system import AlertSystem
@@ -170,19 +171,20 @@ def settings():
 @main.route('/settings/import-charts', methods=['GET'])
 @login_required
 def import_chart_of_accounts():
-    admin_accounts = AdminChartOfAccounts.query.all()
-    for acc in admin_accounts:
-        account = Account(
-            link=acc.link,
-            name=acc.name,
-            category=acc.category,
-            sub_category=acc.sub_category,
-            account_code=acc.code,
-            user_id=current_user.id
+    settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
+    if not settings or not settings.entity_id:
+        flash('Choose your entity type in Company Settings first.', 'warning')
+        return redirect(url_for('main.company_settings'))
+    try:
+        added = set_entity_for_user(current_user.id, settings.entity_id)
+        flash(
+            f'Chart of Accounts updated — {added} new account(s) copied for your entity.',
+            'success',
         )
-        db.session.add(account)
-    db.session.commit()
-    flash('Chart of Accounts imported successfully', 'success')
+    except Exception as exc:
+        logger.error('import_chart_of_accounts failed: %s', exc)
+        flash('Could not import Chart of Accounts. Please try again.', 'error')
+        db.session.rollback()
     return redirect(url_for('main.settings'))
 
 
@@ -190,7 +192,12 @@ def import_chart_of_accounts():
 @login_required
 def company_settings():
     """Handle company settings with CSRF protection"""
+    seed_entities()
+    entities = Entity.query.order_by(Entity.name).all()
+    entity_choices = [(e.id, e.name) for e in entities]
+
     form = CompanySettingsForm()
+    form.entity_id.choices = entity_choices
     settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
 
     if request.method == 'POST' and form.validate_on_submit():
@@ -205,9 +212,15 @@ def company_settings():
             settings.vat_number = form.vat_number.data
             settings.address = form.address.data
             settings.financial_year_end = int(form.financial_year_end.data)
-
-            db.session.commit()
-            flash('Company settings updated successfully', 'success')
+            settings.entity_id = form.entity_id.data
+            db.session.flush()
+            added = set_entity_for_user(current_user.id, form.entity_id.data)
+            flash(
+                f'Company settings updated. Chart of accounts provisioned '
+                f'({added} new account(s) added).',
+                'success',
+            )
+            return redirect(url_for('main.company_settings'))
 
         except Exception as e:
             logger.error(f'Error updating company settings: {str(e)}')
@@ -221,6 +234,8 @@ def company_settings():
         form.vat_number.data = settings.vat_number
         form.address.data = settings.address
         form.financial_year_end.data = str(settings.financial_year_end)
+        if settings.entity_id:
+            form.entity_id.data = settings.entity_id
 
     months = [
         (1, 'January'), (2, 'February'), (3, 'March'),

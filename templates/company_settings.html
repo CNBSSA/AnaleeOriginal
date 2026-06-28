@@ -59,6 +59,23 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="entity_id" class="form-label">Entity Type</label>
+                                <select class="form-select" id="entity_id" name="entity_id" required>
+                                    <option value="">Select entity type…</option>
+                                    {% for ent_id, ent_name in form.entity_id.choices %}
+                                        <option value="{{ ent_id }}"
+                                            {% if settings and settings.entity_id == ent_id %}selected{% endif %}>
+                                            {{ ent_name }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text">
+                                    Choosing an entity copies the matching chart of accounts into your books.
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <button type="submit" class="btn btn-primary">Save Settings</button>
