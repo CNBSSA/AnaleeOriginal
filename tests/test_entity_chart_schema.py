@@ -1,9 +1,10 @@
 """Tests for boot-time entity chart schema guard."""
 from sqlalchemy import inspect, text
 
-from models import db, Entity, AdminChartOfAccounts
+from models import db, Entity, CompanySettings, AdminChartOfAccounts
 from services.entity_chart_schema import (
     ensure_entity_chart_schema,
+    ensure_company_settings_schema,
     default_entity_id,
     DEFAULT_ENTITY_NAME,
 )
@@ -16,6 +17,73 @@ def test_ensure_schema_on_fresh_db(app):
         assert default_entity_id() is not None
         private = Entity.query.filter_by(name=DEFAULT_ENTITY_NAME).first()
         assert default_entity_id() == private.id
+
+
+def test_company_settings_schema_heals_logo_and_entity_id(app):
+    """Simulate prod DB missing logo + entity_id (the company-settings 500)."""
+    with app.app_context():
+        db.drop_all()
+        db.session.execute(text('''
+            CREATE TABLE company_settings (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                company_name VARCHAR(200) NOT NULL,
+                registration_number VARCHAR(50),
+                tax_number VARCHAR(50),
+                vat_number VARCHAR(50),
+                address TEXT,
+                financial_year_end INTEGER NOT NULL
+            )
+        '''))
+        db.session.commit()
+
+        assert ensure_company_settings_schema() is True
+
+        insp = inspect(db.engine)
+        cols = {c['name'] for c in insp.get_columns('company_settings')}
+        assert 'logo' in cols
+        assert 'logo_type' in cols
+        assert 'entity_id' in cols
+
+
+def test_company_settings_query_after_schema_heal(app):
+    with app.app_context():
+        db.drop_all()
+        db.session.execute(text('''
+            CREATE TABLE "user" (
+                id INTEGER PRIMARY KEY,
+                username VARCHAR(64) NOT NULL,
+                email VARCHAR(120) NOT NULL
+            )
+        '''))
+        db.session.execute(text('''
+            CREATE TABLE company_settings (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                company_name VARCHAR(200) NOT NULL,
+                registration_number VARCHAR(50),
+                tax_number VARCHAR(50),
+                vat_number VARCHAR(50),
+                address TEXT,
+                financial_year_end INTEGER NOT NULL,
+                created_at DATETIME,
+                updated_at DATETIME
+            )
+        '''))
+        db.session.execute(text('''
+            INSERT INTO "user" (id, username, email) VALUES (1, 'u', 'u@example.com')
+        '''))
+        db.session.execute(text('''
+            INSERT INTO company_settings (id, user_id, company_name, financial_year_end)
+            VALUES (1, 1, 'Acme Ltd', 2)
+        '''))
+        db.session.commit()
+
+        assert ensure_company_settings_schema() is True
+        row = CompanySettings.query.filter_by(user_id=1).first()
+        assert row is not None
+        assert row.company_name == 'Acme Ltd'
+        assert row.entity_id is None
 
 
 def test_schema_guard_adds_entity_id_to_legacy_admin_table(app):

@@ -23,7 +23,7 @@ from models import (
 )
 from forms.company import CompanySettingsForm
 from services.chart_of_accounts import set_entity_for_user, seed_entities, seed_admin_charts
-from services.entity_chart_schema import ensure_entity_chart_schema
+from services.entity_chart_schema import ensure_company_settings_schema, ensure_entity_chart_schema
 from ai_insights import FinancialInsightsGenerator
 from maintenance_monitor import MaintenanceMonitor
 from alert_system import AlertSystem
@@ -206,65 +206,76 @@ def import_chart_of_accounts():
 @login_required
 def company_settings():
     """Handle company settings with CSRF protection"""
-    ensure_entity_chart_schema()
-    seed_entities()
-    entities = Entity.query.order_by(Entity.name).all()
-    entity_choices = [(e.id, e.name) for e in entities]
+    try:
+        ensure_company_settings_schema()
+        ensure_entity_chart_schema()
+        seed_entities()
+        entities = Entity.query.order_by(Entity.name).all()
+        entity_choices = [(e.id, e.name) for e in entities]
 
-    form = CompanySettingsForm()
-    form.entity_id.choices = entity_choices
-    settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
+        form = CompanySettingsForm()
+        form.entity_id.choices = entity_choices
+        settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
 
-    if request.method == 'POST' and form.validate_on_submit():
-        try:
-            if not settings:
-                settings = CompanySettings(user_id=current_user.id)
-                db.session.add(settings)
+        if request.method == 'POST' and form.validate_on_submit():
+            try:
+                if not settings:
+                    settings = CompanySettings(
+                        user_id=current_user.id,
+                        company_name=form.company_name.data,
+                        financial_year_end=int(form.financial_year_end.data),
+                    )
+                    db.session.add(settings)
 
-            settings.company_name = form.company_name.data
-            settings.registration_number = form.registration_number.data
-            settings.tax_number = form.tax_number.data
-            settings.vat_number = form.vat_number.data
-            settings.address = form.address.data
-            settings.financial_year_end = int(form.financial_year_end.data)
-            settings.entity_id = form.entity_id.data
-            db.session.flush()
-            added = set_entity_for_user(current_user.id, form.entity_id.data)
-            flash(
-                f'Company settings updated. Chart of accounts provisioned '
-                f'({added} new account(s) added).',
-                'success',
-            )
-            return redirect(url_for('main.company_settings'))
+                settings.company_name = form.company_name.data
+                settings.registration_number = form.registration_number.data
+                settings.tax_number = form.tax_number.data
+                settings.vat_number = form.vat_number.data
+                settings.address = form.address.data
+                settings.financial_year_end = int(form.financial_year_end.data)
+                settings.entity_id = form.entity_id.data
+                db.session.flush()
+                added = set_entity_for_user(current_user.id, form.entity_id.data)
+                flash(
+                    f'Company settings updated. Chart of accounts provisioned '
+                    f'({added} new account(s) added).',
+                    'success',
+                )
+                return redirect(url_for('main.company_settings'))
 
-        except Exception as e:
-            logger.error(f'Error updating company settings: {str(e)}')
-            flash('Error updating company settings', 'error')
-            db.session.rollback()
+            except Exception as e:
+                logger.error(f'Error updating company settings: {str(e)}')
+                flash('Error updating company settings', 'error')
+                db.session.rollback()
 
-    if settings:
-        form.company_name.data = settings.company_name
-        form.registration_number.data = settings.registration_number
-        form.tax_number.data = settings.tax_number
-        form.vat_number.data = settings.vat_number
-        form.address.data = settings.address
-        form.financial_year_end.data = str(settings.financial_year_end)
-        if settings.entity_id:
-            form.entity_id.data = settings.entity_id
+        if settings:
+            form.company_name.data = settings.company_name
+            form.registration_number.data = settings.registration_number
+            form.tax_number.data = settings.tax_number
+            form.vat_number.data = settings.vat_number
+            form.address.data = settings.address
+            if settings.financial_year_end is not None:
+                form.financial_year_end.data = str(settings.financial_year_end)
+            if settings.entity_id:
+                form.entity_id.data = settings.entity_id
 
-    months = [
-        (1, 'January'), (2, 'February'), (3, 'March'),
-        (4, 'April'), (5, 'May'), (6, 'June'),
-        (7, 'July'), (8, 'August'), (9, 'September'),
-        (10, 'October'), (11, 'November'), (12, 'December')
-    ]
+        months = [
+            (1, 'January'), (2, 'February'), (3, 'March'),
+            (4, 'April'), (5, 'May'), (6, 'June'),
+            (7, 'July'), (8, 'August'), (9, 'September'),
+            (10, 'October'), (11, 'November'), (12, 'December')
+        ]
 
-    return render_template(
-        'company_settings.html',
-        form=form,
-        settings=settings,
-        months=months
-    )
+        return render_template(
+            'company_settings.html',
+            form=form,
+            settings=settings,
+            months=months
+        )
+    except Exception as e:
+        logger.exception('company_settings page failed: %s', e)
+        flash('Error loading company settings. Please try again.', 'error')
+        return redirect(url_for('main.dashboard'))
 
 @main.route('/analyze')
 @login_required

@@ -173,7 +173,14 @@ def create_app(env=None):
             except Exception as _e:
                 logger.error(f"alert_history column guard skipped: {_e}")
 
-            from services.entity_chart_schema import ensure_entity_chart_schema
+            from services.entity_chart_schema import (
+                ensure_company_settings_schema,
+                ensure_entity_chart_schema,
+            )
+            if not ensure_company_settings_schema():
+                logger.error(
+                    'company_settings schema guard failed — settings pages may 500'
+                )
             schema_ready = ensure_entity_chart_schema()
             if not schema_ready:
                 logger.error(
