@@ -2,9 +2,19 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h2>Analyze Files</h2>
-    
-    {% if files %}
+    <h2>Analyze Data</h2>
+
+    <div class="alert alert-info">
+        <h5 class="alert-heading mb-2">How to process your uploaded data</h5>
+        <ol class="mb-0">
+            <li>Upload your bank statement on <a href="{{ url_for('main.upload') }}">Upload Data</a>.</li>
+            <li>Click <strong>Analyze</strong> next to your file below.</li>
+            <li>Work through transactions <strong>10 at a time</strong> — assign accounts and add explanations.</li>
+            <li>Use <strong>Auto-process next 10</strong> for AI account suggestions, or use <strong>iCountant Assistant</strong> for guided one-by-one review.</li>
+        </ol>
+    </div>
+
+    {% if file_summaries %}
     <div class="card">
         <div class="card-body">
             <div class="table-responsive">
@@ -13,18 +23,36 @@
                         <tr>
                             <th>File Name</th>
                             <th>Upload Date</th>
+                            <th>Transactions</th>
+                            <th>Status</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for file in files %}
+                        {% for item in file_summaries %}
                         <tr>
-                            <td>{{ file.filename }}</td>
-                            <td>{{ file.upload_date.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                            <td>{{ item.file.filename }}</td>
+                            <td>{{ item.file.upload_date.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                            <td>{{ item.transaction_count }}</td>
                             <td>
-                                <a href="{{ url_for('main.analyze', file_id=file.id) }}" class="btn btn-primary btn-sm">
+                                {% if item.transaction_count == 0 %}
+                                    <span class="badge bg-warning text-dark">No transactions parsed</span>
+                                {% elif item.unprocessed_count == 0 %}
+                                    <span class="badge bg-success">All processed</span>
+                                {% else %}
+                                    <span class="badge bg-primary">{{ item.unprocessed_count }} to review</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.transaction_count > 0 %}
+                                <a href="{{ url_for('main.analyze', file_id=item.file.id) }}" class="btn btn-primary btn-sm">
                                     Analyze
                                 </a>
+                                {% else %}
+                                <a href="{{ url_for('main.upload') }}" class="btn btn-outline-secondary btn-sm">
+                                    Re-upload
+                                </a>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}

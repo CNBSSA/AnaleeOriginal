@@ -71,12 +71,12 @@
             </div>
 
             <!-- AI Insights Card -->
-            <div class="card mb-4">
+            <div class="card mb-4" id="aiInsightsCard">
                 <div class="card-header bg-info text-white">
                     <h5 class="card-title mb-0">AI Insights</h5>
                 </div>
                 <div class="card-body">
-                    <div class="mb-3">
+                    <div class="mb-3" id="aiInsightsContent">
                         {{ transaction_info.insights.ai_insights|safe }}
                     </div>
                     {% if transaction_info.insights.similar_transactions %}
@@ -101,34 +101,22 @@
                     <h5 class="card-title mb-0">Account Selection</h5>
                 </div>
                 <div class="card-body">
-                    {% if transaction_info.insights.suggested_accounts %}
+                    <div id="suggestedAccountsContainer" class="d-none">
                         <div class="alert alert-success">
                             <h6 class="mb-2">Suggested Accounts:</h6>
-                            <ul class="list-unstyled">
-                                {% for suggestion in transaction_info.insights.suggested_accounts %}
-                                    <li>
-                                        <strong>{{ suggestion.account.name }}</strong>
-                                        <br>
-                                        <small class="text-muted">{{ suggestion.reason }}</small>
-                                    </li>
-                                {% endfor %}
-                            </ul>
+                            <ul class="list-unstyled" id="suggestedAccountsList"></ul>
                         </div>
-                    {% endif %}
+                    </div>
 
                     <form method="POST" action="{{ url_for('main.icountant_interface') }}" id="transactionForm">
-                        <input type="hidden" name="transaction_id" value="{{ transaction.id }}">
+                        <input type="hidden" name="transaction_id" value="{{ transaction.id }}" id="transactionIdField">
 
                         <div class="form-group">
                             <label for="selected_account">Select Account:</label>
                             <select class="form-control" id="selected_account" name="selected_account" required>
                                 <option value="">Choose an account...</option>
                                 {% for i in range(accounts|length) %}
-                                <option value="{{ i }}"
-                                    {% if transaction_info.insights.suggested_accounts and 
-                                        accounts[i].name == transaction_info.insights.suggested_accounts[0].account.name %}
-                                        selected
-                                    {% endif %}>
+                                <option value="{{ i }}">
                                     {{ accounts[i].name }} ({{ accounts[i].category }})
                                 </option>
                                 {% endfor %}
@@ -275,7 +263,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.querySelector('.alert-success').scrollIntoView({ behavior: 'smooth' });
     }
 
-    // Show loading overlay when form is submitted
+    // Show loading overlay only on form submit (not on initial page load)
     const form = document.getElementById('transactionForm');
     const loadingOverlay = document.getElementById('loadingOverlay');
 
@@ -283,6 +271,57 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function() {
             loadingOverlay.classList.remove('d-none');
         });
+    }
+
+    // Load AI insights asynchronously so the page is not blocked
+    const transactionIdField = document.getElementById('transactionIdField');
+    const aiInsightsContent = document.getElementById('aiInsightsContent');
+    const suggestedAccountsContainer = document.getElementById('suggestedAccountsContainer');
+    const suggestedAccountsList = document.getElementById('suggestedAccountsList');
+    const accountSelect = document.getElementById('selected_account');
+
+    if (transactionIdField && aiInsightsContent) {
+        const transactionId = transactionIdField.value;
+        fetch(`/api/icountant/${transactionId}/insights`)
+            .then((response) => response.json())
+            .then((data) => {
+                if (!data.success) {
+                    throw new Error(data.error || 'Failed to load insights');
+                }
+
+                aiInsightsContent.innerHTML = data.ai_insights || '<p class="text-muted mb-0">No insights available.</p>';
+
+                if (data.suggested_accounts && data.suggested_accounts.length > 0) {
+                    suggestedAccountsList.innerHTML = '';
+                    data.suggested_accounts.forEach((suggestion) => {
+                        const li = document.createElement('li');
+                        li.innerHTML = `
+                            <strong>${suggestion.account_name}</strong>
+                            <br>
+                            <small class="text-muted">${suggestion.reason || ''}</small>`;
+                        suggestedAccountsList.appendChild(li);
+                    });
+                    suggestedAccountsContainer.classList.remove('d-none');
+
+                    const firstSuggestion = data.suggested_accounts[0];
+                    if (accountSelect && firstSuggestion.account_name) {
+                        const options = Array.from(accountSelect.options);
+                        const match = options.find((option) =>
+                            option.text.includes(firstSuggestion.account_name)
+                        );
+                        if (match) {
+                            accountSelect.value = match.value;
+                        }
+                    }
+                }
+            })
+            .catch((error) => {
+                console.error('Insights load error:', error);
+                aiInsightsContent.innerHTML = `
+                    <div class="alert alert-warning mb-0">
+                        Could not load AI insights. You can still select an account manually.
+                    </div>`;
+            });
     }
 
     // Touch swipe handling
