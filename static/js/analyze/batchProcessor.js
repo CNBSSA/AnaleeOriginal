@@ -1,8 +1,8 @@
 /**
- * batchProcessor.js
- *
- * Processes unassigned transactions in batches of 10 via the analyze API.
+ * batchProcessor.js — phased auto-processing in batches of 10.
  */
+
+import { apiFetch } from './api.js';
 
 const BATCH_SIZE = 10;
 
@@ -20,12 +20,8 @@ export class BatchProcessor {
         this.startButton = document.getElementById('startBatchProcess');
         this.stopButton = document.getElementById('stopBatchProcess');
 
-        if (this.startButton) {
-            this.startButton.addEventListener('click', () => this.start());
-        }
-        if (this.stopButton) {
-            this.stopButton.addEventListener('click', () => this.stop());
-        }
+        this.startButton?.addEventListener('click', () => this.start());
+        this.stopButton?.addEventListener('click', () => this.stop());
     }
 
     async start() {
@@ -41,7 +37,7 @@ export class BatchProcessor {
         try {
             while (this.running) {
                 const result = await this.processNextBatch();
-                if (!result || !result.has_more) {
+                if (!result?.has_more) {
                     this.updateStatus('Batch processing complete. Review suggestions on this page.');
                     break;
                 }
@@ -65,29 +61,19 @@ export class BatchProcessor {
     async processNextBatch() {
         this.updateStatus(`Processing next ${BATCH_SIZE} transactions...`);
 
-        const response = await fetch(`/api/analyze/${this.fileId}/process-batch`, {
+        const result = await apiFetch(`/api/analyze/${this.fileId}/process-batch`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 offset: this.offset,
                 batch_size: BATCH_SIZE,
             }),
         });
 
-        if (!response.ok) {
-            const payload = await response.json().catch(() => ({}));
-            throw new Error(payload.error || `Request failed (${response.status})`);
-        }
-
-        const result = await response.json();
         this.applyBatchResults(result.results || []);
         this.updateProgress(result);
 
         if (result.processed > 0) {
-            this.updateStatus(
-                `Processed ${result.processed} transaction(s). ` +
-                `${result.remaining} remaining.`
-            );
+            this.updateStatus(`Processed ${result.processed} transaction(s). ${result.remaining} remaining.`);
         } else if (result.total_unprocessed === 0) {
             this.updateStatus('All transactions already have accounts or explanations.');
         }
@@ -111,7 +97,7 @@ export class BatchProcessor {
             const suggestion = item.suggestion || {};
             if (suggestion.success && suggestion.account) {
                 const match = Array.from(select.options).find((option) =>
-                    option.text.toLowerCase().includes(suggestion.account.toLowerCase())
+                    option.text.toLowerCase().includes(String(suggestion.account).toLowerCase())
                 );
                 if (match) {
                     select.value = match.value;

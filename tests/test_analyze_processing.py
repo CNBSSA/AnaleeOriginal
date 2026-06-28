@@ -123,12 +123,65 @@ def test_count_unprocessed_transactions(app, analyze_user, analyze_file):
     assert unprocessed == 2
 
 
+def test_find_similar_transactions_returns_list(app, analyze_user, analyze_file):
+    from predictive_features import PredictiveFeatures
+
+    with app.app_context():
+        source = Transaction(
+            date=datetime(2025, 1, 1),
+            description='Monthly bank charge',
+            amount=-10.0,
+            user_id=analyze_user,
+            file_id=analyze_file,
+            explanation='Bank service fee',
+        )
+        db.session.add(source)
+        db.session.commit()
+
+        predictor = PredictiveFeatures()
+        result = predictor.find_similar_transactions(
+            'Monthly bank charge',
+            'Bank service fee',
+            user_id=analyze_user,
+        )
+
+    assert result['success'] is True
+    assert isinstance(result['similar_transactions'], list)
+
+
+def test_replicate_explanation_helper(app, analyze_user, analyze_file):
+    with app.app_context():
+        source = Transaction(
+            date=datetime(2025, 1, 1),
+            description='Monthly bank charge',
+            amount=-10.0,
+            user_id=analyze_user,
+            file_id=analyze_file,
+            explanation='Bank service fee',
+        )
+        target = Transaction(
+            date=datetime(2025, 1, 2),
+            description='Monthly bank charge',
+            amount=-12.0,
+            user_id=analyze_user,
+            file_id=analyze_file,
+        )
+        db.session.add_all([source, target])
+        db.session.commit()
+
+        target.explanation = source.explanation
+        db.session.commit()
+
+        updated = db.session.get(Transaction, target.id)
+        assert updated.explanation == 'Bank service fee'
+
+
 def test_process_transaction_batch_without_ai_client(app, analyze_user, analyze_file, monkeypatch):
     _add_transactions(app, analyze_user, analyze_file, count=12)
     _add_account(app, analyze_user)
 
     class FakePredictor:
-        def suggest_account(self, description, explanation):
+        def suggest_account(self, description, explanation, user_id=None):
             return {
                 'success': True,
                 'account': 'Bank Fees',
