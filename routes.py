@@ -22,6 +22,17 @@ from models import (
     FinancialRecommendation, RiskAssessment
 )
 from forms.company import CompanySettingsForm
+from services.analyze_processing import (
+    ANALYZE_PAGE_SIZE,
+    count_file_transactions,
+    count_unprocessed_transactions,
+    file_summaries_for_user,
+    get_file_for_user,
+    get_paginated_transactions,
+    process_transaction_batch,
+    save_analyze_form_transactions,
+    transaction_needs_processing,
+)
 from services.chart_of_accounts import set_entity_for_user, seed_entities, seed_admin_charts
 from services.entity_chart_schema import (
     ensure_company_settings_schema,
@@ -287,123 +298,108 @@ def company_settings():
 def analyze_list():
     """Show list of files available for analysis"""
     try:
-        files = UploadedFile.query.filter_by(user_id=current_user.id).order_by(UploadedFile.upload_date.desc()).all()
-        return render_template('analyze_list.html', files=files)
+        file_summaries = file_summaries_for_user(current_user.id)
+        return render_template('analyze_list.html', file_summaries=file_summaries)
     except Exception as e:
         logger.error(f"Error loading files for analysis: {str(e)}")
         flash('Error loading files', 'error')
         return redirect(url_for('main.upload'))
 
-@main.route('/analyze/<int:file_id>')
+@main.route('/analyze/<int:file_id>', methods=['GET', 'POST'])
 @login_required
 def analyze(file_id):
-    """Analyze specific file transactions with enhanced processing checks"""
+    """Analyze file transactions in manageable pages (10 rows at a time)."""
     logger.info(f"Starting analysis for file_id: {file_id} for user {current_user.id}")
+    page = request.args.get('page', 1, type=int)
 
     try:
-        # Verify database connection first
-        try:
-            db.session.execute(text('SELECT 1'))
-            logger.info("Database connection verified")
-        except Exception as db_error:
-            logger.error(f"Database connection error: {str(db_error)}")
-            db.session.rollback()
-            flash('Unable to connect to database. Please try again.')
-            return redirect(url_for('main.upload'))
-
-        # Load file and verify ownership with detailed logging
-        file = UploadedFile.query.filter_by(id=file_id, user_id=current_user.id).first()
-        logger.info(f"Database query completed. File found: {file is not None}")
-
+        file = get_file_for_user(file_id, current_user.id)
         if not file:
-            logger.error(f"File {file_id} not found or unauthorized access for user {current_user.id}")
             flash('File not found or unauthorized access')
-            return redirect(url_for('main.upload'))
+            return redirect(url_for('main.analyze_list'))
 
-        # Load transactions with improved filtering
-        try:
-            transactions = Transaction.query.filter_by(
-                file_id=file_id,
-                user_id=current_user.id
-            ).order_by(Transaction.date).all()
-
-            logger.info(f"Found {len(transactions)} total transactions for file {file_id}")
-
-            if not transactions:
-                logger.warning(f"No transactions found for file {file_id}")
-                flash(
-                    'No transactions found for this file. The upload may have failed parsing — '
-                    're-upload using Date plus Amount or Debit/Credit columns, then analyze again.',
-                    'warning',
-                )
-                return redirect(url_for('main.upload'))
-
-            # Load accounts for the user
-            accounts = Account.query.filter_by(
-                user_id=current_user.id,
-                is_active=True
-            ).all()
-
-            if not accounts:
-                logger.warning(f"No active accounts found for user {current_user.id}")
-                #flash('Please set up your Chart of Accounts first')
-                #return redirect(url_for('main.settings'))
-
-            logger.info(f"Successfully loaded {len(accounts)} active accounts")
-
-            # Initialize insights with improved processing logic
-            transaction_insights = {}
-            for transaction in transactions:
-                # Only mark as needing processing if no account AND no explanation
-                needs_processing = (
-                    transaction.account_id is None and 
-                    (transaction.explanation is None or transaction.explanation.strip() == '')
-                )
-
-                transaction_insights[transaction.id] = {
-                    'similar_transactions': [],
-                    'pattern_matches': [],
-                    'keyword_matches': [],
-                    'rule_matches': [],
-                    'explanation_suggestion': None,
-                    'confidence': 0,
-                    'ai_processed': False,
-                    'needs_processing': needs_processing
-                }
-
-            # Count unprocessed transactions with improved criteria
-            unprocessed_count = sum(1 for t in transactions 
-                                  if transaction_insights[t.id]['needs_processing'])
-
-            logger.info(f"Found {unprocessed_count} transactions that need processing")
-
-            if unprocessed_count == 0:
-                flash('All transactions have been processed')
-            else:
-                flash(f'Found {unprocessed_count} transactions that need processing')
-
-            return render_template(
-                'analyze.html',
-                file=file,
-                transactions=transactions,
-                accounts=accounts,
-                transaction_insights=transaction_insights,
-                unprocessed_count=unprocessed_count,
-                ai_available=True
+        total_count = count_file_transactions(file_id, current_user.id)
+        if total_count == 0:
+            flash(
+                'No transactions found for this file. Re-upload using Date plus Amount '
+                'or Debit/Credit columns, then analyze again.',
+                'warning',
             )
-
-        except Exception as tx_error:
-            logger.error(f"Error loading transactions: {str(tx_error)}")
-            logger.exception("Full transaction loading error:")
-            db.session.rollback()
-            flash('Error loading transaction data. Please try again.')
             return redirect(url_for('main.upload'))
+
+        if request.method == 'POST':
+            page = request.form.get('page', page, type=int)
+            saved = save_analyze_form_transactions(current_user.id, request.form)
+            flash(f'Saved changes for {saved} transaction(s).', 'success')
+            return redirect(url_for('main.analyze', file_id=file_id, page=page))
+
+        transactions, total_count, total_pages = get_paginated_transactions(
+            file_id,
+            current_user.id,
+            page,
+            ANALYZE_PAGE_SIZE,
+        )
+        page = min(max(1, page), total_pages)
+
+        accounts = Account.query.filter_by(
+            user_id=current_user.id,
+            is_active=True,
+        ).all()
+
+        unprocessed_count = count_unprocessed_transactions(file_id, current_user.id)
+        transaction_insights = {
+            transaction.id: {
+                'needs_processing': transaction_needs_processing(transaction),
+            }
+            for transaction in transactions
+        }
+
+        return render_template(
+            'analyze.html',
+            file=file,
+            transactions=transactions,
+            accounts=accounts,
+            transaction_insights=transaction_insights,
+            unprocessed_count=unprocessed_count,
+            total_count=total_count,
+            page=page,
+            total_pages=total_pages,
+            per_page=ANALYZE_PAGE_SIZE,
+            ai_available=True,
+        )
 
     except Exception as e:
         logger.error(f"Error in analyze route: {str(e)}")
         logger.exception("Full analyze route error:")
         flash('Error loading transaction data')
-        return redirect(url_for('main.upload'))
+        return redirect(url_for('main.analyze_list'))
+
+
+@main.route('/api/analyze/<int:file_id>/process-batch', methods=['POST'])
+@login_required
+def analyze_process_batch(file_id):
+    """Process unassigned transactions in small batches with AI suggestions."""
+    try:
+        file = get_file_for_user(file_id, current_user.id)
+        if not file:
+            return jsonify({'error': 'File not found'}), 404
+
+        data = request.get_json(silent=True) or {}
+        offset = data.get('offset', 0)
+        batch_size = data.get('batch_size', ANALYZE_PAGE_SIZE)
+
+        result = process_transaction_batch(
+            file_id=file_id,
+            user_id=current_user.id,
+            offset=offset,
+            batch_size=batch_size,
+        )
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Error in batch analyze processing: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
     
     
 @main.route('/analyze/save-transaction/<int:transaction_id>', methods=['POST'])
@@ -1030,26 +1026,21 @@ def upload_progress():
 @main.route('/icountant', methods=['GET', 'POST'])
 @login_required
 def icountant_interface():
-    """Handle the iCountant interface with proper transaction processing and AI suggestions"""
+    """Handle the iCountant interface — AI insights load asynchronously per transaction."""
     logger.info(f"Starting iCountant interface for user {current_user.id}")
 
     try:
-        # Get total transaction count
         total_count = Transaction.query.filter_by(user_id=current_user.id).count()
-        logger.info(f"Total transactions for user{current_user.id}: {total_count}")
 
-        # Get unprocessed transactions
         transactions = Transaction.query.filter_by(
             user_id=current_user.id,
-            account_id=None
+            account_id=None,
         ).order_by(Transaction.date).all()
 
-        # Get active accounts for processing
         accounts = Account.query.filter_by(
             user_id=current_user.id,
-            is_active=True
+            is_active=True,
         ).order_by(Account.category, Account.name).all()
-        logger.info(f"Found {len(accounts)} active accounts for user {current_user.id}")
 
         if request.method == 'POST':
             transaction_id = request.form.get('transaction_id', type=int)
@@ -1059,56 +1050,24 @@ def icountant_interface():
                 transaction = Transaction.query.get(transaction_id)
                 if transaction and transaction.user_id == current_user.id:
                     if 0 <= selected_account < len(accounts):
-                        # Store the AI suggestion before updating
-                        if transaction.ai_category:
-                            transaction.account_id = accounts[selected_account].id
-                            transaction.ai_confidence = float(transaction.ai_confidence or 0.0)
-                            db.session.commit()
-                            flash('Transaction processed successfully')
-                            return redirect(url_for('main.icountant_interface'))
+                        transaction.account_id = accounts[selected_account].id
+                        db.session.commit()
+                        flash('Transaction processed successfully')
+                        return redirect(url_for('main.icountant_interface'))
 
-        # Get current transaction and process it
         current_transaction = next((t for t in transactions), None)
         if current_transaction:
-            logger.info(f"Processing transaction {current_transaction.id}: {current_transaction.description}")
-
-            # Initialize insights generator
-            insights_generator = FinancialInsightsGenerator()
-
-            # Generate insights with AI categorization
-            insights = insights_generator.generate_transaction_insights([{
-                'date': current_transaction.date.isoformat(),
-                'description': current_transaction.description,
-                'amount': float(current_transaction.amount),
-                'category': current_transaction.account.category if current_transaction.account else None
-            }])
-
-            # Store AI suggestions in the transaction
-            current_transaction.ai_category = insights['category_suggestion']['category']
-            current_transaction.ai_confidence = insights['category_suggestion']['confidence']
-            current_transaction.ai_explanation = insights['category_suggestion']['explanation']
-            db.session.commit()
-
-            # Format suggestions for display
-            suggested_accounts = []
-            if insights['category_suggestion']['category']:
-                matching_accounts = [acc for acc in accounts 
-                                  if acc.category.lower() == insights['category_suggestion']['category'].lower()]
-                suggested_accounts = [{
-                    'account': acc,
-                    'confidence': insights['category_suggestion']['confidence'],
-                    'reason': insights['category_suggestion']['explanation']
-                } for acc in matching_accounts[:3]]  # Top 3 matching accounts
-
             transaction_info = {
                 'insights': {
                     'amount_formatted': f"${abs(current_transaction.amount):,.2f}",
                     'transaction_type': 'credit' if current_transaction.amount < 0 else 'debit',
-                    'ai_insights': insights['insights'],
-                    'suggested_accounts': suggested_accounts or [{
-                        'account': account,
-                        'reason': 'Alternative suggestion based on category'
-                    } for account in accounts[:3]]  # Fallback to first 3 accounts if no AI matches
+                    'ai_insights': (
+                        '<p class="text-muted mb-0">'
+                        '<span class="spinner-border spinner-border-sm me-2" role="status"></span>'
+                        'Loading AI insights...</p>'
+                    ),
+                    'suggested_accounts': [],
+                    'loading': True,
                 }
             }
             message = None
@@ -1117,15 +1076,16 @@ def icountant_interface():
             transaction_info = None
             message = "No transactions pending for processing"
 
-        # Get recently processed transactions        
-        recently_processed = Transaction.query.filter(            Transaction.user_id == current_user.id,            Transaction.account_id.isnot(None)
+        recently_processed = Transaction.query.filter(
+            Transaction.user_id == current_user.id,
+            Transaction.account_id.isnot(None),
         ).order_by(Transaction.date.desc()).limit(5).all()
-        
+
         processed_count = Transaction.query.filter(
             Transaction.user_id == current_user.id,
-            Transaction.account_id.isnot(None)
+            Transaction.account_id.isnot(None),
         ).count()
-        
+
         return render_template(
             'icountant.html',
             transaction=current_transaction,
@@ -1134,15 +1094,83 @@ def icountant_interface():
             message=message,
             recently_processed=recently_processed,
             processed_count=processed_count,
-            total_count=total_count
+            total_count=total_count,
         )
-        
 
     except Exception as e:
         logger.error(f"Error in iCountant interface: {str(e)}")
         db.session.rollback()
         flash('Error processing transaction')
         return redirect(url_for('main.dashboard'))
+
+
+@main.route('/api/icountant/<int:transaction_id>/insights', methods=['GET'])
+@login_required
+def icountant_transaction_insights(transaction_id):
+    """Load AI insights for a single transaction without blocking the page."""
+    try:
+        transaction = Transaction.query.filter_by(
+            id=transaction_id,
+            user_id=current_user.id,
+        ).first()
+        if not transaction:
+            return jsonify({'error': 'Transaction not found'}), 404
+
+        accounts = Account.query.filter_by(
+            user_id=current_user.id,
+            is_active=True,
+        ).order_by(Account.category, Account.name).all()
+
+        insights_generator = FinancialInsightsGenerator()
+        insights = insights_generator.generate_transaction_insights([{
+            'date': transaction.date.isoformat(),
+            'description': transaction.description,
+            'amount': float(transaction.amount),
+            'category': transaction.account.category if transaction.account else None,
+        }])
+
+        transaction.ai_category = insights['category_suggestion']['category']
+        transaction.ai_confidence = insights['category_suggestion']['confidence']
+        transaction.ai_explanation = insights['category_suggestion']['explanation']
+        db.session.commit()
+
+        suggested_accounts = []
+        category = insights['category_suggestion'].get('category')
+        if category:
+            matching_accounts = [
+                acc for acc in accounts
+                if acc.category.lower() == category.lower()
+            ]
+            suggested_accounts = [{
+                'account_id': acc.id,
+                'account_name': acc.name,
+                'account_category': acc.category,
+                'confidence': insights['category_suggestion']['confidence'],
+                'reason': insights['category_suggestion']['explanation'],
+            } for acc in matching_accounts[:3]]
+
+        if not suggested_accounts and accounts:
+            suggested_accounts = [{
+                'account_id': acc.id,
+                'account_name': acc.name,
+                'account_category': acc.category,
+                'confidence': 0.5,
+                'reason': 'Alternative suggestion based on available accounts',
+            } for acc in accounts[:3]]
+
+        return jsonify({
+            'success': True,
+            'transaction_id': transaction.id,
+            'ai_insights': insights.get('insights', ''),
+            'suggested_accounts': suggested_accounts,
+            'category': category,
+            'confidence': insights['category_suggestion'].get('confidence', 0),
+        })
+
+    except Exception as e:
+        logger.error(f"Error loading icountant insights: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
         
 class ICountant:
     def __init__(self, accounts):
