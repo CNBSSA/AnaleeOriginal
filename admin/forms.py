@@ -9,7 +9,8 @@ from wtforms.validators import DataRequired, Length, Optional
 
 class AdminChartOfAccountsForm(FlaskForm):
     """Form for managing system-wide Chart of Accounts"""
-    account_code = StringField('Account Code', 
+    entity_id = SelectField('Entity Type', coerce=int, validators=[DataRequired()])
+    account_code = StringField('Account Code',
                        validators=[DataRequired(), Length(min=1, max=20)])
     name = StringField('Account Name', 
                        validators=[DataRequired(), Length(min=1, max=100)])
@@ -31,6 +32,7 @@ class AdminChartOfAccountsForm(FlaskForm):
 
 class ChartOfAccountsUploadForm(FlaskForm):
     """Form for uploading Chart of Accounts Excel file"""
+    entity_id = SelectField('Entity Type', coerce=int, validators=[DataRequired()])
     excel_file = FileField('Excel File',
                           validators=[
                               FileRequired(),

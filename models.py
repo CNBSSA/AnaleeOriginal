@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime, Enum as SQLEnum, Index, LargeBinary
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime, Enum as SQLEnum, Index, LargeBinary, UniqueConstraint
 from sqlalchemy.orm import relationship
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -71,6 +71,27 @@ class User(UserMixin, db.Model):
 
     def __repr__(self):
         return f'<User {self.username}>'
+
+    @staticmethod
+    def create_default_accounts(user_id: int) -> int:
+        """Provision the user's chart from their entity (or Private Company default)."""
+        from services.chart_of_accounts import provision_user_chart
+        return provision_user_chart(user_id)
+
+
+class Entity(db.Model):
+    """SA business entity type — master chart is keyed per entity (BooksXperts parity)."""
+    __tablename__ = 'entity'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), unique=True, nullable=False)
+
+    admin_accounts = relationship('AdminChartOfAccounts', back_populates='entity')
+    company_settings = relationship('CompanySettings', back_populates='entity')
+
+    def __repr__(self):
+        return f'<Entity {self.name}>'
+
 
 class FinancialGoal(db.Model):
     """Model for financial goals"""
@@ -228,6 +249,7 @@ class CompanySettings(db.Model):
     vat_number = Column(String(50))
     address = Column(Text)
     financial_year_end = Column(Integer, nullable=False)
+    entity_id = Column(Integer, ForeignKey('entity.id', ondelete='SET NULL'), nullable=True)
     # Practice branding (Accountants Club P5 prerequisite, §13/§20): the firm logo
     # used for white-label reports + the club attribution/watermark. Bytes + MIME.
     logo = Column(LargeBinary, nullable=True)
@@ -235,6 +257,7 @@ class CompanySettings(db.Model):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user = relationship("User", back_populates="company_settings")
+    entity = relationship('Entity', back_populates='company_settings')
     
     def get_financial_year(self, date=None, year=None):
         if date is None:
@@ -424,16 +447,22 @@ class RecommendationMetrics(db.Model):
 
 class AdminChartOfAccounts(db.Model):
     __tablename__ = 'admin_chart_of_accounts'
+    __table_args__ = (
+        UniqueConstraint('entity_id', 'link', name='uq_admin_coa_entity_link'),
+    )
 
     id = Column(Integer, primary_key=True)
-    link = Column(String(20), nullable=False, unique=True)  # Maps to 'Links' column
-    code = Column(String(20), nullable=False)  # Maps to 'Code' column
-    name = Column(String(100), nullable=False)  # Maps to 'Account Name' column
-    category = Column(String(50), nullable=False)  # Maps to 'Category' column
-    sub_category = Column(String(50))  # Maps to 'Sub Category' column
-    description = Column(Text)  # Additional field for account details
+    entity_id = Column(Integer, ForeignKey('entity.id', ondelete='CASCADE'), nullable=False)
+    link = Column(String(20), nullable=False)
+    code = Column(String(20), nullable=False)
+    name = Column(String(100), nullable=False)
+    category = Column(String(50), nullable=False)
+    sub_category = Column(String(50))
+    description = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    entity = relationship('Entity', back_populates='admin_accounts')
 
     def __repr__(self):
         return f'<AdminChartOfAccounts {self.code}: {self.name}>'
