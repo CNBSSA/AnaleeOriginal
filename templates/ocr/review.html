@@ -28,6 +28,58 @@
         {% endfor %}
     {% endwith %}
 
+    {% if report_card %}
+    <div class="card mb-3 {% if report_card.reconciled %}border-success{% else %}border-warning{% endif %}">
+        <div class="card-header {% if report_card.reconciled %}bg-success text-white{% else %}bg-warning{% endif %} d-flex align-items-center gap-2">
+            <strong>Statement Report Card</strong>
+            {% if report_card.reconciled %}
+                <span class="badge bg-white text-success">All checks passed</span>
+            {% else %}
+                <span class="badge bg-dark">Review required before importing</span>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            {% if report_card.has_balances %}
+            <div class="row g-2 mb-2">
+                <div class="col-6 col-sm-3">
+                    <small class="text-muted d-block">Opening balance</small>
+                    <strong>R{{ "%.2f"|format(report_card.opening_balance) }}</strong>
+                </div>
+                <div class="col-6 col-sm-3">
+                    <small class="text-muted d-block">Closing balance</small>
+                    <strong>R{{ "%.2f"|format(report_card.closing_balance) }}</strong>
+                </div>
+                <div class="col-6 col-sm-3">
+                    <small class="text-muted d-block">Declared movement</small>
+                    <strong>R{{ "%.2f"|format(report_card.declared_net) }}</strong>
+                </div>
+                <div class="col-6 col-sm-3">
+                    <small class="text-muted d-block">Computed movement</small>
+                    <strong>R{{ "%.2f"|format(report_card.computed_net) }}</strong>
+                </div>
+            </div>
+            {% if report_card.variance is not none and report_card.variance != 0 %}
+            <div class="text-danger mb-2">
+                <strong>Variance: R{{ "%.2f"|format(report_card.variance) }}</strong>
+                &mdash; a transaction may be missing or misread.
+            </div>
+            {% endif %}
+            {% else %}
+            <p class="text-muted mb-2">
+                <em>Opening/closing balances not found on this statement &mdash; math check skipped. Review rows carefully.</em>
+            </p>
+            {% endif %}
+            {% if report_card.flags %}
+            <ul class="mb-0 ps-3">
+                {% for flag in report_card.flags %}
+                <li class="text-danger">{{ flag }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <form method="POST" action="{{ url_for('ocr.confirm_receipt') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <input type="hidden" name="filename" value="{{ filename }}"/>
@@ -57,7 +109,7 @@
                 </thead>
                 <tbody>
                     {% for row in rows %}
-                        <tr class="{% if row.duplicate %}table-danger{% elif row.confidence < 0.6 %}table-warning{% endif %}">
+                        <tr class="{% if row.duplicate %}table-danger{% elif row.confidence < 0.80 %}table-warning{% endif %}">
                             <td class="text-center">
                                 <input type="checkbox" class="form-check-input" name="include"
                                        value="{{ loop.index0 }}" {% if not row.duplicate %}checked{% endif %}>
@@ -78,6 +130,8 @@
                             <td>
                                 {% if row.duplicate %}
                                     <span class="badge bg-danger">Possible duplicate</span>
+                                {% elif row.confidence < 0.80 %}
+                                    <span class="badge bg-warning text-dark">Low confidence</span>
                                 {% endif %}
                             </td>
                         </tr>

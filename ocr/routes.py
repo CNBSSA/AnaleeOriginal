@@ -10,7 +10,7 @@ from . import ocr
 from .service import (
     extract_and_normalize, ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES,
     extract_and_normalize_statement, ALLOWED_DOCUMENT_TYPES, MAX_PDF_BYTES,
-    mark_duplicates,
+    mark_duplicates, extract_statement_with_header, audit_statement,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,19 +120,25 @@ def upload_statement():
             flash('PDF is too large (max 32 MB).', 'error')
             return redirect(url_for('ocr.upload_statement'))
 
-        rows = extract_and_normalize_statement(pdf_bytes)
+        opening, closing, rows = extract_statement_with_header(pdf_bytes)
+        if not rows:
+            # Fall back to the plain extractor if the header-aware call returns nothing.
+            rows = extract_and_normalize_statement(pdf_bytes)
+            opening, closing = None, None
         if not rows:
             flash('Could not read any transactions from that PDF. '
                   'Make sure it is a real bank statement (not a scanned photo) and try again.', 'error')
             return redirect(url_for('ocr.upload_statement'))
 
         rows = _flag_duplicate_rows(rows)
+        report_card = audit_statement(rows, opening, closing)
         return render_template(
             'ocr/review.html',
             rows=rows,
             accounts=accounts,
             account_id=request.form.get('account_id', ''),
             filename=file.filename,
+            report_card=report_card,
         )
 
     return render_template('ocr/statement_upload.html', accounts=accounts)

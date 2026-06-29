@@ -184,6 +184,114 @@ def test_mark_duplicates_blank_date_not_flagged():
     assert out[0]["duplicate"] is False
 
 
+# --- Phase 2.2: header extraction + Math Integrity Gate ------------------
+
+def test_parse_balance_handles_currency_and_commas():
+    assert service._parse_balance("R 12,345.67") == 12345.67
+    assert service._parse_balance("R12345.67") == 12345.67
+    assert service._parse_balance(12345.67) == 12345.67
+    assert service._parse_balance(0) == 0.0
+    assert service._parse_balance(None) is None
+    assert service._parse_balance("not a number") is None
+
+
+def test_extract_statement_with_header_returns_opening_closing_rows():
+    response_text = (
+        '{"opening_balance": 1000.00, "closing_balance": 940.00, '
+        '"transactions": ['
+        '{"date": "2026-03-01", "description": "ATM", "amount": -60, "confidence": 0.95}'
+        ']}'
+    )
+    client = _FakeClient(response_text)
+    opening, closing, rows = service.extract_statement_with_header(b"%PDF fake", client=client)
+    assert opening == 1000.00
+    assert closing == 940.00
+    assert len(rows) == 1
+    assert rows[0]["amount"] == -60.0
+    assert rows[0]["description"] == "ATM"
+    # confirm a document block was used (not image)
+    content = client.messages.last_kwargs["messages"][0]["content"]
+    assert content[0]["type"] == "document"
+    assert content[0]["source"]["media_type"] == "application/pdf"
+
+
+def test_extract_statement_with_header_null_balances():
+    response_text = (
+        '{"opening_balance": null, "closing_balance": null, '
+        '"transactions": [{"date": "2026-03-01", "description": "Salary", "amount": 5000, "confidence": 0.9}]}'
+    )
+    client = _FakeClient(response_text)
+    opening, closing, rows = service.extract_statement_with_header(b"%PDF fake", client=client)
+    assert opening is None
+    assert closing is None
+    assert len(rows) == 1
+
+
+def test_extract_statement_with_header_bad_json_returns_empty():
+    client = _FakeClient("not json at all")
+    opening, closing, rows = service.extract_statement_with_header(b"%PDF fake", client=client)
+    assert opening is None
+    assert closing is None
+    assert rows == []
+
+
+def test_audit_statement_math_gate_passes():
+    rows = [
+        {"date": "2026-03-01", "description": "ATM", "amount": -60.0, "confidence": 0.95},
+        {"date": "2026-03-02", "description": "Salary", "amount": 2500.0, "confidence": 0.98},
+    ]
+    rc = service.audit_statement(rows, opening_balance=1000.00, closing_balance=3440.00)
+    assert rc["has_balances"] is True
+    assert rc["reconciled"] is True
+    assert rc["variance"] == 0.0
+    assert rc["declared_net"] == 2440.0
+    assert rc["computed_net"] == 2440.0
+    assert rc["flags"] == []
+    assert rc["low_confidence_count"] == 0
+
+
+def test_audit_statement_math_gate_fails():
+    rows = [
+        {"date": "2026-03-01", "description": "ATM", "amount": -60.0, "confidence": 0.95},
+    ]
+    # declared net = 3440 - 1000 = 2440; computed = -60; variance = 2500 (missing transactions)
+    rc = service.audit_statement(rows, opening_balance=1000.00, closing_balance=3440.00)
+    assert rc["reconciled"] is False
+    assert rc["variance"] != 0
+    assert any("Math gate" in f for f in rc["flags"])
+
+
+def test_audit_statement_no_balances():
+    rows = [{"date": "2026-03-01", "description": "ATM", "amount": -60.0, "confidence": 0.95}]
+    rc = service.audit_statement(rows, opening_balance=None, closing_balance=None)
+    assert rc["has_balances"] is False
+    assert rc["reconciled"] is False
+    assert rc["declared_net"] is None
+    assert rc["variance"] is None
+    assert rc["computed_net"] == -60.0
+
+
+def test_audit_statement_low_confidence_prevents_reconciled():
+    rows = [
+        {"date": "2026-03-01", "description": "ATM", "amount": -60.0, "confidence": 0.70},
+        {"date": "2026-03-02", "description": "Salary", "amount": 2500.0, "confidence": 0.98},
+    ]
+    # Math balances perfectly, but one row is below CONFIDENCE_FLOOR (0.80)
+    rc = service.audit_statement(rows, opening_balance=1000.00, closing_balance=3440.00)
+    assert rc["low_confidence_count"] == 1
+    assert 0 in rc["low_confidence_indexes"]
+    assert rc["reconciled"] is False
+    assert any("confidence" in f for f in rc["flags"])
+
+
+def test_audit_statement_empty_rows():
+    rc = service.audit_statement([], opening_balance=1000.00, closing_balance=1000.00)
+    assert rc["has_balances"] is True
+    assert rc["reconciled"] is True  # no transactions, no movement, balances match
+    assert rc["variance"] == 0.0
+    assert rc["computed_net"] == 0.0
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

@@ -13,6 +13,7 @@ import base64
 import json
 import logging
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from typing import List, Dict, Optional
 
@@ -37,6 +38,8 @@ ALLOWED_DOCUMENT_TYPES = {
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_PDF_BYTES = 32 * 1024 * 1024    # 32 MB (Anthropic PDF request limit)
+
+CONFIDENCE_FLOOR = 0.80  # rows below this are flagged even when math balances
 
 _EXTRACTION_PROMPT = (
     "You are a precise financial document reader. Extract the purchase line items "
@@ -235,6 +238,152 @@ def extract_statement(pdf_bytes: bytes, client=None) -> List[Dict]:
 def extract_and_normalize_statement(pdf_bytes: bytes, client=None) -> List[Dict]:
     """Convenience: extract a PDF statement then normalize with signed amounts."""
     return normalize_rows(extract_statement(pdf_bytes, client=client), signed=True)
+
+
+# --- Phase 2.2: header extraction + Math Integrity Gate -------------------
+
+_STATEMENT_WITH_HEADER_PROMPT = (
+    "You are a precise bank-statement reader. Extract the opening balance, closing balance, "
+    "and EVERY transaction from this bank statement. "
+    "Respond with ONLY a JSON object and nothing else, in this exact shape:\n"
+    '{"opening_balance": <number or null>, "closing_balance": <number or null>, '
+    '"transactions": [{"date": "YYYY-MM-DD", "description": "<narration>", '
+    '"amount": <number>, "confidence": <number 0..1>}]}\n'
+    "Sign convention for transactions: NEGATIVE for money leaving the account "
+    "(debits, withdrawals, payments), POSITIVE for money entering (credits, deposits).\n"
+    "opening_balance and closing_balance are the figures stated on the statement itself "
+    "(positive for credit balance). Set to null if not clearly stated.\n"
+    "Use each transaction's own date. Do not invent rows; lower confidence when unsure."
+)
+
+
+def _parse_balance(value) -> Optional[float]:
+    """Parse a balance figure (string or number) to a rounded float, or None."""
+    if value is None:
+        return None
+    try:
+        cleaned = str(value).replace(',', '').replace('R', '').replace(' ', '').strip()
+        return round(float(cleaned), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def extract_statement_with_header(pdf_bytes: bytes, client=None):
+    """Extract a PDF statement returning (opening_balance, closing_balance, rows).
+
+    Returns a 3-tuple (float|None, float|None, List[Dict]).
+    rows carries signed amounts, normalised like extract_and_normalize_statement.
+    Never raises — returns (None, None, []) on any failure.
+    """
+    client = client or get_claude_client()
+    if not client:
+        logger.error("OCR: AI client unavailable for statement-with-header extraction")
+        return None, None, []
+    try:
+        encoded = base64.standard_b64encode(pdf_bytes).decode('ascii')
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=4096,
+            messages=[{
+                'role': 'user',
+                'content': [
+                    {
+                        'type': 'document',
+                        'source': {
+                            'type': 'base64',
+                            'media_type': 'application/pdf',
+                            'data': encoded,
+                        },
+                    },
+                    {'type': 'text', 'text': _STATEMENT_WITH_HEADER_PROMPT},
+                ],
+            }],
+        )
+        text = response.content[0].text.strip()
+        start = text.find('{')
+        end = text.rfind('}')
+        if start == -1 or end == -1 or end <= start:
+            logger.error("OCR: no JSON object in statement-with-header response")
+            return None, None, []
+        data = json.loads(text[start:end + 1])
+        opening = _parse_balance(data.get('opening_balance'))
+        closing = _parse_balance(data.get('closing_balance'))
+        raw_rows = data.get('transactions', [])
+        rows = normalize_rows(raw_rows if isinstance(raw_rows, list) else [], signed=True)
+        return opening, closing, rows
+    except Exception as e:
+        logger.error(f"OCR statement-with-header error: {str(e)}")
+        return None, None, []
+
+
+def audit_statement(rows, opening_balance, closing_balance) -> dict:
+    """Run the Math Integrity Gate against extracted statement rows.
+
+    Returns a report_card dict with keys:
+      has_balances, reconciled, opening_balance, closing_balance,
+      declared_net, computed_net, variance, low_confidence_count,
+      low_confidence_indexes, flags.
+
+    IFRS for SMEs §2.5 (faithful representation): captured data must equal the source.
+    """
+    CENTS = Decimal('0.01')
+    flags = []
+    has_balances = opening_balance is not None and closing_balance is not None
+
+    try:
+        computed = sum(
+            Decimal(str(r.get('amount') or 0)).quantize(CENTS)
+            for r in rows
+        )
+    except (TypeError, ValueError, InvalidOperation):
+        computed = Decimal('0.00')
+
+    computed_net = float(computed)
+    declared_net = None
+    variance = None
+    reconciled = False
+
+    if has_balances:
+        try:
+            ob = Decimal(str(opening_balance)).quantize(CENTS)
+            cb = Decimal(str(closing_balance)).quantize(CENTS)
+            declared_net_d = (cb - ob).quantize(CENTS)
+            variance_d = (declared_net_d - computed).quantize(CENTS)
+            declared_net = float(declared_net_d)
+            variance = float(variance_d)
+            reconciled = (variance_d == Decimal('0.00'))
+            if not reconciled:
+                flags.append(
+                    f"Math gate failed: opening + transactions ≠ closing "
+                    f"(variance R{variance:+.2f})."
+                )
+        except (TypeError, ValueError, InvalidOperation):
+            flags.append("Could not verify math gate (balance parse error).")
+
+    low_confidence_indexes = [
+        i for i, r in enumerate(rows)
+        if (r.get('confidence') or 0.0) < CONFIDENCE_FLOOR
+    ]
+    low_confidence_count = len(low_confidence_indexes)
+    if low_confidence_count:
+        flags.append(
+            f"{low_confidence_count} row(s) below {int(CONFIDENCE_FLOOR * 100)}% confidence "
+            "— review before importing."
+        )
+        reconciled = False
+
+    return {
+        'has_balances': has_balances,
+        'reconciled': reconciled,
+        'opening_balance': opening_balance,
+        'closing_balance': closing_balance,
+        'declared_net': declared_net,
+        'computed_net': computed_net,
+        'variance': variance,
+        'low_confidence_count': low_confidence_count,
+        'low_confidence_indexes': low_confidence_indexes,
+        'flags': flags,
+    }
 
 
 # --- Phase 2.1: duplicate flagging ----------------------------------------
