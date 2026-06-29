@@ -348,6 +348,17 @@ def extract_bank_statement(
         )
     except PdfStatementError as tier1_exc:
         logger.info("Tier-1 PDF parse skipped: %s — trying Claude Vision", tier1_exc)
+    except Exception as tier1_exc:
+        # Any OTHER Tier-1 failure (e.g. a pypdf/dependency import error or an
+        # unexpected crash in the text parser) must not 500 the whole upload —
+        # the two-tier design exists precisely so a Tier-1 problem degrades to
+        # Claude Vision. Without this, only PdfStatementError fell back and
+        # anything else propagated as a 500. result stays None so Tier 2 runs.
+        logger.warning(
+            "Tier-1 PDF parse errored (%s: %s) — falling back to Claude Vision",
+            type(tier1_exc).__name__, tier1_exc,
+        )
+        result = None
 
     # Tier 2: Claude Vision (scans + complex layouts)
     if result is None:
