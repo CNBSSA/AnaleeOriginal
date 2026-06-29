@@ -1,5 +1,6 @@
 """Main application routes including core functionality"""
 import logging
+import pandas as pd
 from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_login import current_user, login_required, logout_user
@@ -13,6 +14,7 @@ from sqlalchemy import func
 from models import Transaction
 from bank_statements.services import BankStatementService
 from predictive_features import PredictiveFeatures
+from ai_utils import predict_account as ai_predict_account
 
 
 from models import (
@@ -703,13 +705,15 @@ def predict_account_route():
         account_data = [{
             'name': acc.name,
             'category': acc.category,
-            'balance': 0  # Initialize with zero balance
+            'link': acc.link,
         } for acc in available_accounts]
 
-        return jsonify({
-            'success': True,
-            'accounts': account_data
-        })
+        # Run the real account predictor (ASF). Returns a list of
+        # {account: {...}, account_name, confidence, reasoning, ...} which is the
+        # exact shape static/js/analyze/accountSuggestions.js renders.
+        suggestions = ai_predict_account(description, explanation, account_data)
+
+        return jsonify(suggestions)
 
     except Exception as e:
         logger.error(f"Error predicting account: {str(e)}")
@@ -1158,7 +1162,7 @@ class ICountant:
         
     def process_transaction(self, transaction_data):
         # Placeholder for actual iCountant logic
-        message = "iCountant is processing this transaction. Please select an account."
+        message = "Analee is processing this transaction. Please select an account."
         transaction_info = {}
         return message, transaction_info
         
@@ -1174,10 +1178,6 @@ class ICountant:
             completed = False
         return success, message, completed
         
-def suggest_explanation(description, similar_transactions):
-    #Implementation for suggestion would go here. Placeholder for now.
-    return "Explanation suggestion will be available in the next update"
-    
 def process_uploaded_file(file, status):
     """Process the uploaded file and return dataframe and total rows."""
     import pandas as pd
@@ -1503,23 +1503,6 @@ def update_goal(goal_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
         
-def find_similar_transactions(description):
-    """Find similar transactions based on description"""
-    try:
-        similar_transactions = Transaction.query.filter(
-            Transaction.user_id == current_user.id,
-            Transaction.description.ilike(f"%{description}%")
-        ).all()
-        
-        return [{
-            'id': t.id,
-            'description': t.description,
-            'explanation': t.explanation
-        } for t in similar_transactions]
-    except Exception as e:
-        logger.error(f"Error finding similar transactions: {str(e)}")
-        return []
-        
 @main.route('/suggest-explanation', methods=['POST'])
 @login_required
 def suggest_explanation_api():
@@ -1527,18 +1510,17 @@ def suggest_explanation_api():
     try:
         data = request.get_json()
         description = data.get('description', '').strip()
-        
+
         if not description:
             return jsonify({'error': 'Description is required'}), 400
-            
-        similar_transactions = find_similar_transactions(description)
-        suggestion = suggest_explanation(description, similar_transactions)
-        
-        return jsonify({
-            'success': True,
-            'suggestion': suggestion
-        })
-        
+
+        # Use the real predictor (Claude with a similar-transaction fallback)
+        # instead of the former hardcoded placeholder string.
+        predictor = PredictiveFeatures()
+        result = predictor.suggest_explanation(description)
+
+        return jsonify(result)
+
     except Exception as e:
         logger.error(f"Error in ESF: {str(e)}")
         return jsonify({'error': str(e)}), 500

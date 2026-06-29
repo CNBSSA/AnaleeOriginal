@@ -14,6 +14,7 @@ from sqlalchemy import desc, or_
 from models import db, Transaction, Account
 from ai_insights import FinancialInsightsGenerator
 from nlp_utils import get_claude_client as get_openai_client
+from config import CLAUDE_MODEL
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -202,7 +203,7 @@ User Query: {message}
 Provide a helpful, concise response focusing on their financial situation."""
 
         response = client.messages.create(
-            model="claude-opus-4-7",
+            model=CLAUDE_MODEL,
             max_tokens=512,
             system="You are a helpful financial assistant focused on providing clear, actionable advice based on the user's financial data.",
             messages=[{"role": "user", "content": prompt}]

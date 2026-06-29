@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h2>Upload New Bank Statement</h2>
+    <h2>Import Historical Data (Excel/CSV)</h2>
 
     <!-- Upload Form -->
     <div class="card mb-4">
@@ -29,7 +29,7 @@
                     {{ form.file.label(class="form-label") }}
                     {{ form.file(class="form-control", accept=".csv,.xlsx") }}
                     <div class="form-text">
-                        Upload bank statement in CSV or Excel format
+                        Accepted formats: CSV or Excel (.xlsx)
                     </div>
                 </div>
 

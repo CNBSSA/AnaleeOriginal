@@ -3,6 +3,8 @@ import re
 from collections import defaultdict
 import logging
 
+from .rule_manager import RuleManager
+
 logger = logging.getLogger(__name__)
 
 class KeywordMatcher:

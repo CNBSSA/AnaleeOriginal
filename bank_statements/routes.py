@@ -4,7 +4,7 @@ Implements secure file handling and validation
 """
 import logging
 import os
-from flask import render_template, request, redirect, url_for, flash, jsonify, current_app
+from flask import render_template, request, redirect, url_for, flash, jsonify, current_app, send_file
 from werkzeug.utils import secure_filename
 from flask_login import login_required, current_user
 
@@ -69,6 +69,19 @@ def reconcile():
             }), 500
 
         return redirect(url_for('bank_statements.upload'))
+
+@bank_statements.route('/download-template')
+@login_required
+def download_template():
+    """Serve the blank bank-statement Excel template (headers + sample + instructions)."""
+    from bank_statements.sample_template import build_bank_statement_template
+    return send_file(
+        build_bank_statement_template(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name='Analee-bank-statement-template.xlsx',
+    )
+
 
 @bank_statements.route('/upload', methods=['GET', 'POST'])
 @login_required
