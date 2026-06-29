@@ -99,3 +99,27 @@ def test_tier1_unexpected_error_falls_back_to_claude(monkeypatch):
     assert outcome.ok, f"expected fallback to succeed, got {outcome.error!r}"
     assert outcome.method == "claude_vision"
     assert len(outcome.rows) == 1
+
+
+def test_chunk_split_failure_sends_whole_pdf(monkeypatch):
+    """If pypdf can't split a multi-page PDF (e.g. DependencyError on an encrypted
+    file), fall back to one whole-PDF Claude call instead of failing the upload."""
+    import ocr.statement_extractor as se
+
+    def _t1_skip(*args, **kwargs):
+        from ocr.pdf_text_extraction import PdfStatementError
+        raise PdfStatementError("scanned/encrypted — go to Tier-2")
+
+    def _split_boom(*args, **kwargs):
+        raise RuntimeError("DependencyError: cryptography is required for AES")
+
+    monkeypatch.setattr(se, "extract_pdf_statement", _t1_skip)
+    monkeypatch.setattr(se, "_bank_hint_from_pdf", lambda *a, **k: None)
+    monkeypatch.setattr(se, "needs_chunking", lambda *a, **k: True)
+    monkeypatch.setattr(se, "count_pdf_pages", lambda *a, **k: 8)
+    monkeypatch.setattr(se, "split_pdf_bytes", _split_boom)
+    client = _FakeClient(json.dumps(_SA_PAYLOAD))
+    outcome = extract_bank_statement(b"%PDF-1.4 bigfile", client=client)
+    assert outcome.ok, f"expected whole-PDF fallback to succeed, got {outcome.error!r}"
+    assert len(outcome.rows) == 1
+    assert client.messages.last_kwargs is not None  # Claude was still called
