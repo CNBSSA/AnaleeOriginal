@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Import PDF Bank Statement{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-lg-9">
+            <h2>Import a South African Bank Statement (PDF)</h2>
+            <p class="text-muted">
+                Upload a PDF from FNB, Standard Bank, Absa, Nedbank, Capitec, or any
+                other SA bank. We read every transaction line (debits negative, credits
+                positive), check that the statement balances mathematically, then let
+                you review before anything is saved.
+            </p>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
+                {% endfor %}
+            {% endwith %}
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <form method="POST" enctype="multipart/form-data">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+                        <div class="mb-3">
+                            <label for="file" class="form-label">Statement PDF</label>
+                            <input type="file" name="file" id="file" class="form-control"
+                                   accept="application/pdf" required>
+                            <div class="form-text">
+                                PDF only, up to 32&nbsp;MB. Works for digital exports and scanned statements.
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="opening_balance" class="form-label">Opening balance (optional)</label>
+                                <input type="text" name="opening_balance" id="opening_balance"
+                                       class="form-control" placeholder="e.g. 12 450.00">
+                                <div class="form-text">Helps scanned PDFs when the header is hard to read.</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="closing_balance" class="form-label">Closing balance (optional)</label>
+                                <input type="text" name="closing_balance" id="closing_balance"
+                                       class="form-control" placeholder="e.g. 8 320.50">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="account_id" class="form-label">Assign to account (optional)</label>
+                            <select name="account_id" id="account_id" class="form-select">
+                                <option value="">— Choose later —</option>
+                                {% for account in accounts %}
+                                    <option value="{{ account.id }}">{{ account.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-magic"></i> Extract transactions
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="alert alert-light border small">
+                <strong>How it works:</strong> digital PDFs are parsed locally (fast).
+                Scanned or complex layouts use Claude Vision. Every import is checked:
+                opening balance + transactions must equal closing balance.
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
