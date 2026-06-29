@@ -29,7 +29,7 @@ sys.modules["flask_apscheduler"].APScheduler = _Sched
 from sqlalchemy import create_engine, inspect, text  # noqa: E402
 
 from app import _heal_missing_columns  # noqa: E402
-from models import User, Account  # noqa: E402
+from models import User, Account, Transaction  # noqa: E402
 
 
 def test_heal_adds_missing_columns_and_preserves_rows(tmp_path):
@@ -81,3 +81,32 @@ def test_heal_skips_absent_table(tmp_path):
     eng = create_engine(f"sqlite:///{tmp_path/'empty.db'}")
     # No tables at all -> nothing to heal, never raises.
     assert _heal_missing_columns(eng, [User, Account]) == []
+
+
+def test_heal_adds_explanation_source_to_transaction(tmp_path):
+    """The client-explain feature added a NOT-NULL `explanation_source` column via
+    migration only; on a create_all()-built prod DB it would be missing and 500
+    every Transaction query. The guard must heal it."""
+    eng = create_engine(f"sqlite:///{tmp_path/'legacy_txn.db'}")
+    with eng.begin() as c:
+        # Legacy 'transaction' table predating explanation_source.
+        c.execute(text(
+            'CREATE TABLE "transaction" (id INTEGER PRIMARY KEY, date DATETIME, '
+            'description VARCHAR(200), amount FLOAT, user_id INTEGER, '
+            'file_id INTEGER, explanation VARCHAR(500))'))
+        c.execute(text(
+            'INSERT INTO "transaction" (id, date, description, amount, user_id, explanation) '
+            "VALUES (1, '2026-03-01', 'Coffee', -4.5, 1, '')"))
+
+    assert 'explanation_source' not in {
+        c['name'] for c in inspect(eng).get_columns('transaction')}
+
+    added = _heal_missing_columns(eng, [Transaction])
+
+    txn_cols = {c['name'] for c in inspect(eng).get_columns('transaction')}
+    assert {col.name for col in Transaction.__table__.columns} <= txn_cols
+    assert ('transaction', 'explanation_source') in added
+    # Existing row preserved; new column added NULLable so the legacy row survives.
+    with eng.begin() as c:
+        assert c.execute(
+            text('SELECT description FROM "transaction" WHERE id=1')).fetchone()[0] == 'Coffee'

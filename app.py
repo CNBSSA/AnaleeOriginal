@@ -297,6 +297,12 @@ def create_app(env=None):
             app.register_blueprint(ocr)
             from client_explain_routes import client_explain_bp
             app.register_blueprint(client_explain_bp)
+            # The client-explain wizard is a NO-LOGIN flow: clients have no session
+            # and the form carries no CSRF token, so app-wide CSRF would reject
+            # every save POST ("CSRF token is missing"). Security is provided by the
+            # signed, scoped, expiring token + per-transaction ownership re-checks,
+            # so exempt only this blueprint from CSRF (nothing else is affected).
+            csrf.exempt(client_explain_bp)
 
             # Friendly 413 handler for oversized uploads (MAX_CONTENT_LENGTH).
             app.register_error_handler(413, _request_entity_too_large)
@@ -306,13 +312,18 @@ def create_app(env=None):
             logger.info("Database tables verified")
 
             # Defensive schema guard: heal any model columns missing from the
-            # live `user` / `account` tables before anything queries or seeds
-            # them. These are on the auth + OCR/bank-statement upload path, so a
-            # drifted production DB (deploy uses create_all(), not migrations)
-            # would otherwise 500 those pages. Idempotent; never blocks startup.
+            # live `user` / `account` / `transaction` tables before anything
+            # queries or seeds them. These are on the auth + OCR/bank-statement
+            # upload + client-explain paths, so a drifted production DB (deploy
+            # uses create_all(), not migrations) would otherwise 500 those pages.
+            # `transaction` is included because `explanation_source` (added with
+            # the client-explain feature via migration only) is a NOT-NULL mapped
+            # column — without it EVERY Transaction query 500s in production.
+            # Idempotent; never blocks startup.
             try:
-                from models import User as _User_heal, Account as _Account_heal
-                _heal_missing_columns(db.engine, [_User_heal, _Account_heal])
+                from models import (User as _User_heal, Account as _Account_heal,
+                                    Transaction as _Txn_heal)
+                _heal_missing_columns(db.engine, [_User_heal, _Account_heal, _Txn_heal])
             except Exception as _e:
                 logger.error(f"schema heal guard skipped: {_e}")
 
