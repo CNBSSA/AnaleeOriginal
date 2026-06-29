@@ -21,12 +21,16 @@
                     {% if statement_header.account_number %}
                         <div class="col-md-3"><strong>Account:</strong> {{ statement_header.account_number }}</div>
                     {% endif %}
+                    {% if statement_header.opening_balance is not none %}
                     <div class="col-md-3">
                         <strong>Opening:</strong> R {{ '%.2f'|format(statement_header.opening_balance) }}
                     </div>
+                    {% endif %}
+                    {% if statement_header.closing_balance is not none %}
                     <div class="col-md-3">
                         <strong>Closing:</strong> R {{ '%.2f'|format(statement_header.closing_balance) }}
                     </div>
+                    {% endif %}
                 </div>
                 {% if extraction_method %}
                     <div class="text-muted small mt-1">
@@ -38,7 +42,18 @@
     {% endif %}
 
     {% if report_card %}
-        {% if report_card.reconciled %}
+        {% if not report_card.balances_provided %}
+            <div class="alert alert-info">
+                <strong>{{ report_card.line_count }} transaction(s) captured.</strong>
+                The opening/closing balance couldn't be read, so the statement total
+                wasn't auto-verified — please review the rows before importing.
+                To enable the balance check, re-upload with the opening &amp; closing
+                balances entered on the form.
+                {% if report_card.low_confidence_lines %}
+                    {{ report_card.low_confidence_lines|length }} low-confidence row(s) flagged.
+                {% endif %}
+            </div>
+        {% elif report_card.reconciled %}
             <div class="alert alert-success">
                 <strong>Statement balances.</strong>
                 Opening + {{ report_card.line_count }} transaction(s) = closing
@@ -137,7 +152,7 @@
         <button type="submit" class="btn btn-success">
             <i class="fas fa-check"></i> Confirm &amp; import
         </button>
-        <a href="{{ url_for('ocr.upload_statement') if statement_header else url_for('ocr.upload_receipt') }}"
+        <a href="{{ url_for('ocr.upload_statement') }}"
            class="btn btn-outline-secondary">Cancel</a>
     </form>
 </div>
