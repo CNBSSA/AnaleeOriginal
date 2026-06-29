@@ -133,10 +133,8 @@ def _payload_to_result(
         raw = payload.get("closing_balance")
         if raw not in (None, "", "null"):
             closing = normalize_amount(raw)
-    if opening is None or closing is None:
-        raise ValueError(
-            "opening and/or closing balance not found — enter them on the upload form."
-        )
+    # opening/closing are optional — if missing, the lines are still captured and
+    # the integrity gate reports "not verified" (see statement_integrity.self_audit).
 
     lines: list[StatementLine] = []
     for raw in payload.get("lines") or []:

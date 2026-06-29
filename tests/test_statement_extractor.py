@@ -61,6 +61,22 @@ def test_payload_to_result_builds_extraction():
     assert str(result.lines[0].amount) == "-150.00"
 
 
+def test_payload_to_result_without_balances_still_extracts():
+    """A payload with no opening/closing balance must still yield the lines
+    (balances optional) instead of raising and discarding the whole statement."""
+    payload = {
+        "bank": "Capitec",
+        "lines": [
+            {"date": "01/03/2026", "description": "Card purchase", "amount": "-99.00",
+             "confidence": 0.9},
+        ],
+    }
+    result = _payload_to_result(payload)
+    assert len(result.lines) == 1
+    assert result.header.opening_balance is None
+    assert result.header.closing_balance is None
+
+
 def test_extract_bank_statement_claude_tier_with_fake_client():
     client = _FakeClient(json.dumps(_SA_PAYLOAD))
     # Non-text PDF bytes force Tier-1 to fail → Tier-2 Claude

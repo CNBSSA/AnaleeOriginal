@@ -1,4 +1,5 @@
-"""Receipt OCR routes: upload an image, review extracted rows, confirm into transactions."""
+"""Bank-statement OCR routes: upload a PDF statement, review extracted rows,
+confirm into transactions. (Analee is strictly cash-basis; receipt OCR removed.)"""
 import logging
 from datetime import datetime, timedelta
 
@@ -7,20 +8,28 @@ from flask_login import login_required, current_user
 
 from models import db, UploadedFile, Account, Transaction
 from . import ocr
-from .service import (
-    extract_and_normalize, ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES,
-    ALLOWED_DOCUMENT_TYPES, mark_duplicates,
-)
+from .service import ALLOWED_DOCUMENT_TYPES, mark_duplicates
 from .statement_extractor import extract_bank_statement, MAX_PDF_BYTES
 
 logger = logging.getLogger(__name__)
 
 
 def _user_accounts():
-    return (Account.query
-            .filter_by(user_id=current_user.id, is_active=True)
-            .order_by(Account.name)
-            .all())
+    """The current user's active accounts. Never raises: on any DB error it
+    returns [] (and rolls back) so the upload page still renders instead of
+    returning a 500 to the user."""
+    try:
+        return (Account.query
+                .filter_by(user_id=current_user.id, is_active=True)
+                .order_by(Account.name)
+                .all())
+    except Exception as exc:
+        logger.error(f"Could not load accounts for the OCR upload page: {exc}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return []
 
 
 def _flag_duplicate_rows(rows):
@@ -49,50 +58,6 @@ def _flag_duplicate_rows(rows):
         for r in rows:
             r.setdefault('duplicate', False)
         return rows
-
-
-@ocr.route('/receipt', methods=['GET', 'POST'])
-@login_required
-def upload_receipt():
-    """Step 1: upload a receipt image; on success show the review screen."""
-    accounts = _user_accounts()
-
-    if request.method == 'POST':
-        file = request.files.get('file')
-        if not file or not file.filename:
-            flash('Please choose a receipt image to upload.', 'error')
-            return redirect(url_for('ocr.upload_receipt'))
-
-        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
-        media_type = ALLOWED_IMAGE_TYPES.get(ext)
-        if not media_type:
-            flash('Unsupported image type. Please upload a PNG, JPG, WEBP, or GIF.', 'error')
-            return redirect(url_for('ocr.upload_receipt'))
-
-        image_bytes = file.read()
-        if not image_bytes:
-            flash('The uploaded file is empty.', 'error')
-            return redirect(url_for('ocr.upload_receipt'))
-        if len(image_bytes) > MAX_IMAGE_BYTES:
-            flash('Image is too large (max 10 MB).', 'error')
-            return redirect(url_for('ocr.upload_receipt'))
-
-        rows = extract_and_normalize(image_bytes, media_type)
-        if not rows:
-            flash('Could not read any line items from that image. '
-                  'Try a clearer, well-lit photo or enter the transaction manually.', 'error')
-            return redirect(url_for('ocr.upload_receipt'))
-
-        rows = _flag_duplicate_rows(rows)
-        return render_template(
-            'ocr/review.html',
-            rows=rows,
-            accounts=accounts,
-            account_id=request.form.get('account_id', ''),
-            filename=file.filename,
-        )
-
-    return render_template('ocr/upload.html', accounts=accounts)
 
 
 @ocr.route('/statement', methods=['GET', 'POST'])
@@ -144,15 +109,18 @@ def upload_statement():
     return render_template('ocr/statement_upload.html', accounts=accounts)
 
 
-@ocr.route('/receipt/confirm', methods=['POST'])
+@ocr.route('/statement/confirm', methods=['POST'])
 @login_required
 def confirm_receipt():
-    """Step 2: persist the user-reviewed rows as transactions."""
+    """Persist the user-reviewed statement rows as transactions.
+
+    (Endpoint name kept as ``confirm_receipt`` for URL/template stability; it is
+    the shared review→import save path for bank-statement OCR.)"""
     dates = request.form.getlist('date')
     descriptions = request.form.getlist('description')
     amounts = request.form.getlist('amount')
     account_id = request.form.get('account_id') or None
-    filename = request.form.get('filename') or 'receipt'
+    filename = request.form.get('filename') or 'statement'
 
     # Per-row include filter (Phase 2.1). The review screen unchecks likely
     # duplicates by default; only checked rows carry an 'include' value equal to
@@ -189,7 +157,7 @@ def confirm_receipt():
 
     if not parsed_rows:
         flash('No valid rows to import. Please review the extracted values.', 'error')
-        return redirect(url_for('ocr.upload_receipt'))
+        return redirect(url_for('ocr.upload_statement'))
 
     try:
         uploaded_file = UploadedFile(
@@ -213,9 +181,9 @@ def confirm_receipt():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error importing receipt transactions: {str(e)}")
+        logger.error(f"Error importing statement transactions: {str(e)}")
         flash('Could not import the transactions. Please try again.', 'error')
-        return redirect(url_for('ocr.upload_receipt'))
+        return redirect(url_for('ocr.upload_statement'))
 
     flash(f'Imported {len(parsed_rows)} transaction(s).', 'success')
     return redirect(url_for('main.upload'))

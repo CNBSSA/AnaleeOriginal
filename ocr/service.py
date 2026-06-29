@@ -1,161 +1,27 @@
-"""
-Receipt OCR extraction service (Phase 1).
+"""Bank-statement OCR service.
 
-Sends a receipt image to Claude (vision) and returns normalized line items in the
-same {date, description, amount} shape the existing import path expects. All
-functions are defensive: on any failure they return an empty list rather than
-raising, mirroring the rest of the AI stack's fallback discipline.
+Analee is strictly a cash-basis tool, so this module covers ONLY PDF bank
+statements (receipt/image OCR was removed). It exposes:
 
-The Claude call (``extract_receipt``) is isolated from the parsing/normalization
-helpers so the latter can be unit-tested without any network access.
+- a thin ``extract_and_normalize_statement`` wrapper over the full SA pipeline in
+  :mod:`ocr.statement_extractor` (Tier-1 digital PDF + Tier-2 Claude Vision); and
+- ``mark_duplicates``, a pure helper that flags rows already present in the user's
+  transactions, so the review screen can pre-exclude them.
 """
-import base64
-import json
 import logging
 from difflib import SequenceMatcher
 from typing import List, Dict, Optional
 
-from config import OCR_MODEL
-from nlp_utils import get_claude_client
-from .sa_normalize import parse_sa_amount, parse_sa_date
 from .statement_extractor import extract_bank_statement, BankStatementExtraction
 
 logger = logging.getLogger(__name__)
 
-# Accepted image extensions -> Anthropic media types.
-ALLOWED_IMAGE_TYPES = {
-    'png': 'image/png',
-    'jpg': 'image/jpeg',
-    'jpeg': 'image/jpeg',
-    'webp': 'image/webp',
-    'gif': 'image/gif',
-}
-
-# Accepted document extensions -> Anthropic media types (Phase 2: PDF statements).
+# Accepted document extensions -> Anthropic media types (PDF bank statements).
 ALLOWED_DOCUMENT_TYPES = {
     'pdf': 'application/pdf',
 }
 
-MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_PDF_BYTES = 32 * 1024 * 1024    # 32 MB (Anthropic PDF request limit)
-
-_SA_RECEIPT_PROMPT = (
-    "You are an expert reader of South African retail receipts and till slips. "
-    "Extract purchase line items from this receipt image. Respond with ONLY a JSON "
-    "array and nothing else.\n"
-    "Each element: "
-    '{"date": "<DD/MM/YYYY or YYYY-MM-DD or null>", "description": "<item or merchant>", '
-    '"amount": "<ZAR amount as printed, e.g. R 45.00 or 45.00>", '
-    '"confidence": <0.0-1.0>}.\n'
-    "Rules: SA dates are usually DD/MM/YYYY. Amounts are in ZAR (R). Use the "
-    "receipt date for every row. If line items are unclear, return one row for the "
-    "total. Amounts are positive (expense). Include VAT/tip as separate rows only if "
-    "clearly itemised. Do not invent data; lower confidence when unsure."
-)
-
-
-def extract_receipt(image_bytes: bytes, media_type: str, client=None) -> List[Dict]:
-    """Call Claude vision and return the raw parsed rows (list of dicts).
-
-    Never raises. ``client`` may be injected for testing; otherwise the shared
-    Anthropic client is used. Returns [] if the client or response is unusable.
-    """
-    client = client or get_claude_client()
-    if not client:
-        logger.error("OCR: AI client unavailable (is ANTHROPIC_API_KEY set?)")
-        return []
-    try:
-        encoded = base64.standard_b64encode(image_bytes).decode('ascii')
-        response = client.messages.create(
-            model=OCR_MODEL,
-            max_tokens=1024,
-            messages=[{
-                'role': 'user',
-                'content': [
-                    {
-                        'type': 'image',
-                        'source': {
-                            'type': 'base64',
-                            'media_type': media_type,
-                            'data': encoded,
-                        },
-                    },
-                    {'type': 'text', 'text': _SA_RECEIPT_PROMPT},
-                ],
-            }],
-        )
-        text = response.content[0].text.strip()
-        return parse_rows(text)
-    except Exception as e:
-        logger.error(f"OCR extraction error: {str(e)}")
-        return []
-
-
-def parse_rows(text: str) -> List[Dict]:
-    """Pull the JSON array out of a model response and parse it. Never raises."""
-    if not text:
-        return []
-    start = text.find('[')
-    end = text.rfind(']')
-    if start == -1 or end == -1 or end < start:
-        logger.error("OCR: no JSON array found in model response")
-        return []
-    try:
-        data = json.loads(text[start:end + 1])
-    except json.JSONDecodeError as e:
-        logger.error(f"OCR: JSON parse error: {str(e)}")
-        return []
-    return data if isinstance(data, list) else []
-
-
-def normalize_rows(raw_rows: List[Dict], signed: bool = False) -> List[Dict]:
-    """Coerce raw extracted rows into a clean, render-ready shape.
-
-    Output rows: {'date': 'YYYY-MM-DD' or '', 'description': str,
-    'amount': float, 'confidence': float in [0,1]}. Rows with neither a
-    description nor a parseable amount are dropped.
-
-    When ``signed`` is True the amount sign is preserved (bank statements have
-    debits and credits); otherwise amounts are made positive (receipts).
-    """
-    normalized = []
-    for row in raw_rows or []:
-        if not isinstance(row, dict):
-            continue
-        description = str(row.get('description') or '').strip()
-        amount = parse_sa_amount(row.get('amount'), signed=signed)
-        date_str = parse_sa_date(row.get('date'))
-        if not description and amount is None:
-            continue
-        try:
-            confidence = max(0.0, min(1.0, float(row.get('confidence'))))
-        except (TypeError, ValueError):
-            confidence = 0.0
-        normalized.append({
-            'date': date_str,
-            'description': description,
-            'amount': amount if amount is not None else 0.0,
-            'confidence': confidence,
-        })
-    return normalized
-
-
-def extract_and_normalize(image_bytes: bytes, media_type: str, client=None) -> List[Dict]:
-    """Convenience: extract a receipt image then normalize (positive amounts)."""
-    return normalize_rows(extract_receipt(image_bytes, media_type, client=client))
-
-
-def parse_amount(value, signed: bool = False) -> Optional[float]:
-    """Parse a currency value (SA-aware). Delegates to :mod:`sa_normalize`."""
-    return parse_sa_amount(value, signed=signed)
-
-
-def parse_date(value) -> str:
-    """Parse a date (SA-aware). Delegates to :mod:`sa_normalize`."""
-    return parse_sa_date(value)
-
-
-# --- Phase 2+: SA bank statements (Tier-1 digital PDF + Tier-2 Claude Vision) ---
 
 
 def extract_and_normalize_statement(
@@ -183,7 +49,7 @@ def extract_and_normalize_statement(
     return outcome.rows
 
 
-# --- Phase 2.1: duplicate flagging ----------------------------------------
+# --- duplicate flagging ----------------------------------------------------
 
 _DUPLICATE_SIMILARITY = 0.85
 
