@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from sqlalchemy import text
 from flask_apscheduler import APScheduler
 from flask_wtf.csrf import CSRFProtect
-from flask_login import LoginManager
+from flask_login import LoginManager, current_user
 from config import MAX_UPLOAD_BYTES
 
 # Configure logging with detailed format
@@ -90,7 +90,10 @@ def create_app(env=None):
             'SESSION_COOKIE_SECURE': False,
             'SESSION_COOKIE_HTTPONLY': True,
             'REMEMBER_COOKIE_SECURE': False,
-            'REMEMBER_COOKIE_HTTPONLY': True
+            'REMEMBER_COOKIE_HTTPONLY': True,
+            'HUB_API_BASE_URL': os.environ.get('HUB_API_BASE_URL', ''),
+            'HUB_JWT_PUBLIC_KEY': os.environ.get('HUB_JWT_PUBLIC_KEY', ''),
+            'HUB_LOGIN_URL': os.environ.get('HUB_LOGIN_URL', ''),
         })
 
         # Import db after app creation to avoid circular imports
@@ -116,6 +119,18 @@ def create_app(env=None):
             if not user_id:
                 return None
             return User.query.get(int(user_id))
+
+        @app.before_request
+        def _club_session_refresh():
+            """P3 401-handler: if the hub revoked this session, force re-login."""
+            if not session.get("club_session"):
+                return
+            import club_refresh
+            if not club_refresh.session_matches_user(current_user):
+                club_refresh.clear_session_tokens()
+            if club_refresh.needs_refresh() and club_refresh.refresh() == "ended":
+                club_refresh.clear_session_tokens()
+                return redirect(club_refresh.hub_login_url())
 
         # Import and register blueprints within app context
         with app.app_context():
