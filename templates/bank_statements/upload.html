@@ -49,7 +49,9 @@
                         </div>
                     {% endif %}
                     <div class="form-text">
-                        Upload bank statement in CSV or Excel format
+                        Upload bank statement in CSV or Excel format &mdash;
+                        <a href="{{ url_for('bank_statements.download_template') }}">download the Excel template &darr;</a>
+                        (correct columns, a sample, and instructions).
                     </div>
                 </div>
 

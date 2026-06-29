@@ -50,6 +50,8 @@ def _request_entity_too_large(error):
         return jsonify({'success': False, 'error': message}), 413
 
     flash(message, 'error')
+    # Only redirect back to the referrer when it is a local URL (avoid open
+    # redirects and 405s on POST-only endpoints); otherwise the upload page.
     referrer = request.referrer
     if referrer:
         parsed = urlparse(referrer)
@@ -166,9 +168,9 @@ def create_app(env=None):
             'SQLALCHEMY_DATABASE_URI': database_url,
             'SQLALCHEMY_TRACK_MODIFICATIONS': False,
             'TEMPLATES_AUTO_RELOAD': True,
+            'MAX_CONTENT_LENGTH': MAX_UPLOAD_BYTES,
             'WTF_CSRF_ENABLED': True,
             'WTF_CSRF_TIME_LIMIT': 3600,
-            'MAX_CONTENT_LENGTH': MAX_UPLOAD_BYTES,
             'SESSION_COOKIE_SECURE': secure_cookies,
             'SESSION_COOKIE_HTTPONLY': True,
             'REMEMBER_COOKIE_SECURE': secure_cookies,
@@ -235,6 +237,7 @@ def create_app(env=None):
             app.register_blueprint(errors)
             app.register_blueprint(ocr)
 
+            # Friendly 413 handler for oversized uploads (MAX_CONTENT_LENGTH).
             app.register_error_handler(413, _request_entity_too_large)
 
             # Ensure database tables exist

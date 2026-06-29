@@ -29,11 +29,32 @@ class RuleManager:
                 except re.error as e:
                     logger.error(f"Invalid regex pattern '{keyword}': {str(e)}")
                     return False
-            
+
+            normalized_keyword = keyword.lower().strip()
+            normalized_category = category.strip()
+
+            # Idempotency guard: a rule is uniquely identified by
+            # (keyword, category, is_regex). If one already exists, don't insert a
+            # duplicate row — reactivate it if it had been deactivated, then return
+            # success. This keeps repeated default-rule seeding (HybridPredictor
+            # seeds defaults on every init) and any other caller from accumulating
+            # duplicate KeywordRule rows.
+            existing = KeywordRule.query.filter_by(
+                keyword=normalized_keyword,
+                category=normalized_category,
+                is_regex=is_regex,
+            ).first()
+            if existing:
+                if is_active and not existing.is_active:
+                    existing.is_active = True
+                    db.session.commit()
+                    self._cached_rules = None
+                return True
+
             # Create new rule
             rule = KeywordRule(
-                keyword=keyword.lower().strip(),
-                category=category.strip(),
+                keyword=normalized_keyword,
+                category=normalized_category,
                 priority=priority,
                 is_regex=is_regex,
                 is_active=is_active,

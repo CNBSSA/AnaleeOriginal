@@ -5,6 +5,7 @@ from nlp_utils import get_claude_client as get_openai_client, categorize_transac
 from utils.hybrid_predictor import HybridPredictor
 from models import HistoricalData, db
 from flask import current_app
+from config import CLAUDE_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ class HistoricalDataAI:
             Keep it concise (max 100 characters) and focus on the business context."""
 
             response = self.client.messages.create(
-                model="claude-opus-4-7",
+                model=CLAUDE_MODEL,
                 max_tokens=100,
                 system="You are a financial transaction analyst.",
                 messages=[{"role": "user", "content": prompt}]
