@@ -79,3 +79,23 @@ def test_extract_bank_statement_ai_unavailable():
     # No ANTHROPIC_API_KEY in test env → Tier-2 fails after Tier-1 fails
     assert not outcome.ok
     assert outcome.error_code in ("AI_UNAVAILABLE", "EXTRACTION_FAILED")
+
+
+def test_tier1_unexpected_error_falls_back_to_claude(monkeypatch):
+    """A non-PdfStatementError in Tier-1 (e.g. a pypdf/dependency error) must
+    degrade to Claude Vision, not 500 the upload."""
+    import ocr.statement_extractor as se
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated pypdf/dependency failure")
+
+    monkeypatch.setattr(se, "extract_pdf_statement", _boom)
+    # Isolate from the pypdf-backed helpers (covered by their own tests) so this
+    # test exercises only the Tier-1 -> Tier-2 fallback decision.
+    monkeypatch.setattr(se, "_bank_hint_from_pdf", lambda *a, **k: None)
+    monkeypatch.setattr(se, "needs_chunking", lambda *a, **k: False)
+    client = _FakeClient(json.dumps(_SA_PAYLOAD))
+    outcome = extract_bank_statement(b"%PDF-1.4 whatever", client=client)
+    assert outcome.ok, f"expected fallback to succeed, got {outcome.error!r}"
+    assert outcome.method == "claude_vision"
+    assert len(outcome.rows) == 1
