@@ -9,6 +9,15 @@
                 {{ form.csrf_token }}
                 <div class="row">
                     <div class="col-md-6 mb-3">
+                        {{ form.entity_id.label }}
+                        {{ form.entity_id(class="form-select") }}
+                        {% if form.entity_id.errors %}
+                            {% for error in form.entity_id.errors %}
+                                <span class="text-danger">{{ error }}</span>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    <div class="col-md-6 mb-3">
                         {{ form.account_code.label }}
                         {{ form.account_code(class="form-control") }}
                         {% if form.account_code.errors %}
@@ -17,6 +26,9 @@
                             {% endfor %}
                         {% endif %}
                     </div>
+                </div>
+
+                <div class="row">
                     <div class="col-md-6 mb-3">
                         {{ form.name.label }}
                         {{ form.name(class="form-control") }}
@@ -26,12 +38,21 @@
                             {% endfor %}
                         {% endif %}
                     </div>
+                    <div class="col-md-6 mb-3">
+                        {{ form.link.label }}
+                        {{ form.link(class="form-control") }}
+                        {% if form.link.errors %}
+                            {% for error in form.link.errors %}
+                                <span class="text-danger">{{ error }}</span>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
                 </div>
 
                 <div class="row">
                     <div class="col-md-6 mb-3">
                         {{ form.category.label }}
-                        {{ form.category(class="form-control") }}
+                        {{ form.category(class="form-select") }}
                         {% if form.category.errors %}
                             {% for error in form.category.errors %}
                                 <span class="text-danger">{{ error }}</span>
@@ -50,27 +71,6 @@
                 </div>
 
                 <div class="row">
-                    <div class="col-md-6 mb-3">
-                        {{ form.account_type.label }}
-                        {{ form.account_type(class="form-control") }}
-                        {% if form.account_type.errors %}
-                            {% for error in form.account_type.errors %}
-                                <span class="text-danger">{{ error }}</span>
-                            {% endfor %}
-                        {% endif %}
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        {{ form.balance_sheet_category.label }}
-                        {{ form.balance_sheet_category(class="form-control") }}
-                        {% if form.balance_sheet_category.errors %}
-                            {% for error in form.balance_sheet_category.errors %}
-                                <span class="text-danger">{{ error }}</span>
-                            {% endfor %}
-                        {% endif %}
-                    </div>
-                </div>
-
-                <div class="row">
                     <div class="col-md-12 mb-3">
                         {{ form.description.label }}
                         {{ form.description(class="form-control") }}
@@ -82,21 +82,9 @@
                     </div>
                 </div>
 
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        {{ form.status.label }}
-                        {{ form.status(class="form-control") }}
-                        {% if form.status.errors %}
-                            {% for error in form.status.errors %}
-                                <span class="text-danger">{{ error }}</span>
-                            {% endfor %}
-                        {% endif %}
-                    </div>
-                </div>
-
                 <div class="form-group">
                     <button type="submit" class="btn btn-primary">Update Account</button>
-                    <a href="{{ url_for('admin.charts_of_accounts') }}" class="btn btn-secondary">Cancel</a>
+                    <a href="{{ url_for('admin.charts_of_accounts', entity_id=account.entity_id) }}" class="btn btn-secondary">Cancel</a>
                 </div>
             </form>
         </div>

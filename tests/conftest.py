@@ -1,5 +1,5 @@
 """
-Shared pytest fixtures for the canary smoke suite.
+Shared pytest fixtures for AnaleeOriginal.
 
 The full app stack (app.create_app) imports flask_migrate and flask_apscheduler.
 Those are installed in CI/production but may be unbuildable in a minimal local
@@ -14,12 +14,13 @@ import tempfile
 import types
 
 import pytest
+from flask import Flask
 
 
 def _stub_if_missing(name, **attrs):
     try:
         if importlib.util.find_spec(name) is not None:
-            return  # real package present (CI/prod) — use it
+            return
     except (ImportError, ValueError):
         pass
     module = types.ModuleType(name)
@@ -38,15 +39,15 @@ _stub_if_missing('flask_apscheduler', APScheduler=type('APScheduler', (), {
     'start': lambda self, *a, **k: None,
 }))
 
+os.environ.setdefault('FLASK_SECRET_KEY', 'test-secret-key')
+os.environ.setdefault('DATABASE_URL', 'sqlite:///:memory:')
+
+from models import db, User  # noqa: E402
+
 
 @pytest.fixture
 def canary_app():
-    """Boot the real application against a throwaway file-backed SQLite DB.
-
-    A file (not :memory:) is used so every connection sees the same schema.
-    CSRF is disabled for the test client and ANTHROPIC_API_KEY is removed so AI
-    features take their deterministic offline fallback.
-    """
+    """Boot the real application against a throwaway file-backed SQLite DB."""
     fd, db_path = tempfile.mkstemp(suffix='.db', prefix='canary_')
     os.close(fd)
     os.environ['DATABASE_URL'] = f'sqlite:///{db_path}'
@@ -65,3 +66,38 @@ def canary_app():
         os.remove(db_path)
     except OSError:
         pass
+
+
+@pytest.fixture
+def app():
+    """Minimal Flask app with in-memory SQLite for service-layer tests."""
+    flask_app = Flask(__name__)
+    flask_app.config.update({
+        'TESTING': True,
+        'SECRET_KEY': 'test-secret-key',
+        'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',
+        'SQLALCHEMY_TRACK_MODIFICATIONS': False,
+        'WTF_CSRF_ENABLED': False,
+    })
+    db.init_app(flask_app)
+    with flask_app.app_context():
+        db.create_all()
+        yield flask_app
+        db.session.remove()
+        db.drop_all()
+
+
+@pytest.fixture
+def sample_user(app):
+    """Subscriber user for chart provisioning tests."""
+    with app.app_context():
+        user = User(
+            username='testuser',
+            email='test@example.com',
+            subscription_status='active',
+        )
+        user.set_password('password')
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+    return user_id

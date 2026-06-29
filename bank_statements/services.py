@@ -73,14 +73,15 @@ class BankStatementService:
         transactions = []
         for _, row in df.iterrows():
             try:
+                txn_date = pd.to_datetime(row['Date']).to_pydatetime()
                 transaction = Transaction(
-                    date=row['Date'],
-                    description=row['Description'][:200],  # Truncate to match column length
+                    date=txn_date,
+                    description=str(row['Description'])[:200],
                     amount=float(row['Amount']),
                     user_id=user_id,
                     account_id=account_id,
                     file_id=file_id,
-                    category=row.get('Category', None)  # Optional column
+                    category=row.get('Category', None)
                 )
                 transactions.append(transaction)
             except (ValueError, KeyError) as e:
@@ -126,9 +127,6 @@ class BankStatementService:
             db.session.add(upload)
             db.session.commit()
 
-            # Create uploaded file record
-            uploaded_file = self.create_uploaded_file_record(file.filename, user_id)
-            
             # Validate file extension
             file_ext = os.path.splitext(secure_filename(file.filename))[1].lower()
             if file_ext not in ['.csv', '.xlsx']:
@@ -157,23 +155,39 @@ class BankStatementService:
 
             # Process file and create transactions
             try:
-                # Read and validate Excel file
                 df = self.excel_reader.read_excel(temp_path)
 
                 if df is None or df.empty:
-                    error_msg = self.get_friendly_error_message('empty_file')
+                    details = '; '.join(self.excel_reader.get_errors()) or 'No readable rows'
+                    error_msg = self.get_friendly_error_message('empty_file', details)
                     upload.set_error(error_msg)
                     db.session.commit()
                     return False, {
                         'success': False,
                         'error': error_msg,
-                        'error_type': 'empty_file'
+                        'error_type': 'empty_file',
+                        'details': self.excel_reader.get_errors(),
                     }
 
-                # Create and save transactions
+                uploaded_file = self.create_uploaded_file_record(file.filename, user_id)
+
                 transactions = self.create_transactions(
                     df, account_id, user_id, uploaded_file.id
                 )
+                if not transactions:
+                    db.session.delete(uploaded_file)
+                    db.session.commit()
+                    error_msg = self.get_friendly_error_message(
+                        'empty_file', 'No valid transactions after parsing'
+                    )
+                    upload.set_error(error_msg)
+                    db.session.commit()
+                    return False, {
+                        'success': False,
+                        'error': error_msg,
+                        'error_type': 'empty_file',
+                    }
+
                 self.save_transactions(transactions)
 
                 # Update upload status

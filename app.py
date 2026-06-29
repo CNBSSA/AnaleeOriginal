@@ -205,33 +205,38 @@ def create_app(env=None):
             except Exception as _e:
                 logger.error(f"alert_history column guard skipped: {_e}")
 
-            # Defensive schema guard: company_settings.logo / logo_type were added
-            # to the model (the firm-logo feature) with an Alembic migration only.
-            # This app builds its schema with create_all() and does NOT run
-            # `flask db upgrade` on deploy, so on an existing database those columns
-            # are missing and EVERY CompanySettings query (company settings page,
-            # dashboard, reports, insights) fails with "column ... does not exist".
-            # Add the columns if missing. Idempotent; never blocks startup.
+            from services.entity_chart_schema import (
+                ensure_company_settings_schema,
+                ensure_entity_chart_schema,
+            )
+            if not ensure_company_settings_schema():
+                logger.error(
+                    'company_settings schema guard failed — settings pages may 500'
+                )
+            schema_ready = ensure_entity_chart_schema()
+            if not schema_ready:
+                logger.error(
+                    'Entity chart schema guard failed — charts may be empty until fixed'
+                )
+
+            @app.cli.command('seed-charts')
+            def seed_charts_command():
+                """Seed entity types and master chart (BooksXperts parity)."""
+                from services.chart_of_accounts import seed_entities, seed_admin_charts
+                seed_entities()
+                created, skipped = seed_admin_charts()
+                print(f'Chart seed complete: {created} created, {skipped} skipped.')
+
             try:
-                from sqlalchemy import inspect as _sa_inspect_cs, text as _sa_text_cs
-                _insp_cs = _sa_inspect_cs(db.engine)
-                if 'company_settings' in _insp_cs.get_table_names():
-                    _cs_cols = [c['name'] for c in _insp_cs.get_columns('company_settings')]
-                    _blob = 'BYTEA' if db.engine.dialect.name == 'postgresql' else 'BLOB'
-                    _to_add = []
-                    if 'logo' not in _cs_cols:
-                        _to_add.append(('logo', _blob))
-                    if 'logo_type' not in _cs_cols:
-                        _to_add.append(('logo_type', 'VARCHAR(50)'))
-                    if _to_add:
-                        with db.engine.begin() as _conn_cs:
-                            for _col, _coltype in _to_add:
-                                _conn_cs.execute(_sa_text_cs(
-                                    f'ALTER TABLE company_settings ADD COLUMN {_col} {_coltype}'
-                                ))
-                        logger.info(f"Added missing company_settings columns: {[c for c, _ in _to_add]}")
-            except Exception as _e:
-                logger.error(f"company_settings logo column guard skipped: {_e}")
+                from services.chart_of_accounts import seed_entities, seed_admin_charts
+                if schema_ready:
+                    seed_entities()
+                    created, skipped = seed_admin_charts()
+                    logger.info(
+                        'Chart seed on boot: %s created, %s skipped', created, skipped
+                    )
+            except Exception as chart_seed_exc:
+                logger.error('Chart seed on boot failed: %s', chart_seed_exc)
 
             return app
 

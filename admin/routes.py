@@ -10,7 +10,9 @@ import pandas as pd
 import os
 
 from . import admin, admin_required
-from models import db, User, AdminChartOfAccounts, Account, Transaction, CompanySettings, UploadedFile, BankStatementUpload
+from models import db, User, AdminChartOfAccounts, Account, Transaction, CompanySettings, UploadedFile, BankStatementUpload, Entity
+from services.chart_of_accounts import seed_entities, seed_admin_charts
+from services.entity_chart_schema import default_entity_id, ensure_entity_chart_schema
 from .forms import AdminChartOfAccountsForm, ChartOfAccountsUploadForm, CompanySettingsForm
 
 @admin.route('/charts-of-accounts', methods=['GET'])
@@ -18,11 +20,25 @@ from .forms import AdminChartOfAccountsForm, ChartOfAccountsUploadForm, CompanyS
 @admin_required
 def charts_of_accounts():
     """Manage system-wide Chart of Accounts"""
-    form = AdminChartOfAccountsForm()
-    upload_form = ChartOfAccountsUploadForm()
+    ensure_entity_chart_schema()
+    seed_entities()
+    seed_admin_charts()
+    entities = Entity.query.order_by(Entity.name).all()
+    entity_choices = [(e.id, e.name) for e in entities]
 
-    # Changed to use the correct field name from the model
-    accounts = AdminChartOfAccounts.query.order_by(AdminChartOfAccounts.code).all()
+    form = AdminChartOfAccountsForm()
+    form.entity_id.choices = entity_choices
+    upload_form = ChartOfAccountsUploadForm()
+    upload_form.entity_id.choices = entity_choices
+
+    selected_entity_id = request.args.get('entity_id', type=int)
+    if not selected_entity_id:
+        selected_entity_id = default_entity_id()
+
+    query = AdminChartOfAccounts.query
+    if selected_entity_id:
+        query = query.filter_by(entity_id=selected_entity_id)
+    accounts = query.order_by(AdminChartOfAccounts.code).all()
 
     # Get upload errors from session if they exist
     upload_errors = session.pop('upload_errors', None)
@@ -31,6 +47,8 @@ def charts_of_accounts():
                          form=form, 
                          upload_form=upload_form,
                          accounts=accounts,
+                         entities=entities,
+                         selected_entity_id=selected_entity_id,
                          upload_errors=upload_errors)
 
 @admin.route('/charts-of-accounts/upload', methods=['POST'])
@@ -39,8 +57,11 @@ def charts_of_accounts():
 def upload_chart_of_accounts():
     """Upload Chart of Accounts from Excel file with enhanced error handling"""
     form = ChartOfAccountsUploadForm()
+    entities = Entity.query.order_by(Entity.name).all()
+    form.entity_id.choices = [(e.id, e.name) for e in entities]
     if form.validate_on_submit():
         try:
+            entity_id = form.entity_id.data
             file = form.excel_file.data
             df = pd.read_excel(file)
 
@@ -68,7 +89,7 @@ def upload_chart_of_accounts():
                         break
                 if not found and expected_col in ['Code', 'Account Name', 'Category']:
                     flash(f'Required column {expected_col} not found in Excel file', 'danger')
-                    return redirect(url_for('admin.charts_of_accounts'))
+                    return redirect(url_for('admin.charts_of_accounts', entity_id=form.entity_id.data))
 
             success_count = 0
             error_count = 0
@@ -109,8 +130,9 @@ def upload_chart_of_accounts():
                         error_count += 1
                         continue
 
-                    # Check for existing account by link or code
+                    # Check for existing account by link or code for this entity
                     existing_account = AdminChartOfAccounts.query.filter(
+                        AdminChartOfAccounts.entity_id == entity_id,
                         (AdminChartOfAccounts.link == link) | 
                         (AdminChartOfAccounts.code == code)
                     ).first()
@@ -125,6 +147,7 @@ def upload_chart_of_accounts():
 
                     # Create new account with careful value assignment
                     account = AdminChartOfAccounts(
+                        entity_id=entity_id,
                         link=link,
                         code=code,
                         name=name,
@@ -165,7 +188,10 @@ def upload_chart_of_accounts():
             for error in errors:
                 flash(f'{getattr(form, field).label.text}: {error}', 'danger')
 
-    return redirect(url_for('admin.charts_of_accounts'))
+    entity_redirect = request.args.get('entity_id', type=int)
+    if form.entity_id.data:
+        entity_redirect = form.entity_id.data
+    return redirect(url_for('admin.charts_of_accounts', entity_id=entity_redirect))
 
 @admin.route('/charts-of-accounts/add', methods=['POST'])
 @login_required
@@ -173,17 +199,20 @@ def upload_chart_of_accounts():
 def add_chart_of_accounts():
     """Add a new account to system-wide Chart of Accounts"""
     form = AdminChartOfAccountsForm()
+    form.entity_id.choices = [(e.id, e.name) for e in Entity.query.order_by(Entity.name).all()]
     if form.validate_on_submit():
-        # Check if account code already exists
+        # Check if account code already exists for this entity
         existing_account = AdminChartOfAccounts.query.filter_by(
+            entity_id=form.entity_id.data,
             code=form.account_code.data
         ).first()
 
         if existing_account:
             flash('Account code already exists.', 'error')
-            return redirect(url_for('admin.charts_of_accounts'))
+            return redirect(url_for('admin.charts_of_accounts', entity_id=form.entity_id.data))
 
         account = AdminChartOfAccounts(
+            entity_id=form.entity_id.data,
             code=form.account_code.data,
             name=form.name.data,
             category=form.category.data,
@@ -204,7 +233,8 @@ def add_chart_of_accounts():
             for error in errors:
                 flash(f'{getattr(form, field).label.text}: {error}', 'error')
 
-    return redirect(url_for('admin.charts_of_accounts'))
+    entity_redirect = form.entity_id.data if form.entity_id.data else request.args.get('entity_id', type=int)
+    return redirect(url_for('admin.charts_of_accounts', entity_id=entity_redirect))
 
 @admin.route('/charts-of-accounts/edit/<int:account_id>', methods=['GET', 'POST'])
 @login_required
@@ -212,19 +242,32 @@ def add_chart_of_accounts():
 def edit_chart_of_accounts(account_id):
     """Edit an existing Chart of Accounts entry"""
     account = AdminChartOfAccounts.query.get_or_404(account_id)
-    form = AdminChartOfAccountsForm(obj=account)
+    form = AdminChartOfAccountsForm()
+    form.entity_id.choices = [(e.id, e.name) for e in Entity.query.order_by(Entity.name).all()]
+
+    if request.method == 'GET':
+        form.entity_id.data = account.entity_id
+        form.account_code.data = account.code
+        form.name.data = account.name
+        form.category.data = account.category
+        form.sub_category.data = account.sub_category
+        form.description.data = account.description
+        form.link.data = account.link
 
     if form.validate_on_submit():
         try:
-            account.code = form.code.data
+            account.entity_id = form.entity_id.data
+            account.code = form.account_code.data
             account.name = form.name.data
             account.category = form.category.data
             account.sub_category = form.sub_category.data
             account.description = form.description.data
+            if form.link.data:
+                account.link = form.link.data
 
             db.session.commit()
             flash('Account updated successfully.', 'success')
-            return redirect(url_for('admin.charts_of_accounts'))
+            return redirect(url_for('admin.charts_of_accounts', entity_id=account.entity_id))
         except Exception as e:
             db.session.rollback()
             flash('Error updating account.', 'error')
@@ -248,7 +291,7 @@ def delete_chart_of_accounts(account_id):
         flash('Error deleting account.', 'error')
         current_app.logger.error(f"Error deleting admin COA: {str(e)}")
 
-    return redirect(url_for('admin.charts_of_accounts'))
+    return redirect(url_for('admin.charts_of_accounts', entity_id=account.entity_id))
 
 
 @admin.route('/dashboard')

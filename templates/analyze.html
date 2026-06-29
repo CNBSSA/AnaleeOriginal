@@ -166,17 +166,53 @@
     <div class="card-body">
         <div class="mb-4">
             <h2 class="card-title">Analyze Transactions</h2>
-            <div class="d-flex justify-content-between align-items-center">
-                <h5>File: {{ file.filename }}</h5>
-                <div class="alert alert-info" role="alert">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div>
+                    <h5 class="mb-1">File: {{ file.filename }}</h5>
+                    <p class="text-muted mb-0">
+                        Showing {{ transactions|length }} of {{ total_count }} transactions
+                        (page {{ page }} of {{ total_pages }})
+                    </p>
+                </div>
+                <div class="alert alert-info mb-0" role="alert">
                     <i class="fas fa-info-circle me-2"></i>
-                    Add explanations and select accounts for your transactions
+                    {{ unprocessed_count }} still need account or explanation
                 </div>
             </div>
         </div>
 
+        {% if unprocessed_count > 0 %}
+        <div class="alert alert-secondary py-2 small mb-3">
+            <strong>Cash-basis tip:</strong> categorise bank lines to income, expense, bank, or PPE <strong>cost</strong>
+            accounts (e.g. Office Furniture - Cost). Avoid trade receivables/payables — BooksXperts or
+            The Accountants handle depreciation and accrual adjustments after trial balance import.
+        </div>
+        <div class="card mb-4 border-primary">
+            <div class="card-body">
+                <h5 class="card-title">Phased auto-processing</h5>
+                <p class="text-muted mb-3">
+                    Process <strong>10 transactions at a time</strong>. High-confidence AI suggestions
+                    are applied automatically; others are highlighted for your review.
+                </p>
+                <div class="progress mb-2" style="height: 24px;">
+                    <div id="batchProgressBar" class="progress-bar progress-bar-striped" role="progressbar" style="width: 0%">0%</div>
+                </div>
+                <p class="small text-muted mb-2" id="batchProgressText">0 / {{ unprocessed_count }} reviewed</p>
+                <p class="mb-3" id="batchStatusText">Ready to process.</p>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-primary" id="startBatchProcess">
+                        <i class="fas fa-play me-1"></i> Auto-process next 10
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="stopBatchProcess" disabled>Stop</button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         {% if transactions %}
         <form method="POST" id="analyzeForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="page" value="{{ page }}">
             <div class="table-responsive">
                 <table class="table transaction-table">
                     <thead>
@@ -207,19 +243,16 @@
                                         data-transaction-id="{{ transaction.id }}"
                                         data-description="{{ transaction.description }}"
                                     >{{ transaction.explanation or '' }}</textarea>
-                                    <div class="similar-transactions mt-2" id="similar-transactions-{{ transaction.id }}" style="display: none;">
-                                        <h6 class="text-muted">Similar Transactions</h6>
-                                        <div class="list-group">
-                                            <!-- Similar transactions will be populated here -->
-                                        </div>
-                                    </div>
+                                    <div class="similar-transactions mt-2" id="similar-transactions-{{ transaction.id }}" style="display: none;"></div>
+                                    <div id="explanation-suggestions-{{ transaction.id }}" class="mt-1" style="display: none;"></div>
                                 </div>
                             </td>
                             <td>
-                                <select class="form-select" name="account_{{ transaction.id }}">
+                                <select class="form-select account-select" name="account_{{ transaction.id }}" data-transaction-id="{{ transaction.id }}">
                                     <option value="">Select Account</option>
                                     {% for account in accounts %}
-                                    <option value="{{ account.id }}" 
+                                    <option value="{{ account.id }}"
+                                            data-link="{{ account.link }}"
                                             {% if transaction.account_id == account.id %}selected{% endif %}>
                                         {{ account.name }} ({{ account.category }})
                                     </option>
@@ -227,29 +260,48 @@
                                 </select>
                             </td>
                             <td>
-                                <button type="button" 
-                                        class="btn btn-outline-primary suggest-btn"
-                                        data-transaction-id="{{ transaction.id }}"
-                                        {% if not ai_available %}
-                                        data-bs-toggle="tooltip"
-                                        title="AI suggestions temporarily unavailable. You can still enter explanations manually."
-                                        {% endif %}
-                                        {{ 'disabled' if not ai_available else '' }}>
-                                    <i class="fas fa-magic"></i> {{ 'AI Suggest' if ai_available else 'Manual Mode' }}
-                                </button>
-                                {% if not ai_available %}
-                                <small class="text-muted d-block mt-1">
-                                    <i class="fas fa-edit"></i> Manual entry available
-                                </small>
-                                {% endif %}
+                                <div class="d-flex flex-column gap-1">
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-primary suggest-btn suggest-account-btn"
+                                            data-transaction-id="{{ transaction.id }}"
+                                            data-description="{{ transaction.description }}"
+                                            data-explanation="{{ transaction.explanation or '' }}"
+                                            title="Account Suggestion (ASF)"
+                                            {% if not ai_available %}disabled{% endif %}>
+                                        <i class="fas fa-magic"></i> ASF
+                                    </button>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary suggest-explanation-btn"
+                                            data-transaction-id="{{ transaction.id }}"
+                                            data-description="{{ transaction.description }}"
+                                            title="Explanation Suggestion (ESF)"
+                                            {% if not ai_available %}disabled{% endif %}>
+                                        <i class="fas fa-lightbulb"></i> ESF
+                                    </button>
+                                </div>
+                                <div id="suggestions-{{ transaction.id }}" class="suggestions mt-2" style="display: none;"></div>
+                                <small class="text-muted d-block mt-1">ERF: type explanation to find similar rows</small>
                             </td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            <div class="text-end mt-3">
-                <button type="submit" class="btn btn-primary">Save Changes</button>
+            <div class="d-flex justify-content-between align-items-center mt-3">
+                <nav aria-label="Transaction pages">
+                    <ul class="pagination mb-0">
+                        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+                            <a class="page-link" href="{{ url_for('main.analyze', file_id=file.id, page=page-1) }}">Previous</a>
+                        </li>
+                        <li class="page-item disabled">
+                            <span class="page-link">Page {{ page }} of {{ total_pages }}</span>
+                        </li>
+                        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+                            <a class="page-link" href="{{ url_for('main.analyze', file_id=file.id, page=page+1) }}">Next</a>
+                        </li>
+                    </ul>
+                </nav>
+                <button type="submit" class="btn btn-primary">Save Changes (this page)</button>
             </div>
         </form>
         {% else %}
@@ -340,15 +392,17 @@
 
 {% block scripts %}
 <script type="module">
-    // Import the main application
     import AnalyzeApplication from "{{ url_for('static', filename='js/analyze/main.js') }}";
+    import BatchProcessor from "{{ url_for('static', filename='js/analyze/batchProcessor.js') }}";
 
-    // Initialize when DOM is ready
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
         const app = new AnalyzeApplication();
-        app.initialize().catch(error => {
-            console.error('Failed to initialize application:', error);
-        });
+        await app.initialize();
+
+        {% if file is defined and file %}
+        const batchProcessor = new BatchProcessor({{ file.id }});
+        batchProcessor.bindUI();
+        {% endif %}
     });
 </script>
 

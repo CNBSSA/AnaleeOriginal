@@ -3,6 +3,23 @@
 <div class="container mt-4">
     <h2>System Charts of Accounts</h2>
 
+    <div class="card mb-3">
+        <div class="card-body">
+            <form method="GET" class="row g-2 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label" for="entity_id">Entity type</label>
+                    <select class="form-select" id="entity_id" name="entity_id" onchange="this.form.submit()">
+                        {% for ent in entities %}
+                            <option value="{{ ent.id }}" {% if ent.id == selected_entity_id %}selected{% endif %}>
+                                {{ ent.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Excel Upload Form with Error Display -->
     <div class="card mb-4">
         <div class="card-body">
@@ -36,6 +53,10 @@
 
             <form method="POST" action="{{ url_for('admin.upload_chart_of_accounts') }}" enctype="multipart/form-data">
                 {{ upload_form.csrf_token }}
+                <div class="form-group mb-3">
+                    {{ upload_form.entity_id.label }}
+                    {{ upload_form.entity_id(class="form-select") }}
+                </div>
                 <div class="form-group">
                     {{ upload_form.excel_file.label }}
                     {{ upload_form.excel_file(class="form-control") }}
@@ -56,6 +77,12 @@
             <h5 class="card-title">Add New Account</h5>
             <form method="POST" action="{{ url_for('admin.add_chart_of_accounts') }}">
                 {{ form.csrf_token }}
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        {{ form.entity_id.label }}
+                        {{ form.entity_id(class="form-select") }}
+                    </div>
+                </div>
                 <div class="row">
                     <div class="col-md-6 mb-3">
                         {{ form.account_code.label }}
