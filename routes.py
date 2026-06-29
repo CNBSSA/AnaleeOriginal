@@ -403,6 +403,22 @@ def analyze(file_id):
         return redirect(url_for('main.analyze_list'))
 
 
+@main.route('/api/analyze/<int:file_id>/client-link')
+@login_required
+def analyze_client_link(file_id):
+    """Signed URL for the business owner to explain transactions (no login)."""
+    from services.client_explanation import queue_counts
+    uploaded = get_file_for_user(file_id, current_user.id)
+    if not uploaded:
+        return jsonify({'error': 'File not found'}), 404
+    from client_explain_routes import build_client_explain_url
+    remaining, _total = queue_counts(file_id, current_user.id)
+    return jsonify({
+        'url': build_client_explain_url(file_id, current_user.id),
+        'remaining': remaining,
+    })
+
+
 @main.route('/api/analyze/<int:file_id>/process-batch', methods=['POST'])
 @login_required
 def analyze_process_batch(file_id):

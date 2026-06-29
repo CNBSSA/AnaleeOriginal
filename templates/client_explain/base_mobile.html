@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d6efd">
+  <title>{% block title %}Explain transaction{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #f4f6f9;
+      --card: #fff;
+      --text: #1a1a1a;
+      --muted: #5c6570;
+      --primary: #0d6efd;
+      --deposit: #198754;
+      --payment: #dc3545;
+      --radius: 14px;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      padding-bottom: calc(1rem + var(--safe-bottom));
+    }
+    .wrap { max-width: 480px; margin: 0 auto; padding: 1rem; }
+    .brand {
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-align: center;
+      margin-bottom: 0.75rem;
+    }
+    .brand strong { color: var(--text); display: block; font-size: 1rem; }
+    .progress {
+      text-align: center;
+      font-size: 0.9rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      box-shadow: 0 2px 12px rgba(0,0,0,.06);
+      margin-bottom: 1rem;
+    }
+    .kind {
+      display: inline-block;
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      padding: .35rem .65rem;
+      border-radius: 999px;
+      margin-bottom: .75rem;
+    }
+    .kind.deposit { background: #d1e7dd; color: var(--deposit); }
+    .kind.payment { background: #f8d7da; color: var(--payment); }
+    .date { font-size: 0.95rem; color: var(--muted); margin-bottom: .25rem; }
+    .desc {
+      font-size: 1.1rem;
+      font-weight: 600;
+      word-break: break-word;
+      margin-bottom: .75rem;
+    }
+    .amount {
+      font-size: 1.75rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .amount.deposit { color: var(--deposit); }
+    .amount.payment { color: var(--payment); }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: .5rem;
+      font-size: 1rem;
+    }
+    textarea {
+      width: 100%;
+      min-height: 110px;
+      font-size: 1.05rem;
+      padding: .85rem;
+      border: 2px solid #dee2e6;
+      border-radius: 10px;
+      resize: vertical;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(13,110,253,.2);
+    }
+    .hint { font-size: 0.85rem; color: var(--muted); margin-top: .35rem; }
+    .btn {
+      display: block;
+      width: 100%;
+      border: none;
+      border-radius: 12px;
+      padding: 1rem;
+      font-size: 1.05rem;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: .75rem;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-secondary { background: #e9ecef; color: var(--text); }
+    .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .erf-panel {
+      display: none;
+      margin-top: 1rem;
+      padding: .85rem;
+      background: #eef4ff;
+      border-radius: 10px;
+      font-size: 0.9rem;
+    }
+    .erf-panel.visible { display: block; }
+    .erf-panel ul { margin: .5rem 0 0; padding-left: 1.1rem; }
+    .alert {
+      background: #d1e7dd;
+      color: #0f5132;
+      padding: .75rem;
+      border-radius: 10px;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+    .error { background: #f8d7da; color: #842029; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="wrap">
+    {% block body %}{% endblock %}
+  </div>
+</body>
+</html>

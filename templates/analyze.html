@@ -179,6 +179,16 @@
                     {{ unprocessed_count }} still need account or explanation
                 </div>
             </div>
+            <div class="alert alert-primary mt-3 mb-0 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+                <div>
+                    <strong>Ask your client to explain transactions</strong>
+                    <span class="d-block small">No login — one line at a time (ERF only). Send via WhatsApp or email.</span>
+                </div>
+                <button type="button" class="btn btn-light btn-sm text-nowrap" id="copy-client-explain-link"
+                        data-url="{{ url_for('main.analyze_client_link', file_id=file.id) }}">
+                    <i class="fas fa-link me-1"></i> Copy client link
+                </button>
+            </div>
         </div>
 
         {% if unprocessed_count > 0 %}
@@ -402,6 +412,23 @@
         {% if file is defined and file %}
         const batchProcessor = new BatchProcessor({{ file.id }});
         batchProcessor.bindUI();
+
+        const copyBtn = document.getElementById('copy-client-explain-link');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+                fetch(copyBtn.dataset.url)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (!data.url) return;
+                        const done = () => alert('Client link copied — send it to the business owner.');
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(data.url).then(done);
+                        } else {
+                            window.prompt('Copy this client link:', data.url);
+                        }
+                    });
+            });
+        }
         {% endif %}
     });
 </script>
