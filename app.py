@@ -295,6 +295,8 @@ def create_app(env=None):
             app.register_blueprint(suggestions)
             app.register_blueprint(errors)
             app.register_blueprint(ocr)
+            from client_explain_routes import client_explain_bp
+            app.register_blueprint(client_explain_bp)
 
             # Friendly 413 handler for oversized uploads (MAX_CONTENT_LENGTH).
             app.register_error_handler(413, _request_entity_too_large)

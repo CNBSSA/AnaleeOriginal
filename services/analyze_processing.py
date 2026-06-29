@@ -91,7 +91,13 @@ def save_analyze_form_transactions(user_id: int, form_data) -> int:
                 transaction.account_id = account.id
 
         if explanation_key in form_data:
-            transaction.explanation = form_data.get(explanation_key, '').strip()
+            from services.client_explanation import CLIENT_SOURCES, SOURCE_ACCOUNTANT, save_explanation
+            new_text = form_data.get(explanation_key, '').strip()
+            if new_text:
+                current_source = getattr(transaction, 'explanation_source', None) or ''
+                if current_source in CLIENT_SOURCES:
+                    continue
+                save_explanation(transaction, new_text, SOURCE_ACCOUNTANT)
 
         saved += 1
 

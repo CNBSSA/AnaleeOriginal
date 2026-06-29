@@ -149,6 +149,7 @@ class Transaction(db.Model):
     account_id = Column(Integer, ForeignKey('account.id', ondelete='CASCADE'))
     file_id = Column(Integer, ForeignKey('uploaded_file.id', ondelete='SET NULL'))
     explanation = Column(String(500))
+    explanation_source = Column(String(20), default='', nullable=False)
     # AI-generated fields used by the iCountant interface
     ai_category = Column(String(50))
     ai_confidence = Column(Float)
