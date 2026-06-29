@@ -173,7 +173,13 @@ def settings():
 @login_required
 def import_chart_of_accounts():
     admin_accounts = AdminChartOfAccounts.query.all()
+    added = 0
     for acc in admin_accounts:
+        exists = Account.query.filter_by(
+            user_id=current_user.id, link=acc.link
+        ).first()
+        if exists:
+            continue
         account = Account(
             link=acc.link,
             name=acc.name,
@@ -183,8 +189,12 @@ def import_chart_of_accounts():
             user_id=current_user.id
         )
         db.session.add(account)
+        added += 1
     db.session.commit()
-    flash('Chart of Accounts imported successfully', 'success')
+    if added:
+        flash(f'Chart of Accounts imported — {added} accounts added.', 'success')
+    else:
+        flash('Chart of Accounts already up to date — no new accounts to import.', 'info')
     return redirect(url_for('main.settings'))
 
 
@@ -492,6 +502,16 @@ def delete_account(account_id):
     account = Account.query.get_or_404(account_id)
     if account.user_id != current_user.id:
         flash('Access denied')
+        return redirect(url_for('main.settings'))
+
+    tx_count = Transaction.query.filter_by(account_id=account.id).count()
+    if tx_count > 0:
+        flash(
+            f'Cannot delete "{account.name}" — it has {tx_count} categorised '
+            f'transaction{"s" if tx_count != 1 else ""}. '
+            'Reassign those transactions to another account first.',
+            'error',
+        )
         return redirect(url_for('main.settings'))
 
     try:

@@ -125,7 +125,7 @@ class Transaction(db.Model):
     amount = Column(Float, nullable=False)
     category = Column(String(50))
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
-    account_id = Column(Integer, ForeignKey('account.id', ondelete='CASCADE'))
+    account_id = Column(Integer, ForeignKey('account.id', ondelete='RESTRICT'))
     file_id = Column(Integer, ForeignKey('uploaded_file.id', ondelete='SET NULL'))
     explanation = Column(String(500))
     # AI-generated fields used by the iCountant interface
@@ -193,7 +193,7 @@ class BankStatementUpload(db.Model):
     )
     error_message = Column(Text)
     processing_notes = Column(Text)
-    account_id = Column(Integer, ForeignKey('account.id', ondelete='CASCADE'), nullable=False)
+    account_id = Column(Integer, ForeignKey('account.id', ondelete='SET NULL'), nullable=True)
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
     user = relationship("User", back_populates="bank_statement_uploads")
     account = relationship('Account', back_populates='bank_statement_uploads')
