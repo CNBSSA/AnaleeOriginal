@@ -110,6 +110,47 @@ def test_save_analyze_form_transactions(app, analyze_user, analyze_file):
     assert updated_second.explanation == 'Office supplies'
 
 
+def test_account_change_persists_on_client_locked_row(app, analyze_user, analyze_file):
+    """Regression: an accountant changing the ACCOUNT of a client-explained row
+    must be saved, even when the same submit also carries an accountant
+    explanation for that row. The client's explanation is preserved (not
+    overwritten), but the account override must never be silently dropped.
+
+    Previously the client-lock branch did `continue`, which skipped `saved += 1`
+    and — when this was the only edited row — the gated `if saved: commit()`,
+    so the account change was lost. The discriminating assertion is `saved == 1`
+    (the old code returned 0)."""
+    account_id = _add_account(app, analyze_user)
+    with app.app_context():
+        txn = Transaction(
+            date=datetime(2025, 2, 1),
+            description='Builder Supply Co',
+            amount=-500.0,
+            user_id=analyze_user,
+            file_id=analyze_file,
+            explanation='Paid the plumber (client)',
+            explanation_source='client',
+        )
+        db.session.add(txn)
+        db.session.commit()
+        txn_id = txn.id
+
+        form_data = {
+            f'account_{txn_id}': str(account_id),
+            f'explanation_{txn_id}': 'Accountant note that must NOT overwrite the client',
+        }
+        saved = save_analyze_form_transactions(analyze_user, form_data)
+
+        # Re-read from the DB to confirm the account change was committed.
+        db.session.expire_all()
+        updated = db.session.get(Transaction, txn_id)
+
+    assert saved == 1                                          # not skipped by the client-lock
+    assert updated.account_id == account_id                    # accountant's account override saved
+    assert updated.explanation == 'Paid the plumber (client)'  # client's words kept
+    assert updated.explanation_source == 'client'              # still attributed to the client
+
+
 def test_count_unprocessed_transactions(app, analyze_user, analyze_file):
     _add_transactions(app, analyze_user, analyze_file, count=3)
     account_id = _add_account(app, analyze_user)
