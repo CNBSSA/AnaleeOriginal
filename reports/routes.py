@@ -7,7 +7,8 @@ general ledger, and trial balance.
 import logging
 import calendar
 from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from io import BytesIO
+from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, jsonify, current_app
 from flask_login import login_required, current_user
 from models import db, Transaction, Account, CompanySettings
 from sqlalchemy import text, and_
@@ -20,6 +21,13 @@ logger = logging.getLogger(__name__)
 
 # Import the blueprint instance from __init__.py
 from . import reports
+from .trial_balance_service import (
+    build_booksxperts_trial_balance_xlsx,
+    build_trial_balance_payload,
+    export_filename,
+    load_trial_balance,
+)
+from .tb_share_tokens import create_share_token, verify_share_token, DEFAULT_MAX_AGE_SECONDS
 
 def get_last_day_of_month(year: int, month: int) -> int:
     """
@@ -153,51 +161,128 @@ def general_ledger():
 def trial_balance():
     """Display trial balance report"""
     try:
-        company_settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
-        if not company_settings:
-            flash('Please configure company settings first.')
-            return redirect(url_for('main.company_settings'))
-            
-        fy_dates = company_settings.get_financial_year()
-        
-        # Get accounts with their transactions for the financial year.
-        # contains_eager populates account.transactions from the date-filtered
-        # join, so the per-account balance below only sums in-period
-        # transactions. Without it, account.transactions lazy-loads every
-        # transaction for the account regardless of date, inflating the totals.
-        accounts = (Account.query
-                   .filter_by(user_id=current_user.id)
-                   .outerjoin(Account.transactions)
-                   .filter(
-                       (Transaction.date >= fy_dates['start_date']) &
-                       (Transaction.date <= fy_dates['end_date'])
-                   )
-                   .options(contains_eager(Account.transactions))
-                   .order_by(Account.link)
-                   .all())
-        
-        # Calculate totals
-        total_debits = 0
-        total_credits = 0
-        
-        for account in accounts:
-            balance = sum(t.amount for t in account.transactions)
-            if balance > 0:
-                total_debits += balance
-            else:
-                total_credits += abs(balance)
-        
-        return render_template('reports/trial_balance.html',
-                             accounts=accounts,
-                             start_date=fy_dates['start_date'],
-                             end_date=fy_dates['end_date'],
-                             total_debits=total_debits,
-                             total_credits=total_credits)
-                             
+        ctx = load_trial_balance(current_user.id)
+        return render_template(
+            'reports/trial_balance.html',
+            accounts=ctx.accounts,
+            start_date=ctx.start_date,
+            end_date=ctx.end_date,
+            total_debits=ctx.total_debits,
+            total_credits=ctx.total_credits,
+            tb_balanced=ctx.total_debits == ctx.total_credits,
+        )
+    except ValueError:
+        flash('Please configure company settings first.')
+        return redirect(url_for('main.company_settings'))
     except Exception as e:
         logger.error(f"Error generating trial balance: {str(e)}, Stack trace: {str(e.__traceback__)}")
         flash('Error loading transaction data. Please try again.')
         return redirect(url_for('main.dashboard'))
+
+
+@reports.route('/trial-balance/export')
+@login_required
+def trial_balance_export():
+    """Download trial balance as BooksXperts-compatible Excel."""
+    try:
+        company_settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
+        if not company_settings:
+            flash('Please configure company settings first.')
+            return redirect(url_for('main.company_settings'))
+
+        ctx = load_trial_balance(current_user.id)
+        if not ctx.rows:
+            flash('No trial balance amounts to export for this period.')
+            return redirect(url_for('reports.trial_balance'))
+
+        xlsx = build_booksxperts_trial_balance_xlsx(
+            ctx.rows,
+            company_name=company_settings.company_name,
+            period_end=ctx.end_date,
+        )
+        return send_file(
+            BytesIO(xlsx),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=export_filename(ctx.end_date),
+        )
+    except Exception as e:
+        logger.error(f"Error exporting trial balance: {str(e)}, Stack trace: {str(e.__traceback__)}")
+        flash('Could not export trial balance. Please try again.')
+        return redirect(url_for('reports.trial_balance'))
+
+
+def _trial_balance_payload_for_user(user_id: int) -> tuple[dict, CompanySettings]:
+    company_settings = CompanySettings.query.filter_by(user_id=user_id).first()
+    if not company_settings:
+        raise ValueError('Company settings are not configured.')
+    ctx = load_trial_balance(user_id)
+    if not ctx.rows:
+        raise ValueError('No trial balance amounts for this period.')
+    payload = build_trial_balance_payload(
+        ctx,
+        user_id=user_id,
+        company_name=company_settings.company_name,
+        registration_number=company_settings.registration_number,
+    )
+    return payload, company_settings
+
+
+@reports.route('/api/trial-balance')
+@login_required
+def trial_balance_api():
+    """Authenticated JSON trial balance for downstream import (BooksXperts / Accountants)."""
+    try:
+        payload, _ = _trial_balance_payload_for_user(current_user.id)
+        return jsonify(payload)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as e:
+        logger.error(f"Error serving trial balance API: {str(e)}")
+        return jsonify({'error': 'Could not load trial balance.'}), 500
+
+
+@reports.route('/api/trial-balance/share')
+@login_required
+def trial_balance_share_link():
+    """Create a time-limited signed URL for trial balance JSON (24h)."""
+    try:
+        _trial_balance_payload_for_user(current_user.id)
+        token = create_share_token(current_user.id, secret_key=current_app.config['SECRET_KEY'])
+        share_url = url_for('reports.trial_balance_shared', token=token, _external=True)
+        return jsonify({
+            'share_url': share_url,
+            'expires_in_seconds': DEFAULT_MAX_AGE_SECONDS,
+            'format': 'application/json',
+        })
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as e:
+        logger.error(f"Error creating trial balance share link: {str(e)}")
+        return jsonify({'error': 'Could not create share link.'}), 500
+
+
+@reports.route('/api/trial-balance/shared/<token>')
+def trial_balance_shared(token):
+    """Fetch trial balance JSON via signed share token (no login required)."""
+    from itsdangerous import BadSignature, SignatureExpired
+
+    try:
+        user_id = verify_share_token(token, secret_key=current_app.config['SECRET_KEY'])
+        payload, _ = _trial_balance_payload_for_user(user_id)
+        response = jsonify(payload)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except SignatureExpired:
+        return jsonify({'error': 'Share link has expired. Generate a new link from Analee.'}), 410
+    except BadSignature:
+        return jsonify({'error': 'Invalid share link.'}), 403
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as e:
+        logger.error(f"Error serving shared trial balance: {str(e)}")
+        return jsonify({'error': 'Could not load trial balance.'}), 500
+
 
 @reports.route('/financial-position')
 @login_required

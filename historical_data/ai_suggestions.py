@@ -103,7 +103,7 @@ class HistoricalDataAI:
                 'salary': 'Monthly salary payment',
                 'rent': 'Rental payment',
                 'utilities': 'Utility bill payment',
-                'invoice': 'Invoice payment',
+                'payment': 'Customer payment',
                 'refund': 'Payment refund'
             }
 

@@ -20,4 +20,9 @@ class CompanySettingsForm(FlaskForm):
     financial_year_end = SelectField('Financial Year End',
                                  choices=[(str(i), str(i)) for i in range(1, 13)],
                                  validators=[DataRequired()])
+    entity_id = SelectField(
+        'Entity Type',
+        coerce=int,
+        validators=[DataRequired()],
+    )
     submit = SubmitField('Save Settings')

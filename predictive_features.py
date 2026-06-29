@@ -33,7 +33,7 @@ class PredictiveFeatures:
             self.client = None
         logger.info("PredictiveFeatures initialized with thresholds - Text: 70%, Semantic: 95%")
 
-    def find_similar_transactions(self, description: str, explanation: str = None) -> List[Dict]:
+    def find_similar_transactions(self, description: str, explanation: str = None, user_id: int = None) -> List[Dict]:
         """
         ERF: Find similar transactions based on text similarity
 
@@ -45,10 +45,11 @@ class PredictiveFeatures:
             Dict with similar transactions and their similarity scores
         """
         try:
-            # Get all transactions with explanations
-            transactions = Transaction.query.filter(
-                Transaction.explanation.isnot(None)
-            ).all()
+            # Get transactions with explanations for this user
+            query = Transaction.query.filter(Transaction.explanation.isnot(None))
+            if user_id is not None:
+                query = query.filter(Transaction.user_id == user_id)
+            transactions = query.all()
             logger.debug(f"Found {len(transactions)} transactions with explanations")
 
             similar_transactions = []
@@ -118,10 +119,13 @@ class PredictiveFeatures:
             db.session.rollback()
             return False
 
-    def suggest_account(self, description: str, explanation: str) -> Dict:
+    def suggest_account(self, description: str, explanation: str, user_id: int = None) -> Dict:
         """ASF: Suggest account based on description and explanation"""
         try:
-            accounts = Account.query.filter_by(is_active=True).all()
+            query = Account.query.filter_by(is_active=True)
+            if user_id is not None:
+                query = query.filter_by(user_id=user_id)
+            accounts = query.all()
 
             if not accounts:
                 return {
