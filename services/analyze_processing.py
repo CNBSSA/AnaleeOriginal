@@ -95,14 +95,21 @@ def save_analyze_form_transactions(user_id: int, form_data) -> int:
             new_text = form_data.get(explanation_key, '').strip()
             if new_text:
                 current_source = getattr(transaction, 'explanation_source', None) or ''
-                if current_source in CLIENT_SOURCES:
-                    continue
-                save_explanation(transaction, new_text, SOURCE_ACCOUNTANT)
+                # Keep what the client said: an accountant explanation must not
+                # overwrite a client-provided one. The account assignment above is
+                # the accountant's legitimate override and MUST still be saved, so
+                # only skip the explanation write here — never `continue`, which
+                # would also skip `saved += 1` and (when this is the only edited
+                # row) the commit below, silently dropping the account change.
+                if current_source not in CLIENT_SOURCES:
+                    save_explanation(transaction, new_text, SOURCE_ACCOUNTANT)
 
         saved += 1
 
-    if saved:
-        db.session.commit()
+    # Commit unconditionally: an account change on a client-locked row is a real
+    # edit even though it does not increment a "saved explanation" count, so the
+    # commit must not be gated on `saved`. An empty commit is a harmless no-op.
+    db.session.commit()
     return saved
 
 
