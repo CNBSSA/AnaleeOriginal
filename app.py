@@ -125,6 +125,65 @@ def _resolve_secret_key():
         return new_key
 
 
+def _heal_missing_columns(engine, models):
+    """Add any model-defined columns that are missing from existing tables.
+
+    This deploy builds its schema with ``create_all()`` and does NOT run
+    ``flask db upgrade``. ``create_all()`` never ALTERs a table that already
+    exists, so a column added to a model AFTER its table was first created is
+    missing on the live database and every query on that table 500s. This guard
+    closes that gap for the given models: it compares the model's columns to the
+    live table and ``ALTER TABLE ... ADD COLUMN`` for anything missing.
+
+    Safety:
+      - Idempotent — a no-op when the column already exists.
+      - Adds columns as NULLable with no default (never NOT NULL), so it is safe
+        on a table that already has rows.
+      - Skips primary keys and any column whose type can't be compiled.
+      - Each ALTER is independent; one failure can't abort the others, and the
+        whole helper never raises (callers stay safe at boot).
+
+    Returns the list of ``(table, column)`` it added (useful for tests/logs).
+    """
+    from sqlalchemy import inspect as _inspect, text as _text
+    added = []
+    try:
+        insp = _inspect(engine)
+        tables = set(insp.get_table_names())
+    except Exception as exc:
+        logger.error(f"schema heal: could not inspect database: {exc}")
+        return added
+    for model in models:
+        table = model.__tablename__
+        if table not in tables:
+            continue
+        try:
+            have = {c['name'] for c in insp.get_columns(table)}
+        except Exception as exc:
+            logger.error(f"schema heal: could not read columns of {table}: {exc}")
+            continue
+        for col in model.__table__.columns:
+            if col.name in have or col.primary_key:
+                continue
+            try:
+                ddl_type = col.type.compile(dialect=engine.dialect)
+            except Exception as exc:
+                logger.error(f"schema heal: skipping {table}.{col.name} "
+                             f"(uncompilable type: {exc})")
+                continue
+            try:
+                with engine.begin() as conn:
+                    # Quote identifiers — e.g. "user" is a reserved word in Postgres.
+                    conn.execute(_text(
+                        f'ALTER TABLE "{table}" ADD COLUMN "{col.name}" {ddl_type}'
+                    ))
+                added.append((table, col.name))
+                logger.info(f"schema heal: added {table}.{col.name} {ddl_type}")
+            except Exception as exc:
+                logger.error(f"schema heal: could not add {table}.{col.name}: {exc}")
+    return added
+
+
 def create_app(env=None):
     """Create and configure the Flask application"""
     try:
@@ -240,6 +299,17 @@ def create_app(env=None):
             # Ensure database tables exist
             db.create_all()
             logger.info("Database tables verified")
+
+            # Defensive schema guard: heal any model columns missing from the
+            # live `user` / `account` tables before anything queries or seeds
+            # them. These are on the auth + OCR/bank-statement upload path, so a
+            # drifted production DB (deploy uses create_all(), not migrations)
+            # would otherwise 500 those pages. Idempotent; never blocks startup.
+            try:
+                from models import User as _User_heal, Account as _Account_heal
+                _heal_missing_columns(db.engine, [_User_heal, _Account_heal])
+            except Exception as _e:
+                logger.error(f"schema heal guard skipped: {_e}")
 
             # Defensive schema guard: alert_history.alert_config_id was added to
             # the model after some databases were already created. create_all()
