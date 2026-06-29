@@ -60,7 +60,7 @@ def test_confirm_imports_only_included_rows():
     _login(client, uid)
 
     # Two rows submitted, but only row index 1 ticked -> only that one imported.
-    resp = client.post('/ocr/receipt/confirm', data={
+    resp = client.post('/ocr/statement/confirm', data={
         'date': ['2026-03-01', '2026-03-02'],
         'description': ['Dup Coffee', 'New Lunch'],
         'amount': ['4.50', '12.30'],
@@ -82,7 +82,7 @@ def test_confirm_without_filter_imports_all_rows():
     _login(client, uid)
 
     # No has_include_filter -> legacy behavior: import everything.
-    resp = client.post('/ocr/receipt/confirm', data={
+    resp = client.post('/ocr/statement/confirm', data={
         'date': ['2026-03-01', '2026-03-02'],
         'description': ['A', 'B'],
         'amount': ['1.00', '2.00'],
