@@ -59,6 +59,10 @@ numpy==2.2.1
 oauthlib==3.2.2
 anthropic
 pypdf>=4.0.0
+# pypdf needs cryptography for AES-encrypted PDFs (common for bank statements);
+# without it pypdf raises DependencyError on those files. cffi (above) is its
+# build dependency. Keep both pinned so the OCR statement parser can open them.
+cryptography>=42.0.0
 openpyxl==3.1.5
 packaging==24.2
 pandas==2.2.3

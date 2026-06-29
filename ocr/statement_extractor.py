@@ -279,7 +279,18 @@ def _extract_via_claude(
         prompt += f"\n\nBank detected (text layer): {bank_hint}. Apply that bank's column layout."
 
     if needs_chunking(pdf_bytes):
-        chunks = split_pdf_bytes(pdf_bytes)
+        try:
+            chunks = split_pdf_bytes(pdf_bytes)
+        except Exception as exc:
+            # pypdf can fail to copy pages (e.g. an encrypted PDF when the
+            # cryptography backend is missing -> DependencyError). Don't fail the
+            # whole upload: send the original PDF to Claude as a single call,
+            # which reads multi-page and encrypted statements natively.
+            logger.warning(
+                "PDF chunking failed (%s: %s) — sending the whole PDF to Claude",
+                type(exc).__name__, exc,
+            )
+            chunks = [pdf_bytes]
         page_count = count_pdf_pages(pdf_bytes)
         logger.info("Chunking %d-page statement into %d Claude call(s)", page_count, len(chunks))
         payloads = []
