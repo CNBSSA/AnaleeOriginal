@@ -74,10 +74,9 @@ def extract_pdf_statement(
     profile = detect_profile(text)
     opening = opening_balance if opening_balance is not None else _find_balance(text, profile.opening_labels or _OPENING_LABELS)
     closing = closing_balance if closing_balance is not None else _find_balance(text, profile.closing_labels or _CLOSING_LABELS)
-    if opening is None or closing is None:
-        raise PdfStatementError(
-            "could not locate opening and/or closing balance in the PDF text."
-        )
+    # Transaction lines are what matter; opening/closing balances are optional
+    # (the integrity gate reports "not verified" when they're absent). Only a PDF
+    # with no readable transaction rows falls through to Claude Vision (Tier-2).
     lines = parse_transaction_lines(text, profile)
     if not lines:
         raise PdfStatementError("no transaction rows found in PDF text.")

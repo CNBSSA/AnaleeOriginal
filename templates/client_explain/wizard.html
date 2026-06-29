@@ -1,0 +1,141 @@
+{% extends 'client_explain/base_mobile.html' %}
+{% block title %}Explain transaction — {{ company_label }}{% endblock %}
+{% block body %}
+<div class="brand">
+  <strong>{{ company_label }}</strong>
+  Bank statement
+</div>
+
+<p class="progress">
+  Transaction {{ position }} of {{ total }} &middot; {{ remaining }} left without explanation
+</p>
+
+{% if saved_message %}
+<div class="alert">{{ saved_message }}</div>
+{% endif %}
+
+<div id="form-error" class="alert error" style="display:none;"></div>
+
+<form method="post" id="explain-form" action="" data-description="{{ transaction.description|e }}">
+  <input type="hidden" name="transaction_id" value="{{ transaction_id }}">
+
+  <div class="card">
+    <span class="kind {{ transaction.kind_class }}">{{ transaction.kind }}</span>
+    <div class="date">{{ transaction.date }}</div>
+    <div class="desc">{{ transaction.description }}</div>
+    <div class="amount {{ transaction.kind_class }}">
+      {% if transaction.kind_class == 'deposit' %}+{% else %}−{% endif %}R {{ transaction.amount }}
+    </div>
+  </div>
+
+  <div class="card">
+    <label for="explanation">What was this for?</label>
+    <textarea id="explanation" name="explanation" required
+              placeholder="e.g. Paid plumber for office repairs, petrol for delivery van…"
+              autocomplete="off" enterkeyhint="done"></textarea>
+    <p class="hint">You know these payments and deposits best. Your answer helps your accountant.</p>
+  </div>
+
+  <div id="erf-panel" class="erf-panel{% if similar_rows %} visible{% endif %}">
+    <strong>ERF:</strong> <span id="erf-count">{{ similar_rows|length }}</span> similar unexplained
+    transaction(s) on this statement.
+    <ul id="erf-list">
+      {% for row in similar_rows %}
+      <li>{{ row.description }} ({{ row.date }})</li>
+      {% endfor %}
+    </ul>
+    <button type="button" class="btn btn-secondary" id="erf-apply-btn" style="display:none;">
+      Apply same explanation to similar
+    </button>
+  </div>
+
+  <button type="submit" class="btn btn-primary" id="save-btn">Save &amp; next</button>
+</form>
+{% endblock %}
+{% block head %}
+<script>
+(function() {
+  const token = {{ token|tojson }};
+  const txId = {{ transaction_id|tojson }};
+  const form = document.getElementById('explain-form');
+  const desc = form.getAttribute('data-description') || '';
+  const textarea = document.getElementById('explanation');
+  const erfPanel = document.getElementById('erf-panel');
+  const erfCount = document.getElementById('erf-count');
+  const erfList = document.getElementById('erf-list');
+  const erfApply = document.getElementById('erf-apply-btn');
+  const formError = document.getElementById('form-error');
+  let similarIds = [{% for row in similar_rows %}{{ row.id }}{% if not loop.last %},{% endif %}{% endfor %}];
+  let debounce = null;
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function fetchSimilar() {
+    const q = new URLSearchParams({ description: desc, exclude_id: txId });
+    fetch('/client-explain/' + encodeURIComponent(token) + '/similar/?' + q.toString())
+      .then(r => r.json())
+      .then(data => {
+        similarIds = (data.similar || []).map(r => r.id);
+        erfCount.textContent = data.count || 0;
+        if (data.count > 0) {
+          erfPanel.classList.add('visible');
+          erfList.innerHTML = data.similar.slice(0, 5).map(r =>
+            '<li>' + esc(r.description) + ' (' + esc(r.date) + ')</li>'
+          ).join('');
+          erfApply.style.display = 'block';
+        } else {
+          erfPanel.classList.remove('visible');
+          erfApply.style.display = 'none';
+        }
+      })
+      .catch(() => {});
+  }
+
+  textarea.addEventListener('input', function() {
+    clearTimeout(debounce);
+    debounce = setTimeout(fetchSimilar, 400);
+  });
+
+  erfApply.addEventListener('click', function() {
+    const explanation = textarea.value.trim();
+    if (!explanation) {
+      formError.textContent = 'Enter an explanation first.';
+      formError.style.display = 'block';
+      return;
+    }
+    const body = new URLSearchParams({
+      action: 'batch_apply',
+      source_transaction_id: txId,
+      explanation: explanation,
+      similar_ids: JSON.stringify(similarIds.concat([parseInt(txId, 10)])),
+    });
+    fetch(window.location.pathname, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: body,
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok && data.next_url) window.location.href = data.next_url;
+        else if (data.ok) window.location.reload();
+        else {
+          formError.textContent = data.error || 'Could not apply.';
+          formError.style.display = 'block';
+        }
+      });
+  });
+
+  document.getElementById('explain-form').addEventListener('submit', function(e) {
+    if (!textarea.value.trim()) {
+      e.preventDefault();
+      formError.textContent = 'Please enter what this transaction was for.';
+      formError.style.display = 'block';
+    }
+  });
+})();
+</script>
+{% endblock %}

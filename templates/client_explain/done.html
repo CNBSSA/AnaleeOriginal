@@ -1,0 +1,18 @@
+{% extends 'client_explain/base_mobile.html' %}
+{% block title %}All done — {{ company_label }}{% endblock %}
+{% block body %}
+<div class="brand">
+  <strong>{{ company_label }}</strong>
+</div>
+
+<div class="card" style="text-align:center;">
+  <h1 style="font-size:1.5rem; margin:0 0 .5rem;">Thank you</h1>
+  <p style="margin:0; color:#5c6570;">
+    You have explained every transaction we needed on this bank statement
+    ({{ total }} line{{ total if total != 1 else '' }}).
+  </p>
+  <p style="margin:1rem 0 0; font-size:0.9rem; color:#5c6570;">
+    Your accountant can now finish the books. You can close this page.
+  </p>
+</div>
+{% endblock %}

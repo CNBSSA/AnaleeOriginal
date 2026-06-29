@@ -120,13 +120,16 @@ class StatementHeader(BaseModel):
     account_number: Optional[str] = None
     period_start: Optional[str] = None
     period_end: Optional[str] = None
-    opening_balance: Decimal
-    closing_balance: Decimal
+    # Optional: a statement (or scan) may not expose machine-readable opening/
+    # closing balances. When absent we still capture the lines; the math gate is
+    # reported as "not verified" rather than failing the whole extraction.
+    opening_balance: Optional[Decimal] = None
+    closing_balance: Optional[Decimal] = None
 
     @field_validator("opening_balance", "closing_balance", mode="before")
     @classmethod
     def _v_money(cls, v):
-        return normalize_amount(v)
+        return normalize_amount(v) if v not in (None, "") else None
 
     @field_validator("period_start", "period_end", mode="before")
     @classmethod
@@ -142,9 +145,12 @@ class ExtractionResult(BaseModel):
 class ReportCard(BaseModel):
     reconciled: bool
     status: str
-    declared_net: Decimal
+    # declared_net/variance are None when opening or closing balance is unknown
+    # (math gate could not be evaluated). computed_net is always the sum of lines.
+    balances_provided: bool = True
+    declared_net: Optional[Decimal] = None
     computed_net: Decimal
-    variance: Decimal
+    variance: Optional[Decimal] = None
     line_count: int
     duplicate_count: int = 0
     duplicate_fingerprints: list[str] = Field(default_factory=list)
@@ -163,22 +169,32 @@ def self_audit(
     header = result.header
     lines = result.lines
 
-    declared_net = (header.closing_balance - header.opening_balance).quantize(CENTS)
     computed_net = sum((ln.amount for ln in lines), Decimal("0.00")).quantize(CENTS)
-    variance = (declared_net - computed_net).quantize(CENTS)
+
+    # The math gate (opening + Σ == closing) can only run when BOTH header
+    # balances are known. If either is missing, capture the lines anyway and
+    # report the gate as "not verified" instead of failing extraction.
+    balances_provided = (
+        header.opening_balance is not None and header.closing_balance is not None
+    )
+    declared_net: Optional[Decimal] = None
+    variance: Optional[Decimal] = None
 
     errors: list[dict] = []
-    if variance != Decimal("0.00"):
-        errors.append({
-            "code": "MATH_GATE_FAILED",
-            "message": (
-                "Statement does not balance: opening + sum(transactions) "
-                "does not equal closing."
-            ),
-            "declared_net": str(declared_net),
-            "computed_net": str(computed_net),
-            "variance": str(variance),
-        })
+    if balances_provided:
+        declared_net = (header.closing_balance - header.opening_balance).quantize(CENTS)
+        variance = (declared_net - computed_net).quantize(CENTS)
+        if variance != Decimal("0.00"):
+            errors.append({
+                "code": "MATH_GATE_FAILED",
+                "message": (
+                    "Statement does not balance: opening + sum(transactions) "
+                    "does not equal closing."
+                ),
+                "declared_net": str(declared_net),
+                "computed_net": str(computed_net),
+                "variance": str(variance),
+            })
 
     running_breaks: list[dict] = []
     prev_balance: Optional[Decimal] = header.opening_balance
@@ -206,7 +222,7 @@ def self_audit(
         })
 
     continuity_ok: Optional[bool] = None
-    if prior_closing is not None:
+    if prior_closing is not None and header.opening_balance is not None:
         prior_closing = Decimal(prior_closing).quantize(CENTS)
         continuity_ok = (header.opening_balance == prior_closing)
         if not continuity_ok:
@@ -255,10 +271,17 @@ def self_audit(
             "count": len(low_conf),
         })
 
-    reconciled = (variance == Decimal("0.00")) and not running_breaks and not low_conf
+    if not balances_provided:
+        # Lines captured, but the opening/closing math gate could not be run.
+        reconciled = False
+        status = "unverified"
+    else:
+        reconciled = (variance == Decimal("0.00")) and not running_breaks and not low_conf
+        status = "reconciled" if reconciled else "unreconciled"
     return ReportCard(
         reconciled=reconciled,
-        status="reconciled" if reconciled else "unreconciled",
+        status=status,
+        balances_provided=balances_provided,
         declared_net=declared_net,
         computed_net=computed_net,
         variance=variance,
