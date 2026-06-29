@@ -55,6 +55,12 @@ def test_canary_full_journey(canary_app):
     assert "/login" not in resp.headers.get("Location", ""), "login bounced back to login"
 
     # 3. Configure company settings (Dec year-end -> calendar-year financial year).
+    # Entity type is now a required field (entity-chart feature); pick a seeded one.
+    from models import Entity
+    with app.app_context():
+        entity = Entity.query.order_by(Entity.name).first()
+        assert entity is not None, "no entity types seeded on boot"
+        entity_id = entity.id
     resp = client.post("/company-settings", data={
         "company_name": "Canary Co",
         "registration_number": "R1",
@@ -62,15 +68,25 @@ def test_canary_full_journey(canary_app):
         "vat_number": "V1",
         "address": "1 Test Street",
         "financial_year_end": "12",
+        "entity_id": str(entity_id),
     }, follow_redirects=True)
     assert resp.status_code == 200
 
-    # 4. Give the user an account to import into.
+    # 4. Get a bank account to import into. Selecting an entity type provisions
+    # a chart of accounts, so prefer an existing bank account (link ca.810*);
+    # only create one if none was provisioned.
     with app.app_context():
-        account = Account(name="Bank", link="ca.810.001", category="Assets",
-                          user_id=user_id, is_active=True)
-        db.session.add(account)
-        db.session.commit()
+        account = (Account.query
+                   .filter(Account.user_id == user_id,
+                           Account.link.like('ca.810%'),
+                           Account.is_active.is_(True))
+                   .order_by(Account.link)
+                   .first())
+        if account is None:
+            account = Account(name="Bank", link="ca.810.001", category="Assets",
+                              user_id=user_id, is_active=True)
+            db.session.add(account)
+            db.session.commit()
         account_id = account.id
 
     # 5. Import a fixture spreadsheet (3 rows, dated today -> current FY).
@@ -80,7 +96,9 @@ def test_canary_full_journey(canary_app):
         (today, "Lunch", 12.30),
         (today, "Taxi", 20.00),
     ])
-    resp = client.post("/upload", data={
+    # /upload is now a legacy redirect to the consolidated bank-statement
+    # importer, so exercise the real endpoint users hit.
+    resp = client.post("/bank-statements/upload", data={
         "account": str(account_id),
         "file": (io.BytesIO(xlsx), "canary.xlsx"),
     }, content_type="multipart/form-data", follow_redirects=True)
