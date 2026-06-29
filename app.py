@@ -2,6 +2,7 @@
 import os
 import logging
 import sys
+import tempfile
 from datetime import datetime
 from urllib.parse import urlparse
 from flask import Flask, current_app, redirect, url_for, request, flash, jsonify
@@ -59,6 +60,73 @@ def _request_entity_too_large(error):
     return redirect(url_for('main.upload'))
 
 
+def _resolve_secret_key():
+    """Return a STABLE secret key for Flask sessions + CSRF.
+
+    Why this matters: the signed session cookie holds the per-session CSRF
+    token. If the key that signs it is not identical across every gunicorn
+    worker, a form (and its CSRF token) rendered by one worker cannot be
+    validated by another, and the user gets "Bad Request — The CSRF token is
+    missing/invalid" on login, registration and EVERY upload. The Procfile runs
+    gunicorn without --preload, so each worker would otherwise call
+    ``os.urandom`` independently and end up with a different key.
+
+    Resolution order:
+      1. ``FLASK_SECRET_KEY`` from the environment — the correct production
+         setup: identical across workers AND stable across restarts/redeploys.
+      2. A key persisted to a file shared by all workers in this container, so
+         that even when the env var is unset every worker agrees on one key.
+         Created atomically (O_EXCL) so concurrent workers converge on a single
+         value. (Rotates on redeploy — users log out on deploy — but CSRF works
+         within a deploy, which is the acute failure being fixed.)
+      3. A last-resort per-process random key, only if the file is unusable.
+    """
+    env_key = os.environ.get('FLASK_SECRET_KEY')
+    if env_key:
+        return env_key
+
+    logger.warning(
+        "FLASK_SECRET_KEY is NOT set — falling back to a key shared on disk so "
+        "all workers agree (fixes CSRF), but it will NOT survive a redeploy. "
+        "Set FLASK_SECRET_KEY in the environment for durable sessions.")
+    print("[SECURITY] FLASK_SECRET_KEY not set — set it in Railway for durable "
+          "sessions; using a shared on-disk fallback key for now.", flush=True)
+
+    key_path = os.environ.get('SECRET_KEY_FILE') or os.path.join(
+        tempfile.gettempdir(), 'analee_secret_key')
+
+    def _read(path):
+        try:
+            with open(path, 'rb') as fh:
+                data = fh.read()
+                return data or None
+        except OSError:
+            return None
+
+    # Fast path: another worker already created the shared key.
+    existing = _read(key_path)
+    if existing:
+        return existing
+
+    new_key = os.urandom(32)
+    try:
+        # Exclusive create: only the first worker writes; the rest fall through
+        # to read the winner's key, so every worker ends up with the same value.
+        fd = os.open(key_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        try:
+            os.write(fd, new_key)
+        finally:
+            os.close(fd)
+        return new_key
+    except FileExistsError:
+        return _read(key_path) or new_key
+    except OSError as exc:
+        logger.error(
+            f"Could not persist fallback secret key ({exc}); using a "
+            "per-process key — CSRF may still fail across workers.")
+        return new_key
+
+
 def create_app(env=None):
     """Create and configure the Flask application"""
     try:
@@ -82,15 +150,7 @@ def create_app(env=None):
         # missing we still boot (don't take the app down) but warn LOUDLY: a random
         # per-boot key logs every user out on each redeploy and is inconsistent
         # across gunicorn workers. Set FLASK_SECRET_KEY to fix.
-        secret_key = os.environ.get('FLASK_SECRET_KEY')
-        if not secret_key:
-            logger.warning(
-                "FLASK_SECRET_KEY is NOT set — falling back to a random per-boot key. "
-                "Sessions will NOT survive a restart/redeploy and will be inconsistent "
-                "across workers. Set FLASK_SECRET_KEY in the environment to fix this.")
-            print("[SECURITY] FLASK_SECRET_KEY not set — sessions won't persist across "
-                  "redeploys; set FLASK_SECRET_KEY.", flush=True)
-            secret_key = os.urandom(32)
+        secret_key = _resolve_secret_key()
 
         # Secure auth cookies in production (HTTPS). Gated so local HTTP dev still
         # works: ON when on Railway / FLASK_ENV=production, unless explicitly
