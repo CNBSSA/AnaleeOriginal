@@ -197,6 +197,24 @@ def create_app(env=None):
                    template_folder='templates',
                    static_folder='static')
 
+        # Sentry error tracking (opt-in): active ONLY when SENTRY_DSN is set AND
+        # sentry-sdk is installed. send_default_pii=False (no client PII). Errors
+        # only. Wrapped so a bad/missing SDK never blocks startup.
+        _sentry_dsn = os.environ.get('SENTRY_DSN', '')
+        if _sentry_dsn:
+            try:
+                import sentry_sdk
+                from sentry_sdk.integrations.flask import FlaskIntegration
+                sentry_sdk.init(
+                    dsn=_sentry_dsn,
+                    integrations=[FlaskIntegration()],
+                    environment=os.environ.get('ENV') or os.environ.get('FLASK_ENV', 'production'),
+                    send_default_pii=False,
+                    traces_sample_rate=0.0,
+                )
+            except Exception:
+                pass
+
         # Get database URL
         database_url = os.environ.get('DATABASE_URL')
         if not database_url:
