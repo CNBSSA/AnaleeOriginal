@@ -20,6 +20,16 @@
                 {% endfor %}
             {% endwith %}
 
+            {% if ai_configured is defined and not ai_configured %}
+                <div class="alert alert-warning">
+                    <strong>AI reading is not configured on this server.</strong>
+                    Scanned/image statements will fail to import until
+                    <code>ANTHROPIC_API_KEY</code> is set in the server environment
+                    (Railway &rarr; Variables). Text-based PDFs exported from online
+                    banking may still import without it.
+                </div>
+            {% endif %}
+
             <div class="card mb-3">
                 <div class="card-body">
                     <form method="POST" enctype="multipart/form-data">

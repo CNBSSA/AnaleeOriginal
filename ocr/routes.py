@@ -106,7 +106,13 @@ def upload_statement():
             extraction_method=outcome.method,
         )
 
-    return render_template('ocr/statement_upload.html', accounts=accounts)
+    # Surface missing AI configuration ON the page instead of letting scanned
+    # PDFs silently bounce back ("the upload doesn't go anywhere"). Text-based
+    # PDFs still import via the Tier-1 parser without the key.
+    import os as _os
+    ai_configured = bool(_os.environ.get('ANTHROPIC_API_KEY'))
+    return render_template('ocr/statement_upload.html', accounts=accounts,
+                           ai_configured=ai_configured)
 
 
 @ocr.route('/statement/confirm', methods=['POST'])
