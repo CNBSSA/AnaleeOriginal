@@ -36,6 +36,39 @@ scheduler = APScheduler()
 csrf = CSRFProtect()
 login_manager = LoginManager()
 
+# Boot diagnostics surfaced by GET /health: what the schema-heal guard did at
+# startup and when the app booted. Populated by create_app().
+_BOOT_REPORT = {'booted_at': None, 'heal_added': [], 'heal_errors': []}
+
+# Friendly 500 page. Deliberately inline HTML with ZERO dependencies (no
+# templates, no DB, no session) so the handler itself can never fail.
+_ERROR_500_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Something went wrong</title>
+<style>body{font-family:system-ui,sans-serif;background:#f4f6f9;color:#1a1a1a;
+margin:0;padding:2rem}main{max-width:560px;margin:8vh auto;background:#fff;
+border-radius:14px;padding:2rem;box-shadow:0 2px 12px rgba(0,0,0,.06)}
+h1{font-size:1.4rem;margin:0 0 .5rem}p{color:#5c6570;line-height:1.5}
+a{color:#0d6efd}</style></head><body><main>
+<h1>Something went wrong on our side</h1>
+<p>The error has been recorded and we're on it. Please go back and try again
+in a moment.</p>
+<p><a href="/">Back to Analee</a></p>
+</main></body></html>"""
+
+
+def _internal_server_error(error):
+    """Log every unhandled error with a searchable marker and show a friendly
+    page instead of the bare Werkzeug 'Internal Server Error'. The traceback
+    lands in the Railway logs (and Sentry when SENTRY_DSN is set) tagged
+    [ANALEE-500] so it can be found instantly."""
+    logger.exception("[ANALEE-500] Unhandled error on %s %s",
+                     request.method, request.path)
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json:
+        return jsonify({'success': False,
+                        'error': 'Internal error — it has been logged.'}), 500
+    return _ERROR_500_HTML, 500, {'Content-Type': 'text/html; charset=utf-8'}
+
 
 def _request_entity_too_large(error):
     """Friendly handler for 413 (request body over MAX_CONTENT_LENGTH).
@@ -341,9 +374,13 @@ def create_app(env=None):
             try:
                 from models import (User as _User_heal, Account as _Account_heal,
                                     Transaction as _Txn_heal)
-                _heal_missing_columns(db.engine, [_User_heal, _Account_heal, _Txn_heal])
+                _BOOT_REPORT['heal_added'] = [
+                    f"{t}.{c}" for t, c in
+                    _heal_missing_columns(db.engine, [_User_heal, _Account_heal, _Txn_heal])
+                ]
             except Exception as _e:
                 logger.error(f"schema heal guard skipped: {_e}")
+                _BOOT_REPORT['heal_errors'].append(str(_e))
 
             # Defensive schema guard: alert_history.alert_config_id was added to
             # the model after some databases were already created. create_all()
@@ -398,6 +435,86 @@ def create_app(env=None):
                     )
             except Exception as chart_seed_exc:
                 logger.error('Chart seed on boot failed: %s', chart_seed_exc)
+
+            # Friendly 500 page + [ANALEE-500]-tagged traceback in the logs,
+            # replacing the bare Werkzeug "Internal Server Error".
+            app.register_error_handler(500, _internal_server_error)
+
+            _BOOT_REPORT['booted_at'] = datetime.utcnow().isoformat() + 'Z'
+
+            @app.route('/health')
+            def _health():
+                """No-login diagnostics: which build is live and is it healthy.
+
+                Exposes ONLY metadata — a short commit id, booleans, and
+                schema-column names. Never secret values, never user data.
+                Lets anyone verify in one browser visit: (1) the running git
+                commit (stale-deploy detection), (2) DB connectivity, (3) that
+                user/account/transaction carry every model column (schema
+                drift), (4) which required env vars are configured.
+                """
+                from sqlalchemy import inspect as _hins, text as _htext
+                from models import User as _HU, Account as _HA, Transaction as _HT
+
+                report = {
+                    'commit': (os.environ.get('RAILWAY_GIT_COMMIT_SHA')
+                               or 'unknown')[:12],
+                    'booted_at': _BOOT_REPORT['booted_at'],
+                    'boot_guard': {'added': _BOOT_REPORT['heal_added'],
+                                   'errors': _BOOT_REPORT['heal_errors']},
+                    'env': {k: bool(os.environ.get(k)) for k in
+                            ('FLASK_SECRET_KEY', 'ANTHROPIC_API_KEY',
+                             'SENTRY_DSN', 'DATABASE_URL')},
+                }
+                healthy = True
+                try:
+                    db.session.execute(_htext('SELECT 1'))
+                    report['db_ok'] = True
+                except Exception as exc:
+                    report['db_ok'] = False
+                    report['db_error'] = type(exc).__name__
+                    healthy = False
+                    try:
+                        db.session.rollback()
+                    except Exception:
+                        pass
+
+                missing = {}
+                if report['db_ok']:
+                    try:
+                        insp = _hins(db.engine)
+                        live_tables = set(insp.get_table_names())
+                        for model in (_HU, _HA, _HT):
+                            table = model.__tablename__
+                            if table not in live_tables:
+                                missing[table] = ['<table missing>']
+                                continue
+                            have = {c['name'] for c in insp.get_columns(table)}
+                            gap = sorted(c.name for c in model.__table__.columns
+                                         if c.name not in have)
+                            if gap:
+                                missing[table] = gap
+                    except Exception as exc:
+                        missing['<inspect_error>'] = [type(exc).__name__]
+                if missing:
+                    healthy = False
+                report['schema_missing'] = missing
+
+                # A BuildError on any nav endpoint breaks every page render.
+                broken = []
+                for endpoint in ('main.upload', 'main.analyze_list',
+                                 'ocr.upload_statement', 'main.company_settings',
+                                 'reports.trial_balance', 'auth.login'):
+                    try:
+                        url_for(endpoint)
+                    except Exception as exc:
+                        broken.append(f'{endpoint}: {type(exc).__name__}')
+                if broken:
+                    healthy = False
+                    report['endpoint_errors'] = broken
+
+                report['status'] = 'ok' if healthy else 'degraded'
+                return jsonify(report), (200 if healthy else 503)
 
             return app
 
