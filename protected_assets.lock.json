@@ -2,11 +2,11 @@
   "assets": {
     "file:reports/trial_balance_service.py": "2e83474fe0b9ed27b734bd72cbf95d0076be11be06d6e4b5b4dc74202a94dea6",
     "file:services/chart_of_accounts.py": "4528317d88e49e0fa1d69c31c53973367776d7807eec0cca44517c21fdcac2b7",
-    "file:services/chart_seed_data.py": "38c1621dfcd134a7423e0975adfb51eb20985c9691abd63a1e85ad9cd863a40b",
+    "file:services/chart_seed_data.py": "5eb72f752d8855ad8f6e320ceb853135a5f99153e89386306a994242cd4a9123",
     "file:services/entity_chart_rules.py": "03689e039ee36ae891e2aaf62231f80af6ca06a4234770bbcabf9f2b6f1297c6",
     "file:services/entity_chart_schema.py": "3f61fb9b3ed6a34ca06ad727ba92ed806d1d97036dc4695398153b8192f47a21",
     "file:utils/chart_of_accounts.py": "ffcecf0e5b35cb622648021cde260696aeefe05b3f7e6525e912c0afcf306074"
   },
-  "authorized_by": "Festus: 2026-07-09 initial freeze \u2014 Analee chart of accounts + trial-balance core",
-  "reason": "Festus: 2026-07-09 initial freeze \u2014 Analee chart of accounts + trial-balance core"
+  "authorized_by": "Festus: 2026-07-09 Wave 3 approved \u2014 non-supplies re-filed under Income sub_category; rental commercial/residential split, kept reconciled with BooksXperts",
+  "reason": "Festus: 2026-07-09 Wave 3 approved \u2014 non-supplies re-filed under Income sub_category; rental commercial/residential split, kept reconciled with BooksXperts"
 }
