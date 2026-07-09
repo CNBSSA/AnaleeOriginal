@@ -84,3 +84,15 @@ Operating under an autonomous directive means:
   `develop` → `main` without Festus's explicit approval.
 - **Stop and ask only** for questions/decisions that genuinely cannot be made
   without Festus.
+
+## Chart reconciliation with BooksXperts (trial-balance handoff)
+
+Analee exports a trial balance that BooksXperts imports **by account link**; the
+matched account's subcategory drives AFS classification. A guard keeps the two
+charts reconciled: `services/chart_reconciliation.py` +
+`reconciliation/booksxperts_chart_reference.json` +
+`tests/test_chart_reconciliation.py` fail the build if Analee emits a link
+BooksXperts lacks (→ suspense) or classifies a shared link differently
+(→ misclassified). When BooksXperts' chart changes (Festus-approved), regenerate
+the reference with `scripts/refresh_booksxperts_chart_reference.py`. Full detail:
+`docs/CHART_RECONCILIATION.md`.
