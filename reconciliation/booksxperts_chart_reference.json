@@ -1,0 +1,822 @@
+{
+  "accounts": {
+    "ca.130.000": {
+      "name": "Inventory - Raw Materials",
+      "subcategory": "Current Asset"
+    },
+    "ca.131.000": {
+      "name": "Inventory - Finished Goods",
+      "subcategory": "Current Asset"
+    },
+    "ca.132.000": {
+      "name": "Inventory - Work in Progress",
+      "subcategory": "Current Asset"
+    },
+    "ca.300.000": {
+      "name": "Trade Receivables",
+      "subcategory": "Current Asset"
+    },
+    "ca.300.001": {
+      "name": "Sundry Debtors",
+      "subcategory": "Current Asset"
+    },
+    "ca.310.000": {
+      "name": "Prepaid Expenses",
+      "subcategory": "Current Asset"
+    },
+    "ca.320.000": {
+      "name": "Deposits Paid",
+      "subcategory": "Current Asset"
+    },
+    "ca.330.000": {
+      "name": "Accrued Income",
+      "subcategory": "Current Asset"
+    },
+    "ca.340.000": {
+      "name": "Staff Loans / Employee Advances",
+      "subcategory": "Current Asset"
+    },
+    "ca.350.000": {
+      "name": "Short-term Investments",
+      "subcategory": "Current Asset"
+    },
+    "ca.710.000": {
+      "name": "VAT Input Account",
+      "subcategory": "Current Asset"
+    },
+    "ca.711.000": {
+      "name": "VAT Suspense Account",
+      "subcategory": "Current Asset"
+    },
+    "ca.810.001": {
+      "name": "Bank Cheque Account 1",
+      "subcategory": "Current Asset"
+    },
+    "ca.810.002": {
+      "name": "Bank Cheque Account 2",
+      "subcategory": "Current Asset"
+    },
+    "ca.810.003": {
+      "name": "Bank Cheque Account 3",
+      "subcategory": "Current Asset"
+    },
+    "ca.810.004": {
+      "name": "Trust Account",
+      "subcategory": "Current Asset"
+    },
+    "ca.820.000": {
+      "name": "Cash on Hand",
+      "subcategory": "Current Asset"
+    },
+    "ca.820.001": {
+      "name": "Petty Cash",
+      "subcategory": "Current Asset"
+    },
+    "ca.900.000": {
+      "name": "Suspense Account",
+      "subcategory": "Current Asset"
+    },
+    "cl.200.100": {
+      "name": "Unsecured Loan - Current Portion",
+      "subcategory": "Current Liability"
+    },
+    "cl.201.000": {
+      "name": "Mortgage Bond - Current Portion",
+      "subcategory": "Current Liability"
+    },
+    "cl.202.000": {
+      "name": "Finance Lease - Current Portion",
+      "subcategory": "Current Liability"
+    },
+    "cl.300.000": {
+      "name": "Income Tax Payable",
+      "subcategory": "Current Liability"
+    },
+    "cl.300.001": {
+      "name": "Member's Loan - Short-term",
+      "subcategory": "Current Liability"
+    },
+    "cl.301.000": {
+      "name": "Provisional Tax Payable",
+      "subcategory": "Current Liability"
+    },
+    "cl.350.000": {
+      "name": "PAYE Payable",
+      "subcategory": "Current Liability"
+    },
+    "cl.360.000": {
+      "name": "UIF Payable",
+      "subcategory": "Current Liability"
+    },
+    "cl.370.000": {
+      "name": "SDL Payable",
+      "subcategory": "Current Liability"
+    },
+    "cl.500.000": {
+      "name": "Trade Payables",
+      "subcategory": "Current Liability"
+    },
+    "cl.500.001": {
+      "name": "Sundry Creditors",
+      "subcategory": "Current Liability"
+    },
+    "cl.600.000": {
+      "name": "Accrued Expenses",
+      "subcategory": "Current Liability"
+    },
+    "cl.610.000": {
+      "name": "Deferred Revenue",
+      "subcategory": "Current Liability"
+    },
+    "cl.620.000": {
+      "name": "Provision for Leave Pay",
+      "subcategory": "Current Liability"
+    },
+    "cl.630.000": {
+      "name": "Provision for Warranty",
+      "subcategory": "Current Liability"
+    },
+    "cl.631.000": {
+      "name": "Provision for Bonuses",
+      "subcategory": "Current Liability"
+    },
+    "cl.632.000": {
+      "name": "Provision for Pension Fund",
+      "subcategory": "Current Liability"
+    },
+    "cl.650.000": {
+      "name": "Deferred Grant Income",
+      "subcategory": "Current Liability"
+    },
+    "cl.710.000": {
+      "name": "VAT Output Account",
+      "subcategory": "Current Liability"
+    },
+    "cl.810.001": {
+      "name": "Credit Card Account 1",
+      "subcategory": "Current Liability"
+    },
+    "cl.810.002": {
+      "name": "Credit Card Account 2",
+      "subcategory": "Current Liability"
+    },
+    "cl.810.099": {
+      "name": "Bank Overdraft",
+      "subcategory": "Current Liability"
+    },
+    "cos.000.000": {
+      "name": "Opening Stock",
+      "subcategory": "Cost of Sales"
+    },
+    "cos.002.000": {
+      "name": "Purchases",
+      "subcategory": "Cost of Sales"
+    },
+    "cos.005.000": {
+      "name": "Closing Stock",
+      "subcategory": "Cost of Sales"
+    },
+    "cos.010.000": {
+      "name": "Direct Labour",
+      "subcategory": "Cost of Sales"
+    },
+    "cos.020.000": {
+      "name": "Carriage Inwards",
+      "subcategory": "Cost of Sales"
+    },
+    "cos.030.000": {
+      "name": "Subcontractor Costs",
+      "subcategory": "Cost of Sales"
+    },
+    "cos.040.000": {
+      "name": "Import Duties and Customs",
+      "subcategory": "Cost of Sales"
+    },
+    "cos.050.000": {
+      "name": "Discount Received",
+      "subcategory": "Cost of Sales"
+    },
+    "e.301.000": {
+      "name": "Accounting Fees",
+      "subcategory": "Expenses"
+    },
+    "e.302.000": {
+      "name": "Advertising and Marketing",
+      "subcategory": "Expenses"
+    },
+    "e.303.000": {
+      "name": "Admin and Management Fees",
+      "subcategory": "Expenses"
+    },
+    "e.306.000": {
+      "name": "Assessment Rates and Municipal",
+      "subcategory": "Expenses"
+    },
+    "e.307.000": {
+      "name": "Auditor's Remuneration - Audit Fees",
+      "subcategory": "Expenses"
+    },
+    "e.307.001": {
+      "name": "Auditor's Remuneration - Consulting",
+      "subcategory": "Expenses"
+    },
+    "e.307.002": {
+      "name": "Auditor's Remuneration - Taxation",
+      "subcategory": "Expenses"
+    },
+    "e.307.003": {
+      "name": "Auditor's Remuneration - Expenses",
+      "subcategory": "Expenses"
+    },
+    "e.320.000": {
+      "name": "Bad Debts Written Off",
+      "subcategory": "Expenses"
+    },
+    "e.321.000": {
+      "name": "Bank Charges",
+      "subcategory": "Expenses"
+    },
+    "e.330.000": {
+      "name": "Cleaning",
+      "subcategory": "Expenses"
+    },
+    "e.331.000": {
+      "name": "Commission Paid",
+      "subcategory": "Expenses"
+    },
+    "e.332.000": {
+      "name": "Computer Expenses",
+      "subcategory": "Expenses"
+    },
+    "e.333.000": {
+      "name": "Consulting Fees",
+      "subcategory": "Expenses"
+    },
+    "e.334.000": {
+      "name": "Consumables",
+      "subcategory": "Expenses"
+    },
+    "e.340.000": {
+      "name": "Debt Collection Costs",
+      "subcategory": "Expenses"
+    },
+    "e.341.000": {
+      "name": "Delivery and Courier",
+      "subcategory": "Expenses"
+    },
+    "e.343.000": {
+      "name": "Discount Allowed (Expense)",
+      "subcategory": "Expenses"
+    },
+    "e.344.000": {
+      "name": "Donations - Tax Deductible (S18A)",
+      "subcategory": "Expenses"
+    },
+    "e.344.009": {
+      "name": "Donations - Non-deductible",
+      "subcategory": "Expenses"
+    },
+    "e.350.000": {
+      "name": "Electricity and Water",
+      "subcategory": "Expenses"
+    },
+    "e.351.000": {
+      "name": "Entertainment",
+      "subcategory": "Expenses"
+    },
+    "e.359.009": {
+      "name": "Fines and Penalties",
+      "subcategory": "Expenses"
+    },
+    "e.360.000": {
+      "name": "Flowers and Office Decor",
+      "subcategory": "Expenses"
+    },
+    "e.370.000": {
+      "name": "General Expenses",
+      "subcategory": "Expenses"
+    },
+    "e.371.000": {
+      "name": "Gifts",
+      "subcategory": "Expenses"
+    },
+    "e.380.000": {
+      "name": "Hire - Equipment",
+      "subcategory": "Expenses"
+    },
+    "e.390.000": {
+      "name": "Insurance",
+      "subcategory": "Expenses"
+    },
+    "e.391.000": {
+      "name": "Interest Paid - Long-term Loans",
+      "subcategory": "Expenses"
+    },
+    "e.391.001": {
+      "name": "Interest Paid - Bank Overdraft",
+      "subcategory": "Expenses"
+    },
+    "e.391.002": {
+      "name": "Interest Paid - Finance Lease",
+      "subcategory": "Expenses"
+    },
+    "e.391.004": {
+      "name": "Interest Paid - SARS Penalties",
+      "subcategory": "Expenses"
+    },
+    "e.395.000": {
+      "name": "Foreign Exchange Loss",
+      "subcategory": "Expenses"
+    },
+    "e.400.000": {
+      "name": "Lease Rental - Premises",
+      "subcategory": "Expenses"
+    },
+    "e.400.001": {
+      "name": "Lease Rental - Motor Vehicles",
+      "subcategory": "Expenses"
+    },
+    "e.400.002": {
+      "name": "Lease Rental - Equipment",
+      "subcategory": "Expenses"
+    },
+    "e.400.003": {
+      "name": "Lease Rental - Other",
+      "subcategory": "Expenses"
+    },
+    "e.401.000": {
+      "name": "Legal Expenses",
+      "subcategory": "Expenses"
+    },
+    "e.412.000": {
+      "name": "Magazines and Books",
+      "subcategory": "Expenses"
+    },
+    "e.413.000": {
+      "name": "Medical Expenses",
+      "subcategory": "Expenses"
+    },
+    "e.415.000": {
+      "name": "Motor Vehicle Expenses",
+      "subcategory": "Expenses"
+    },
+    "e.420.000": {
+      "name": "Licences and Permits",
+      "subcategory": "Expenses"
+    },
+    "e.420.011": {
+      "name": "Website and Hosting",
+      "subcategory": "Expenses"
+    },
+    "e.430.000": {
+      "name": "Packaging",
+      "subcategory": "Expenses"
+    },
+    "e.431.000": {
+      "name": "Pension / Provident Fund Costs",
+      "subcategory": "Expenses"
+    },
+    "e.433.000": {
+      "name": "Petrol and Oil",
+      "subcategory": "Expenses"
+    },
+    "e.434.000": {
+      "name": "Placement Fees",
+      "subcategory": "Expenses"
+    },
+    "e.436.000": {
+      "name": "Postage and Courier",
+      "subcategory": "Expenses"
+    },
+    "e.437.000": {
+      "name": "Printing and Stationery",
+      "subcategory": "Expenses"
+    },
+    "e.438.000": {
+      "name": "Promotions",
+      "subcategory": "Expenses"
+    },
+    "e.439.000": {
+      "name": "Protective Clothing and Uniforms",
+      "subcategory": "Expenses"
+    },
+    "e.451.001": {
+      "name": "Repairs - Motor Vehicles",
+      "subcategory": "Expenses"
+    },
+    "e.451.002": {
+      "name": "Repairs - Furniture",
+      "subcategory": "Expenses"
+    },
+    "e.451.003": {
+      "name": "Repairs - Machinery and Tools",
+      "subcategory": "Expenses"
+    },
+    "e.451.004": {
+      "name": "Repairs - Computer and IT",
+      "subcategory": "Expenses"
+    },
+    "e.451.005": {
+      "name": "Repairs - Building and Premises",
+      "subcategory": "Expenses"
+    },
+    "e.453.000": {
+      "name": "Research and Development",
+      "subcategory": "Expenses"
+    },
+    "e.460.000": {
+      "name": "Salaries",
+      "subcategory": "Expenses"
+    },
+    "e.461.000": {
+      "name": "Secretarial Fees",
+      "subcategory": "Expenses"
+    },
+    "e.462.000": {
+      "name": "Security",
+      "subcategory": "Expenses"
+    },
+    "e.464.000": {
+      "name": "Software and Subscriptions",
+      "subcategory": "Expenses"
+    },
+    "e.465.000": {
+      "name": "Staff Welfare",
+      "subcategory": "Expenses"
+    },
+    "e.466.000": {
+      "name": "Professional Subscriptions",
+      "subcategory": "Expenses"
+    },
+    "e.470.000": {
+      "name": "Employee Benefits",
+      "subcategory": "Expenses"
+    },
+    "e.480.000": {
+      "name": "Telephone and Internet",
+      "subcategory": "Expenses"
+    },
+    "e.480.001": {
+      "name": "Cell Phone / Communication Allowance",
+      "subcategory": "Expenses"
+    },
+    "e.481.000": {
+      "name": "Transport",
+      "subcategory": "Expenses"
+    },
+    "e.482.000": {
+      "name": "Training and Development",
+      "subcategory": "Expenses"
+    },
+    "e.483.000": {
+      "name": "Travel - Local",
+      "subcategory": "Expenses"
+    },
+    "e.483.001": {
+      "name": "Travel Allowance",
+      "subcategory": "Expenses"
+    },
+    "e.484.000": {
+      "name": "Travel - Overseas",
+      "subcategory": "Expenses"
+    },
+    "e.490.000": {
+      "name": "Programme Costs",
+      "subcategory": "Expenses"
+    },
+    "e.491.000": {
+      "name": "Beneficiary Support Costs",
+      "subcategory": "Expenses"
+    },
+    "e.492.000": {
+      "name": "Fundraising Expenses",
+      "subcategory": "Expenses"
+    },
+    "e.493.000": {
+      "name": "Project Implementation Costs",
+      "subcategory": "Expenses"
+    },
+    "e.494.000": {
+      "name": "Monitoring and Evaluation",
+      "subcategory": "Expenses"
+    },
+    "e.510.000": {
+      "name": "Wages - Full-time",
+      "subcategory": "Expenses"
+    },
+    "e.510.001": {
+      "name": "Wages - Casual",
+      "subcategory": "Expenses"
+    },
+    "e.510.002": {
+      "name": "UIF - Employer's Contribution",
+      "subcategory": "Expenses"
+    },
+    "e.510.003": {
+      "name": "SDL - Skills Development Levy",
+      "subcategory": "Expenses"
+    },
+    "e.510.004": {
+      "name": "Workmen's Compensation (COIDA)",
+      "subcategory": "Expenses"
+    },
+    "e.810.000": {
+      "name": "Depreciation - Land and Buildings",
+      "subcategory": "Expenses"
+    },
+    "e.820.000": {
+      "name": "Depreciation - Machinery and Tools",
+      "subcategory": "Expenses"
+    },
+    "e.830.000": {
+      "name": "Depreciation - Motor Vehicles",
+      "subcategory": "Expenses"
+    },
+    "e.840.000": {
+      "name": "Depreciation - Office Furniture",
+      "subcategory": "Expenses"
+    },
+    "e.850.000": {
+      "name": "Depreciation - Leasehold Improvements",
+      "subcategory": "Expenses"
+    },
+    "e.860.000": {
+      "name": "Depreciation - Office Equipment",
+      "subcategory": "Expenses"
+    },
+    "e.870.000": {
+      "name": "Depreciation - Computer Equipment",
+      "subcategory": "Expenses"
+    },
+    "e.880.000": {
+      "name": "Depreciation - Computer Software",
+      "subcategory": "Expenses"
+    },
+    "e.890.000": {
+      "name": "Depreciation - Other Assets",
+      "subcategory": "Expenses"
+    },
+    "e.895.000": {
+      "name": "Depreciation - Investment Property",
+      "subcategory": "Expenses"
+    },
+    "i.045.000": {
+      "name": "Interest Income",
+      "subcategory": "Sales"
+    },
+    "i.060.000": {
+      "name": "Rental Income",
+      "subcategory": "Sales"
+    },
+    "i.070.000": {
+      "name": "Commission Received",
+      "subcategory": "Sales"
+    },
+    "i.080.000": {
+      "name": "Professional Fees",
+      "subcategory": "Sales"
+    },
+    "i.090.000": {
+      "name": "Sundry Income",
+      "subcategory": "Sales"
+    },
+    "i.100.000": {
+      "name": "Sales",
+      "subcategory": "Sales"
+    },
+    "i.110.000": {
+      "name": "Sales - Services",
+      "subcategory": "Sales"
+    },
+    "i.120.000": {
+      "name": "Sales - Products",
+      "subcategory": "Sales"
+    },
+    "i.130.000": {
+      "name": "Sales - Exports",
+      "subcategory": "Sales"
+    },
+    "i.140.000": {
+      "name": "Sales Returns",
+      "subcategory": "Sales"
+    },
+    "i.150.000": {
+      "name": "Discount Allowed",
+      "subcategory": "Sales"
+    },
+    "i.600.000": {
+      "name": "Donations Received",
+      "subcategory": "Sales"
+    },
+    "i.610.000": {
+      "name": "Grants Received - General",
+      "subcategory": "Sales"
+    },
+    "i.611.000": {
+      "name": "Grants Received - Government",
+      "subcategory": "Sales"
+    },
+    "i.612.000": {
+      "name": "Grants Received - Private",
+      "subcategory": "Sales"
+    },
+    "i.620.000": {
+      "name": "Fundraising Income",
+      "subcategory": "Sales"
+    },
+    "i.630.000": {
+      "name": "Membership Fees",
+      "subcategory": "Sales"
+    },
+    "i.640.000": {
+      "name": "Sponsorships",
+      "subcategory": "Sales"
+    },
+    "is.700.000": {
+      "name": "Profit on Disposal of Asset",
+      "subcategory": "Sales"
+    },
+    "is.710.000": {
+      "name": "Foreign Exchange Gain",
+      "subcategory": "Sales"
+    },
+    "na.010.000": {
+      "name": "Land and Buildings - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.010.001": {
+      "name": "Land and Buildings - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.020.000": {
+      "name": "Machinery and Tools - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.020.001": {
+      "name": "Machinery and Tools - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.030.000": {
+      "name": "Motor Vehicles - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.030.001": {
+      "name": "Motor Vehicles - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.040.000": {
+      "name": "Office Furniture - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.040.001": {
+      "name": "Office Furniture - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.050.000": {
+      "name": "Leasehold Improvements - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.050.001": {
+      "name": "Leasehold Improvements - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.060.000": {
+      "name": "Office Equipment - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.060.001": {
+      "name": "Office Equipment - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.070.000": {
+      "name": "Computer Equipment - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.070.001": {
+      "name": "Computer Equipment - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.080.000": {
+      "name": "Computer Software - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.080.001": {
+      "name": "Computer Software - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.090.000": {
+      "name": "Other Loose Assets - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.090.001": {
+      "name": "Other Loose Assets - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.100.000": {
+      "name": "Goodwill",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.100.001": {
+      "name": "Goodwill - Amortisation",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.110.000": {
+      "name": "Patents and Trademarks",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.150.000": {
+      "name": "Investment Property - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.150.001": {
+      "name": "Investment Property - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.600.001": {
+      "name": "Investment - Listed Shares",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.600.002": {
+      "name": "Investment - Unlisted Shares",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.600.003": {
+      "name": "Investment - Fixed Deposits",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.600.004": {
+      "name": "Investment - Subsidiaries",
+      "subcategory": "Non-Current Asset"
+    },
+    "nl.100.000": {
+      "name": "Mortgage Bond",
+      "subcategory": "Non-Current Liabilities"
+    },
+    "nl.200.000": {
+      "name": "Long-term Loan - Secured",
+      "subcategory": "Non-Current Liabilities"
+    },
+    "nl.210.000": {
+      "name": "Long-term Loan - Unsecured",
+      "subcategory": "Non-Current Liabilities"
+    },
+    "nl.220.000": {
+      "name": "Finance Lease Liability",
+      "subcategory": "Non-Current Liabilities"
+    },
+    "nl.230.000": {
+      "name": "Deferred Tax Liability",
+      "subcategory": "Non-Current Liabilities"
+    },
+    "nl.300.001": {
+      "name": "Owner's Loan to Business",
+      "subcategory": "Non-Current Liabilities"
+    },
+    "q.020.000": {
+      "name": "Capital Contribution",
+      "subcategory": "Equity"
+    },
+    "q.100.000": {
+      "name": "Accumulated Funds",
+      "subcategory": "Equity"
+    },
+    "q.110.000": {
+      "name": "Restricted Funds",
+      "subcategory": "Equity"
+    },
+    "q.120.000": {
+      "name": "Unrestricted Funds",
+      "subcategory": "Equity"
+    },
+    "q.130.000": {
+      "name": "Designated Reserves",
+      "subcategory": "Equity"
+    },
+    "q.200.000": {
+      "name": "Retained Earnings",
+      "subcategory": "Equity"
+    },
+    "q.210.000": {
+      "name": "Distributions to Members",
+      "subcategory": "Equity"
+    },
+    "q.220.000": {
+      "name": "Current Year Surplus / (Deficit)",
+      "subcategory": "Equity"
+    },
+    "q.300.000": {
+      "name": "Drawings Account",
+      "subcategory": "Equity"
+    },
+    "t.900.000": {
+      "name": "Provision for Income Tax",
+      "subcategory": "Tax"
+    },
+    "t.910.000": {
+      "name": "Deferred Tax",
+      "subcategory": "Tax"
+    }
+  },
+  "note": "Transmission contract for the Analee -> BooksXperts trial-balance handoff. The dataimports intake maps each TB row to a CompanyAccount BY LINK; the subcategory is what drives AFS classification. Analee must not emit a link that is absent here, nor one whose subcategory differs. Regenerate with scripts/refresh_booksxperts_chart_reference.py when BooksXperts chart changes (a Festus-approved act).",
+  "source": "CNBSSA/booksxpert \u2014 app/migrations/0154_seed_chart_of_accounts.py"
+}
