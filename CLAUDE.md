@@ -24,6 +24,25 @@ tests. With that extracted, this repo's reason to grow is gone.
 
 ---
 
+## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)
+
+The **chart of accounts** (and the trial-balance core) is frozen and machine-
+enforced — a critical asset Festus has lost before. Do NOT change these as a side
+effect of another task; only a deliberate, Festus-approved re-freeze lands a
+change.
+
+Frozen: `services/chart_of_accounts.py`, `services/chart_seed_data.py`,
+`services/entity_chart_rules.py`, `services/entity_chart_schema.py`,
+`utils/chart_of_accounts.py`, `reports/trial_balance_service.py`.
+
+Enforcement: `protected_assets.py` + `protected_assets.lock.json` +
+`tests/test_protected_assets_lock.py` fail the build if any frozen asset drifts
+(`python protected_assets.py --check` is the CLI gate). To land an APPROVED
+change: `python protected_assets.py --authorized-by "Festus: <reason>"` then
+commit the new lock. Full policy: `docs/PROTECTED_ASSETS.md`.
+
+---
+
 ## Company development workflow (standing — Festus, 2026-05-17)
 
 **Mandatory for every coding task. No step skipped.** The corporation-wide
@@ -84,3 +103,15 @@ Operating under an autonomous directive means:
   `develop` → `main` without Festus's explicit approval.
 - **Stop and ask only** for questions/decisions that genuinely cannot be made
   without Festus.
+
+## Chart reconciliation with BooksXperts (trial-balance handoff)
+
+Analee exports a trial balance that BooksXperts imports **by account link**; the
+matched account's subcategory drives AFS classification. A guard keeps the two
+charts reconciled: `services/chart_reconciliation.py` +
+`reconciliation/booksxperts_chart_reference.json` +
+`tests/test_chart_reconciliation.py` fail the build if Analee emits a link
+BooksXperts lacks (→ suspense) or classifies a shared link differently
+(→ misclassified). When BooksXperts' chart changes (Festus-approved), regenerate
+the reference with `scripts/refresh_booksxperts_chart_reference.py`. Full detail:
+`docs/CHART_RECONCILIATION.md`.
