@@ -24,6 +24,25 @@ tests. With that extracted, this repo's reason to grow is gone.
 
 ---
 
+## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)
+
+The **chart of accounts** (and the trial-balance core) is frozen and machine-
+enforced — a critical asset Festus has lost before. Do NOT change these as a side
+effect of another task; only a deliberate, Festus-approved re-freeze lands a
+change.
+
+Frozen: `services/chart_of_accounts.py`, `services/chart_seed_data.py`,
+`services/entity_chart_rules.py`, `services/entity_chart_schema.py`,
+`utils/chart_of_accounts.py`, `reports/trial_balance_service.py`.
+
+Enforcement: `protected_assets.py` + `protected_assets.lock.json` +
+`tests/test_protected_assets_lock.py` fail the build if any frozen asset drifts
+(`python protected_assets.py --check` is the CLI gate). To land an APPROVED
+change: `python protected_assets.py --authorized-by "Festus: <reason>"` then
+commit the new lock. Full policy: `docs/PROTECTED_ASSETS.md`.
+
+---
+
 ## Company development workflow (standing — Festus, 2026-05-17)
 
 **Mandatory for every coding task. No step skipped.** The corporation-wide
