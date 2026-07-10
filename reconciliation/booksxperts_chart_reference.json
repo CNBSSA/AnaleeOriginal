@@ -9,7 +9,7 @@
       "subcategory": "Current Asset"
     },
     "ca.132.000": {
-      "name": "Inventory - Work in Progress",
+      "name": "Inventory - WIP",
       "subcategory": "Current Asset"
     },
     "ca.300.000": {
@@ -20,12 +20,16 @@
       "name": "Sundry Debtors",
       "subcategory": "Current Asset"
     },
+    "ca.301.000": {
+      "name": "Allowance for Doubtful Debts",
+      "subcategory": "Current Asset"
+    },
     "ca.310.000": {
       "name": "Prepaid Expenses",
       "subcategory": "Current Asset"
     },
     "ca.320.000": {
-      "name": "Deposits Paid",
+      "name": "Deposits",
       "subcategory": "Current Asset"
     },
     "ca.330.000": {
@@ -33,7 +37,7 @@
       "subcategory": "Current Asset"
     },
     "ca.340.000": {
-      "name": "Staff Loans / Employee Advances",
+      "name": "Staff Loans",
       "subcategory": "Current Asset"
     },
     "ca.350.000": {
@@ -65,7 +69,7 @@
       "subcategory": "Current Asset"
     },
     "ca.820.000": {
-      "name": "Cash on Hand",
+      "name": "Cash on hand",
       "subcategory": "Current Asset"
     },
     "ca.820.001": {
@@ -93,11 +97,15 @@
       "subcategory": "Current Liability"
     },
     "cl.300.001": {
-      "name": "Member's Loan - Short-term",
+      "name": "Beneficiary Loan - Short-term",
       "subcategory": "Current Liability"
     },
     "cl.301.000": {
       "name": "Provisional Tax Payable",
+      "subcategory": "Current Liability"
+    },
+    "cl.341.000": {
+      "name": "Salaries and Wages Payable",
       "subcategory": "Current Liability"
     },
     "cl.350.000": {
@@ -121,11 +129,11 @@
       "subcategory": "Current Liability"
     },
     "cl.600.000": {
-      "name": "Accrued Expenses",
+      "name": "Accrued Liabilities",
       "subcategory": "Current Liability"
     },
     "cl.610.000": {
-      "name": "Deferred Revenue",
+      "name": "Deferred Income",
       "subcategory": "Current Liability"
     },
     "cl.620.000": {
@@ -144,12 +152,28 @@
       "name": "Provision for Pension Fund",
       "subcategory": "Current Liability"
     },
+    "cl.640.000": {
+      "name": "Dividends Payable",
+      "subcategory": "Current Liability"
+    },
     "cl.650.000": {
       "name": "Deferred Grant Income",
       "subcategory": "Current Liability"
     },
+    "cl.670.000": {
+      "name": "Trust Funds Held / Client Monies",
+      "subcategory": "Current Liability"
+    },
+    "cl.680.000": {
+      "name": "Accrued Expenses",
+      "subcategory": "Current Liability"
+    },
+    "cl.690.000": {
+      "name": "SARS Penalties Payable",
+      "subcategory": "Current Liability"
+    },
     "cl.710.000": {
-      "name": "VAT Output Account",
+      "name": "VAT Control (Output)",
       "subcategory": "Current Liability"
     },
     "cl.810.001": {
@@ -189,7 +213,7 @@
       "subcategory": "Cost of Sales"
     },
     "cos.040.000": {
-      "name": "Import Duties and Customs",
+      "name": "Import Duties",
       "subcategory": "Cost of Sales"
     },
     "cos.050.000": {
@@ -213,7 +237,7 @@
       "subcategory": "Expenses"
     },
     "e.307.000": {
-      "name": "Auditor's Remuneration - Audit Fees",
+      "name": "Auditor's Remuneration - Fees",
       "subcategory": "Expenses"
     },
     "e.307.001": {
@@ -229,7 +253,7 @@
       "subcategory": "Expenses"
     },
     "e.320.000": {
-      "name": "Bad Debts Written Off",
+      "name": "Bad Debts",
       "subcategory": "Expenses"
     },
     "e.321.000": {
@@ -257,19 +281,19 @@
       "subcategory": "Expenses"
     },
     "e.340.000": {
-      "name": "Debt Collection Costs",
+      "name": "Debt Collection",
       "subcategory": "Expenses"
     },
     "e.341.000": {
-      "name": "Delivery and Courier",
+      "name": "Delivery Expenses",
       "subcategory": "Expenses"
     },
     "e.343.000": {
-      "name": "Discount Allowed (Expense)",
+      "name": "Discount Allowed (Exp.)",
       "subcategory": "Expenses"
     },
     "e.344.000": {
-      "name": "Donations - Tax Deductible (S18A)",
+      "name": "Donations - Tax Deductible",
       "subcategory": "Expenses"
     },
     "e.344.009": {
@@ -293,7 +317,7 @@
       "subcategory": "Expenses"
     },
     "e.370.000": {
-      "name": "General Expenses",
+      "name": "General Expenses - Deductible",
       "subcategory": "Expenses"
     },
     "e.371.000": {
@@ -309,7 +333,7 @@
       "subcategory": "Expenses"
     },
     "e.391.000": {
-      "name": "Interest Paid - Long-term Loans",
+      "name": "Interest Paid - Long Term Loans",
       "subcategory": "Expenses"
     },
     "e.391.001": {
@@ -345,7 +369,7 @@
       "subcategory": "Expenses"
     },
     "e.401.000": {
-      "name": "Legal Expenses",
+      "name": "Legal Expense",
       "subcategory": "Expenses"
     },
     "e.412.000": {
@@ -353,15 +377,15 @@
       "subcategory": "Expenses"
     },
     "e.413.000": {
-      "name": "Medical Expenses",
+      "name": "Medical Expense",
       "subcategory": "Expenses"
     },
     "e.415.000": {
-      "name": "Motor Vehicle Expenses",
+      "name": "Motor Vehicle Expense",
       "subcategory": "Expenses"
     },
     "e.420.000": {
-      "name": "Licences and Permits",
+      "name": "License and Permit",
       "subcategory": "Expenses"
     },
     "e.420.011": {
@@ -373,7 +397,7 @@
       "subcategory": "Expenses"
     },
     "e.431.000": {
-      "name": "Pension / Provident Fund Costs",
+      "name": "Pension Costs",
       "subcategory": "Expenses"
     },
     "e.433.000": {
@@ -437,7 +461,7 @@
       "subcategory": "Expenses"
     },
     "e.464.000": {
-      "name": "Software and Subscriptions",
+      "name": "Software Expenses",
       "subcategory": "Expenses"
     },
     "e.465.000": {
@@ -445,7 +469,7 @@
       "subcategory": "Expenses"
     },
     "e.466.000": {
-      "name": "Professional Subscriptions",
+      "name": "Subscriptions",
       "subcategory": "Expenses"
     },
     "e.470.000": {
@@ -524,8 +548,16 @@
       "name": "Depreciation - Land and Buildings",
       "subcategory": "Expenses"
     },
+    "e.811.000": {
+      "name": "Depreciation - Buildings",
+      "subcategory": "Expenses"
+    },
+    "e.815.000": {
+      "name": "Depreciation - Plant and Machinery",
+      "subcategory": "Expenses"
+    },
     "e.820.000": {
-      "name": "Depreciation - Machinery and Tools",
+      "name": "Depreciation - Machinery",
       "subcategory": "Expenses"
     },
     "e.830.000": {
@@ -548,8 +580,24 @@
       "name": "Depreciation - Computer Equipment",
       "subcategory": "Expenses"
     },
+    "e.871.000": {
+      "name": "Amortisation - Goodwill and Intangibles",
+      "subcategory": "Expenses"
+    },
+    "e.872.000": {
+      "name": "Amortisation - Patents and Trademarks",
+      "subcategory": "Expenses"
+    },
+    "e.875.000": {
+      "name": "Depreciation - Right-of-Use Assets",
+      "subcategory": "Expenses"
+    },
     "e.880.000": {
       "name": "Depreciation - Computer Software",
+      "subcategory": "Expenses"
+    },
+    "e.881.000": {
+      "name": "Amortisation - Software",
       "subcategory": "Expenses"
     },
     "e.890.000": {
@@ -562,6 +610,14 @@
     },
     "i.045.000": {
       "name": "Interest Income",
+      "subcategory": "Sales"
+    },
+    "i.050.000": {
+      "name": "Management Fees Received",
+      "subcategory": "Sales"
+    },
+    "i.055.000": {
+      "name": "Royalties Received",
       "subcategory": "Sales"
     },
     "i.060.000": {
@@ -640,6 +696,10 @@
       "name": "Profit on Disposal of Asset",
       "subcategory": "Income"
     },
+    "is.701.000": {
+      "name": "Loss on Disposal of Asset",
+      "subcategory": "Expenses"
+    },
     "is.710.000": {
       "name": "Foreign Exchange Gain",
       "subcategory": "Income"
@@ -650,6 +710,18 @@
     },
     "na.010.001": {
       "name": "Land and Buildings - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.011.000": {
+      "name": "Land - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.012.000": {
+      "name": "Buildings - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.012.001": {
+      "name": "Buildings - Acc. Depr.",
       "subcategory": "Non-Current Asset"
     },
     "na.020.000": {
@@ -700,6 +772,10 @@
       "name": "Computer Equipment - Acc. Depr.",
       "subcategory": "Non-Current Asset"
     },
+    "na.071.000": {
+      "name": "Deferred Tax Asset",
+      "subcategory": "Non-Current Asset"
+    },
     "na.080.000": {
       "name": "Computer Software - Cost",
       "subcategory": "Non-Current Asset"
@@ -728,12 +804,44 @@
       "name": "Patents and Trademarks",
       "subcategory": "Non-Current Asset"
     },
+    "na.110.001": {
+      "name": "Patents and Trademarks - Amortisation",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.115.000": {
+      "name": "Software (Intangible) - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.115.001": {
+      "name": "Software (Intangible) - Amortisation",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.120.000": {
+      "name": "Capital Work in Progress",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.130.000": {
+      "name": "Plant and Machinery - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.130.001": {
+      "name": "Plant and Machinery - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
     "na.150.000": {
       "name": "Investment Property - Cost",
       "subcategory": "Non-Current Asset"
     },
     "na.150.001": {
       "name": "Investment Property - Acc. Depr.",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.160.000": {
+      "name": "Right-of-Use Assets - Cost",
+      "subcategory": "Non-Current Asset"
+    },
+    "na.160.001": {
+      "name": "Right-of-Use Assets - Acc. Depr.",
       "subcategory": "Non-Current Asset"
     },
     "na.600.001": {
@@ -773,15 +881,19 @@
       "subcategory": "Non-Current Liabilities"
     },
     "nl.300.001": {
-      "name": "Owner's Loan to Business",
+      "name": "Beneficiary Loan - Long-term",
       "subcategory": "Non-Current Liabilities"
     },
     "q.020.000": {
-      "name": "Capital Contribution",
+      "name": "Capital Contributions",
+      "subcategory": "Equity"
+    },
+    "q.050.000": {
+      "name": "Revaluation Reserve",
       "subcategory": "Equity"
     },
     "q.100.000": {
-      "name": "Accumulated Funds",
+      "name": "Trust Capital",
       "subcategory": "Equity"
     },
     "q.110.000": {
@@ -793,7 +905,7 @@
       "subcategory": "Equity"
     },
     "q.130.000": {
-      "name": "Designated Reserves",
+      "name": "Capital Development Fund",
       "subcategory": "Equity"
     },
     "q.200.000": {
@@ -801,11 +913,11 @@
       "subcategory": "Equity"
     },
     "q.210.000": {
-      "name": "Distributions to Members",
+      "name": "Distributions to Beneficiaries",
       "subcategory": "Equity"
     },
     "q.220.000": {
-      "name": "Current Year Surplus / (Deficit)",
+      "name": "Current Year Income / (Loss)",
       "subcategory": "Equity"
     },
     "q.300.000": {
@@ -822,5 +934,5 @@
     }
   },
   "note": "Transmission contract for the Analee -> BooksXperts trial-balance handoff. dataimports maps each TB row to a CompanyAccount BY LINK; the subcategory drives AFS classification. Analee must not emit a link absent here, nor one whose subcategory differs. Regenerate with scripts/refresh_booksxperts_chart_reference.py (a Festus-approved act).",
-  "source": "CNBSSA/booksxpert \u2014 app/migrations/0154_seed_chart_of_accounts.py"
+  "source": "CNBSSA/booksxpert \u2014 app/management/commands/seed_chart_of_accounts.py (the runnable master seed)"
 }
