@@ -417,6 +417,12 @@ def create_app(env=None):
                     'Entity chart schema guard failed — charts may be empty until fixed'
                 )
 
+            # The Practice Club SSO consumer — SEALED module (scoped unfreeze,
+            # Festus 2026-07-10; see CLAUDE.md). Dark unless CLUB_ENABLED is
+            # set; register() is fail-soft and can never block startup.
+            import club_sso
+            club_sso.register(app)
+
             @app.cli.command('seed-charts')
             def seed_charts_command():
                 """Seed entity types and master chart (BooksXperts parity)."""

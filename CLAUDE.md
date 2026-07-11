@@ -22,6 +22,21 @@ tests. With that extracted, this repo's reason to grow is gone.
   wasted effort.
 - New ideas for Analee go to **booksxpert** (the embedded module), not here.
 
+### Scoped re-open + re-freeze record (Festus, 2026-07-10)
+
+Festus re-opened this repo for **ONE scope only**: The Practice Club SSO
+consumer, so Analee joins the Club suite ("it's very important for accountants…
+we have to just be very careful to work on it and move it into the group, then
+we can freeze it back"). Delivered as the **sealed `club_sso/` module**: one
+registration call in `app.py`, dark behind `CLUB_ENABLED`, fail-soft at boot,
+per-user workspace mapping, env-guarded walkthrough seed
+(`CLUB_WALKTHROUGH_SEED=1`), 9 tests in `tests/test_club_sso.py`.
+
+**The repo is now RE-FROZEN with `club_sso/` inside the freeze.** The frozen
+rules above apply to `club_sso/` exactly as to everything else. Festus's future
+Analee ideas ("I'm going to build upon it") each require his explicit re-open,
+scoped like this one.
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)
