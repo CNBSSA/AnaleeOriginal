@@ -1,5 +1,27 @@
 # Project Working Agreement
 
+## STANDING DEV WORKFLOW — comply with the Enhanced Development Workflow (authoritative: `autonomusFV/CLAUDE.md`)
+
+Every code change in this repo follows the corporation-wide **Enhanced Development
+Workflow with Within-Loop Memory** and its four refinements. The authoritative copy
+lives in `autonomusFV/CLAUDE.md`; the product-specific rules in this file are its
+specifics and never override it. In brief:
+- **Memory Checkpoint → Planning Audit → Change-Impact Audit → (present) → implement
+  on the dev branch → test → Learning Checkpoint → Post-Engagement Audit → merge
+  control.** Never merge to `main` without Festus's explicit word.
+- **A — tier it:** FULL ceremony for money/ledger/AFS/fiduciary/auth/schema/
+  protected-assets/`main`-promotion/hard-to-reverse changes; LITE (checkpoint → one
+  audit → test → one-paragraph result) for trivial reversible ones. Less ceremony,
+  never less safety.
+- **B — memory informs, git/tests decide:** verify any remembered fact against the
+  live repo before acting on it.
+- **C — autonomous directives:** under "go", present audits+plan and proceed the same
+  turn; still never merge without Festus.
+- **D — contradiction gate:** a change that breaks a locked/fiduciary principle STOPS
+  and returns to Festus — not audit-and-proceed.
+
+---
+
 ## Workflow & Audits Directive (standing)
 
 Every change goes through three audits, and nothing is committed/pushed that
