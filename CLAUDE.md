@@ -24,63 +24,27 @@ tests. With that extracted, this repo's reason to grow is gone.
 
 ---
 
-## Company development workflow (standing — Festus, 2026-05-17)
+## ⚖️ COMPANY DEVELOPMENT WORKFLOW — MANDATORY FOR EVERY APPLICATION CHANGE
 
-**Mandatory for every coding task. No step skipped.** The corporation-wide
-authoritative copy lives in `autonomusFV/CLAUDE.md`.
+**Read the canonical workflow document first:** `autonomusFV/docs/DEVELOPMENT_WORKFLOW_WITH_MEMORY.md`
 
-| Step | Name | What the agent does |
-|------|------|---------------------|
-| 1 | **Planning Audit** | Inspect current state, dependencies, callers, and contracts that must be preserved. No guesses — file paths and shapes must be verified in the repo. |
-| 2 | **Change-Impact Audit** | After drafting the plan, assess blast radius: routes/menus/features affected, migrations, runtime implications. Revise the plan until side effects are understood and controlled. |
-| 3 | **Present Plan** | Present the plan to Festus with both audits stated explicitly. **Wait for approval** — no implementation begins without it. |
-| 4 | **Implement** | Execute on a feature branch off **`develop`** only. One logical change per commit; avoid broad refactors inside a fix. |
-| 5 | **Test** | Run targeted tests and checks. No success claims without evidence. Mark uncertain claims with `?`. |
-| 6 | **Post-Engagement Audit** | Verify the task goal was met and nothing existing was damaged (imports, routes, menus, contracts). Report what was validated and what could not be validated here. |
-| 7 | **Merge Control** | Open PR → **`develop`** only. **Festus decides** when to merge and when `develop` → `main` promotion happens — never by the agent without his explicit approval. |
-| 8 | **Final Status** | Close every task with one of: **READY** / **READY WITH RISKS** / **NOT READY** — with brief justification. |
+This is the authoritative, permanent policy — effective 2026-07-10 — for every agent across all 12 CNBSSA repositories. All development (code, templates, scripts, configuration, documentation) follows this single workflow:
 
-The three audits in steps 1, 2, and 6 are non-negotiable even under an
-autonomous directive (see below).
+**Core structure (9 steps):**
+1. **Memory Checkpoint** — consult prior learnings before starting
+2. **Planning Audit** — map current state, review assumptions
+3. **Change Impact Audit** — assess blast radius and risks (contextualized against history)
+4. **Present the Plan** — await Festus approval before coding
+5. **Implementation** — develop on designated branch only (never `main`)
+6. **Testing** — verify new functionality and prior failure modes
+7. **Learning Checkpoint** — capture what was learned for next time
+8. **Post-Engagement Audit** — confirm outcome vs. expectations
+9. **Merge Control** — Festus decides when to promote to `main`
 
-**Honesty is non-negotiable.** Do not describe work as complete before
-verification finishes.
+**Key rule:** All development happens on `develop` (or feature branch off `develop`). Promotion to `main` only with Festus's explicit approval after testing.
 
-## Git branches & pull requests (standing — Festus, 2026-06-28)
+**Autonomous directives are contingent on this workflow.** Autonomy never waives the audits or branch/merge control — it accelerates execution on things the agent can decide, but the workflow and testing remain mandatory.
 
-**Agents must NEVER open a PR against `main`.** All agent work targets
-**`develop` only**.
+**Do not skip audits. Do not claim success without testing. Do not develop in `main`.**
 
-Promotion flow:
-1. Agent opens PR → **`develop`** (draft or ready, per instruction).
-2. Festus reviews, merges, and tests on **`develop`** (e.g. Railway staging).
-3. Only after Festus is satisfied does **`develop` → `main`** promotion happen —
-   never by the agent without Festus's explicit approval.
-
-Rules:
-- **Do not** set `base_branch: main` on PRs.
-- **Do not** push feature branches intended to merge straight into `main`.
-- **Do** branch off `develop` using `cursor/<descriptive-name>-<suffix>`.
-- If work was accidentally merged to `main` first, **stop** and report it to
-  Festus; land the same changes on `develop` via a proper PR — do not repeat
-  direct-to-main merges.
-
-## Autonomous Directive (standing — non-negotiable)
-
-When Festus issues an **autonomous directive** ("go on autonomously", "just do
-it", "only ask what you cannot decide", etc.), that autonomy is **always
-contingent on the Company Development Workflow above** — autonomy **never**
-waives any step, especially the Planning Audit (1), Change-Impact Audit (2), and
-Post-Engagement Audit (6).
-
-**Each time Festus issues an autonomous directive, the agent MUST restate this
-contingency in the reply** — this restatement is a rule, not a courtesy.
-
-Operating under an autonomous directive means:
-- **Do** proceed and decide what can be decided from the code or sensible defaults.
-- **Still always** run the full workflow (audits in steps 1, 2, and 6 on every
-  change) so existing application wins are not damaged.
-- **Still** branch off `develop`, PR to `develop` only, and **never** promote
-  `develop` → `main` without Festus's explicit approval.
-- **Stop and ask only** for questions/decisions that genuinely cannot be made
-  without Festus.
+For detailed rationale, examples, and the within-loop memory mechanisms, read the canonical document: `autonomusFV/docs/DEVELOPMENT_WORKFLOW_WITH_MEMORY.md` (permanent policy, locked by Festus, 2026-07-10).
