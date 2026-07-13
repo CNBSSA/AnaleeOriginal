@@ -4,7 +4,7 @@ import logging
 import sys
 from datetime import datetime
 from urllib.parse import urlparse
-from flask import Flask, current_app, redirect, url_for, request, flash, jsonify
+from flask import Flask, current_app, redirect, url_for, request, flash, jsonify, session
 from flask_migrate import Migrate
 from dotenv import load_dotenv
 from sqlalchemy import text
@@ -131,6 +131,33 @@ def create_app(env=None):
             if club_refresh.needs_refresh() and club_refresh.refresh() == "ended":
                 club_refresh.clear_session_tokens()
                 return redirect(club_refresh.hub_login_url())
+
+        @app.before_request
+        def _analee_entitlement_gate():
+            """Slice 5: restrict Analee to Club members OR Accountants/Analee subscribers.
+
+            Dark by default (``ANALEE_ENTITLEMENT_ENFORCED`` off) — no behaviour
+            change. When enforced, an authenticated non-admin user who is neither
+            a Practice Club member (SSO session) nor a subscriber is redirected to
+            a friendly 'entitlement required' page. Anonymous users are left to the
+            login gate; admins are always allowed. Auth / static / error routes and
+            the gate page itself are exempt so a blocked user can read the notice
+            and log out rather than being trapped in a redirect loop.
+            """
+            import entitlement
+            if not entitlement.enforcement_enabled():
+                return
+            if not current_user.is_authenticated:
+                return
+            if getattr(current_user, "is_admin", False):
+                return
+            endpoint = request.endpoint or ""
+            if (endpoint in ("main.entitlement_required", "static")
+                    or endpoint.startswith("auth.")
+                    or endpoint.startswith("errors.")):
+                return
+            if not entitlement.analee_entitled(current_user):
+                return redirect(url_for("main.entitlement_required"))
 
         # Import and register blueprints within app context
         with app.app_context():

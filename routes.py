@@ -82,6 +82,18 @@ def index():
         logger.error(f"Error in index route: {str(e)}")
         return redirect(url_for('auth.login'))
 
+@main.route('/entitlement-required')
+def entitlement_required():
+    """Friendly notice shown when the Analee entitlement gate blocks a user.
+
+    Analee access requires either a Practice Club membership or an Accountants /
+    Analee subscription (see ``entitlement.analee_entitled``). This page explains
+    that and offers the next steps. Public (no ``login_required``) so a gated
+    user is never trapped in a redirect loop.
+    """
+    return render_template('entitlement_required.html')
+
+
 @main.route('/dashboard')
 @login_required
 def dashboard():
