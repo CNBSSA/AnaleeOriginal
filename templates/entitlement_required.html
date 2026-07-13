@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+      <div class="card shadow-sm">
+        <div class="card-body text-center p-5">
+          <h3 class="card-title mb-3">Analee is part of The Accountants &amp; the Practice Club</h3>
+          <p class="text-muted mb-4">
+            To use Analee's bank-statement analysis, your account needs one of the following:
+          </p>
+          <ul class="list-unstyled text-start mx-auto mb-4" style="max-width: 24rem;">
+            <li class="mb-2">&#9989; A subscription to <strong>The Accountants</strong>, or</li>
+            <li class="mb-2">&#9989; Membership of the <strong>Practice Club</strong>.</li>
+          </ul>
+          <p class="mb-4">
+            Analee comes bundled with both &mdash; activate either one and you're in.
+          </p>
+          <div class="d-flex gap-2 justify-content-center">
+            <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-secondary">Log out</a>
+            <a href="mailto:booksxperts@gmail.com?subject=Analee%20access" class="btn btn-primary">Contact us</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

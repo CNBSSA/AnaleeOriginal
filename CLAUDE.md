@@ -37,6 +37,32 @@ rules above apply to `club_sso/` exactly as to everything else. Festus's future
 Analee ideas ("I'm going to build upon it") each require his explicit re-open,
 scoped like this one.
 
+### Scoped re-open + re-freeze record (Festus, 2026-07-13)
+
+Festus re-opened this repo for **ONE scope only**: the **Analee bundle access
+model** — "Analee is only available for users who is either a subscriber of The
+Accountants or a member of the Practice Club" (the access rule that makes Club /
+Accountants membership meaningful for Analee, completing the "move it into the
+group" intent). Delivered, all **dark** and **additive** (no schema change):
+- `entitlement.py` — single source of truth `analee_entitled(user)` = Club
+  member (session `club_session`/`club_member_id`, set by `club_sso`) OR
+  subscriber (`subscription_status in active/pending`). Binary — full access, no
+  tier.
+- `app.py` — `before_request` gate behind `ANALEE_ENTITLEMENT_ENFORCED` (default
+  off); friendly `/entitlement-required` notice (`routes.py` +
+  `templates/entitlement_required.html`).
+- `provisioning.py` — sealed S2S endpoint `POST /api/provisioning/analee`, dark
+  behind `ANALEE_PROVISIONING_ENABLED` (404 while off) + bearer secret
+  `ANALEE_PROVISIONING_SECRET`; activates/deactivates a user by email via
+  `subscription_status` (no schema change; `is_deleted` untouched); CSRF-exempt.
+- 17 tests (`tests/test_entitlement_gate.py`, `tests/test_provisioning.py`);
+  full suite 136 OK. Also fixed a latent bug carried in older app.py revisions
+  (`session` used but not imported).
+
+**The repo is RE-FROZEN with the entitlement gate + provisioning inside the
+freeze.** The frozen rules apply to them exactly as to everything else. Any
+further Analee work requires Festus's explicit, scoped re-open.
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)
