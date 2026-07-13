@@ -8,6 +8,13 @@ Entitled = Practice Club member (arrived via Club SSO — session-bound) **OR**
 an Accountants / Analee subscriber (local ``subscription_status`` in
 ``active`` / ``pending``).
 
+Policy (Festus 2026-07-13): entitlement is **binary — full Analee access, no
+limited tier**. Both a Club member and a user who buys THE ACCOUNTANTS as a
+standalone get the *same full* access. (The mechanism by which "bought THE
+ACCOUNTANTS standalone" reaches Analee — hub JWT claim / provisioning link /
+API — is still open; today "subscriber" here means the local
+``subscription_status``, and the Club path already flows in via SSO.)
+
 Ships **DARK** behind ``ANALEE_ENTITLEMENT_ENFORCED`` (default off): with the
 flag off the app behaves exactly as before. Turning the flag on gates *new*
 access decisions; it does **not** by itself lock out existing users, because
