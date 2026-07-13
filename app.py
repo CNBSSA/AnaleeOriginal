@@ -5,13 +5,13 @@ import sys
 import tempfile
 from datetime import datetime
 from urllib.parse import urlparse
-from flask import Flask, current_app, redirect, url_for, request, flash, jsonify
+from flask import Flask, current_app, redirect, url_for, request, flash, jsonify, session
 from flask_migrate import Migrate
 from dotenv import load_dotenv
 from sqlalchemy import text
 from flask_apscheduler import APScheduler
 from flask_wtf.csrf import CSRFProtect
-from flask_login import LoginManager
+from flask_login import LoginManager, current_user
 from config import MAX_UPLOAD_BYTES
 
 # Configure logging with detailed format
@@ -311,6 +311,33 @@ def create_app(env=None):
                 return None
             return User.query.get(int(user_id))
 
+        @app.before_request
+        def _analee_entitlement_gate():
+            """Restrict Analee to Practice Club members OR Accountants/Analee
+            subscribers (Festus 2026-07-13; scoped re-open of the frozen repo).
+
+            Dark by default (``ANALEE_ENTITLEMENT_ENFORCED`` off) — no behaviour
+            change. When enforced, an authenticated non-admin user who is neither
+            a Club member (SSO session) nor a subscriber is redirected to a
+            friendly notice; anonymous users are left to the login gate; admins
+            are always allowed. Auth / static / error routes and the notice page
+            itself are exempt so a blocked user can read it and log out.
+            """
+            import entitlement
+            if not entitlement.enforcement_enabled():
+                return
+            if not current_user.is_authenticated:
+                return
+            if getattr(current_user, "is_admin", False):
+                return
+            endpoint = request.endpoint or ""
+            if (endpoint in ("main.entitlement_required", "static")
+                    or endpoint.startswith("auth.")
+                    or endpoint.startswith("errors.")):
+                return
+            if not entitlement.analee_entitled(current_user):
+                return redirect(url_for("main.entitlement_required"))
+
         # Import and register blueprints within app context
         with app.app_context():
             # Verify database connection
@@ -331,6 +358,7 @@ def create_app(env=None):
             from suggestions import suggestions
             from errors import errors
             from ocr import ocr
+            from provisioning import provisioning
 
             # Register blueprints
             app.register_blueprint(auth)
@@ -346,6 +374,10 @@ def create_app(env=None):
             app.register_blueprint(suggestions)
             app.register_blueprint(errors)
             app.register_blueprint(ocr)
+            app.register_blueprint(provisioning)
+            # Server-to-server provisioning endpoint uses a bearer secret, not a
+            # browser session — exempt it from CSRF (it never handles form posts).
+            csrf.exempt(provisioning)
             from client_explain_routes import client_explain_bp
             app.register_blueprint(client_explain_bp)
             # The client-explain wizard is a NO-LOGIN flow: clients have no session
