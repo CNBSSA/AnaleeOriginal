@@ -179,6 +179,7 @@ def create_app(env=None):
             from suggestions import suggestions
             from errors import errors
             from ocr import ocr
+            from provisioning import provisioning
 
             # Register blueprints
             app.register_blueprint(auth)
@@ -194,6 +195,10 @@ def create_app(env=None):
             app.register_blueprint(suggestions)
             app.register_blueprint(errors)
             app.register_blueprint(ocr)
+            app.register_blueprint(provisioning)
+            # Server-to-server provisioning endpoint uses a bearer secret, not a
+            # browser session — exempt it from CSRF (it never handles form posts).
+            csrf.exempt(provisioning)
 
             # Friendly 413 handler for oversized uploads (MAX_CONTENT_LENGTH).
             app.register_error_handler(413, _request_entity_too_large)
