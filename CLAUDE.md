@@ -63,6 +63,37 @@ group" intent). Delivered, all **dark** and **additive** (no schema change):
 freeze.** The frozen rules apply to them exactly as to everything else. Any
 further Analee work requires Festus's explicit, scoped re-open.
 
+### Scoped re-open + re-freeze record (Festus, 2026-07-15)
+
+Festus re-opened this repo for **ONE scope only**: the **client-workspace
+provisioning seam** — Analee becomes "a companion of the accountants": THE
+ACCOUNTANTS orchestrates one Analee workspace per firm client, so bank
+statements are analysed per client and the trial balance flows back to the
+right client over the existing share-URL import. Delivered entirely **inside
+the sealed `provisioning.py` module** (same dark flag
+`ANALEE_PROVISIONING_ENABLED`, same fail-closed bearer
+`ANALEE_PROVISIONING_SECRET`), all **additive, no schema change**:
+- `POST /api/provisioning/analee/workspace` — idempotent ensure: dedicated
+  `User` under a deterministic alias email
+  (`client+<ref>@ws.theaccountants.local`, random password nobody learns) +
+  `CompanySettings` named after the client + entity-correct chart via the
+  **frozen** chart service (called, never changed). Re-ensure renames /
+  reactivates.
+- `POST /api/provisioning/analee/workspace/login-link` — short-TTL
+  (`ANALEE_WORKSPACE_LINK_TTL`, default 90 s) `itsdangerous`-signed login
+  path, purpose-salted off the same secret; **refuses non-workspace
+  accounts**, so it can never authenticate as a human user.
+- `GET /workspace/enter?token=…` — verifies and logs the accountant into the
+  client workspace (`session['workspace_session']`); expired/tampered/revoked
+  → friendly redirect to login.
+- 12 tests in `tests/test_workspace_provisioning.py`; full suite 149 OK;
+  `protected_assets.py --check` clean.
+
+**The repo is RE-FROZEN with the workspace seam inside the freeze.** The
+frozen rules apply to it exactly as to everything else. The heavy lifting
+(client mapping, buttons, orchestration) lives in `CNBSSA/accountants`, which
+is not frozen — future workspace ideas land there, not here.
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)
