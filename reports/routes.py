@@ -29,6 +29,24 @@ from .trial_balance_service import (
 )
 from .tb_share_tokens import create_share_token, verify_share_token, DEFAULT_MAX_AGE_SECONDS
 
+
+def _enrich_trial_balance_for_accountants(payload: dict, user_id: int) -> dict:
+    """Attach client-workspace metadata for THE ACCOUNTANTS TB import (no schema change)."""
+    from flask import session
+    from provisioning import _is_workspace_email, workspace_client_ref_slug
+    from models import User
+
+    user = User.query.get(user_id)
+    if user is None or not _is_workspace_email(user.email):
+        return payload
+    client_ref = session.get("workspace_client_ref") or workspace_client_ref_slug(user.email)
+    if client_ref:
+        payload = dict(payload)
+        payload["client_ref"] = client_ref
+        payload["workspace"] = True
+    return payload
+
+
 def get_last_day_of_month(year: int, month: int) -> int:
     """
     Helper function to get the last day of a given month
@@ -225,6 +243,7 @@ def _trial_balance_payload_for_user(user_id: int) -> tuple[dict, CompanySettings
         company_name=company_settings.company_name,
         registration_number=company_settings.registration_number,
     )
+    payload = _enrich_trial_balance_for_accountants(payload, user_id)
     return payload, company_settings
 
 

@@ -148,6 +148,28 @@ def _is_workspace_email(email):
     return (email or "").lower().endswith("@" + WORKSPACE_EMAIL_DOMAIN)
 
 
+def workspace_client_ref_slug(email):
+    """Local-part slug between ``client+`` and ``@ws…`` — THE ACCOUNTANTS' idempotency key.
+
+    Accountants passes the same ``client_ref`` to workspace ensure; the slug is
+  the sanitised form embedded in the alias email so trial-balance JSON can name
+  the firm client without a schema change.
+    """
+    lower = (email or "").lower()
+    prefix = "client+"
+    suffix = "@" + WORKSPACE_EMAIL_DOMAIN
+    if not (lower.startswith(prefix) and lower.endswith(suffix)):
+        return None
+    slug = lower[len(prefix):-len(suffix)]
+    return slug or None
+
+
+def _public_base_url():
+    """Optional absolute Analee origin for S2S login links (no trailing slash)."""
+    base = (os.environ.get("ANALEE_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    return base or None
+
+
 def ensure_workspace(client_ref, client_name, entity_name=None):
     """Idempotently create (or fetch) the Analee workspace for a firm client.
 
@@ -172,8 +194,9 @@ def ensure_workspace(client_ref, client_name, entity_name=None):
         if settings is not None and client_name and settings.company_name != client_name:
             settings.company_name = client_name
         db.session.commit()
+        slug = workspace_client_ref_slug(email)
         return {"created": False, "workspace_user_id": user.id, "email": email,
-                "company": settings.company_name if settings else None}
+                "client_ref": slug, "company": settings.company_name if settings else None}
 
     user = User(username=email[:64], email=email, subscription_status="active")
     user.set_password(secrets.token_urlsafe(32))  # random, never shared
@@ -212,9 +235,10 @@ def ensure_workspace(client_ref, client_name, entity_name=None):
     db.session.commit()
     logger.info("workspace provisioning: created workspace user %s (%s)",
                 user.id, email)
+    slug = workspace_client_ref_slug(email)
     return {"created": True, "workspace_user_id": user.id, "email": email,
-            "company": settings.company_name, "entity": entity_used,
-            "chart_provisioned": chart_provisioned}
+            "client_ref": slug, "company": settings.company_name,
+            "entity": entity_used, "chart_provisioned": chart_provisioned}
 
 
 def _login_serializer():
@@ -266,10 +290,15 @@ def workspace_login_link():
     user = User.query.filter(db.func.lower(User.email) == email).first()
     if user is None or user.is_deleted or user.subscription_status != "active":
         return jsonify({"found": False}), 200
-    token = _login_serializer().dumps({"uid": user.id})
-    return jsonify({"found": True,
-                    "url_path": f"/workspace/enter?token={token}",
-                    "expires_in": _link_ttl()}), 200
+    cref = workspace_client_ref_slug(email)
+    token = _login_serializer().dumps({"uid": user.id, "cref": cref})
+    body = {"found": True,
+            "url_path": f"/workspace/enter?token={token}",
+            "expires_in": _link_ttl()}
+    base = _public_base_url()
+    if base:
+        body["login_url"] = f"{base}{body['url_path']}"
+    return jsonify(body), 200
 
 
 @provisioning.route("/workspace/enter", methods=["GET"])
@@ -301,4 +330,6 @@ def workspace_enter():
     login_user(user)
     session["workspace_session"] = True
     session["workspace_email"] = user.email
+    cref = (payload.get("cref") if isinstance(payload, dict) else None)
+    session["workspace_client_ref"] = cref or workspace_client_ref_slug(user.email)
     return redirect(url_for("main.dashboard"))

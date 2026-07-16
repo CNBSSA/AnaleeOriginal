@@ -74,6 +74,7 @@ def test_ensure_creates_workspace_with_chart(canary_app, monkeypatch):
     body = r.get_json()
     assert body["created"] is True
     assert body["email"] == "client+acc-7-42@ws.theaccountants.local"
+    assert body["client_ref"] == "acc-7-42"
     assert body["company"] == "Mokoena Traders"
     assert body["chart_provisioned"] is True
 
@@ -163,6 +164,62 @@ def test_login_link_round_trip_logs_into_workspace(canary_app, monkeypatch):
     with client.session_transaction() as sess:
         assert sess.get("workspace_session") is True
         assert sess["workspace_email"].endswith("@ws.theaccountants.local")
+        assert sess.get("workspace_client_ref") == "acc-7-42"
+
+
+def test_login_link_absolute_url_when_base_configured(canary_app, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("ANALEE_PUBLIC_BASE_URL", "https://analee.example")
+    client = canary_app.test_client()
+    _ensure(client)
+    link = client.post(LINK_URL, json={"client_ref": "acc-7-42"},
+                       headers=_auth()).get_json()
+    assert link["login_url"] == (
+        "https://analee.example" + link["url_path"])
+
+
+def test_workspace_trial_balance_json_carries_client_ref(canary_app, monkeypatch):
+    """THE ACCOUNTANTS maps share/import via client_ref + company_id."""
+    _enable(monkeypatch)
+    from datetime import datetime
+    from models import Account, CompanySettings, Transaction, db
+
+    client = canary_app.test_client()
+    made = _ensure(client).get_json()
+    uid = made["workspace_user_id"]
+    with canary_app.app_context():
+        settings = CompanySettings.query.filter_by(user_id=uid).first()
+        bank = Account(
+            link="ca.810.001", name="Bank", category="Assets",
+            sub_category="Current Asset", user_id=uid,
+        )
+        sales = Account(
+            link="i.100.000", name="Sales", category="Income",
+            sub_category="Income", user_id=uid,
+        )
+        db.session.add_all([bank, sales])
+        db.session.flush()
+        db.session.add_all([
+            Transaction(
+                date=datetime(2026, 4, 15), description="R", amount=50.0,
+                user_id=uid, account_id=bank.id,
+            ),
+            Transaction(
+                date=datetime(2026, 4, 16), description="S", amount=-50.0,
+                user_id=uid, account_id=sales.id,
+            ),
+        ])
+        db.session.commit()
+    link = client.post(LINK_URL, json={"client_ref": "acc-7-42"},
+                       headers=_auth()).get_json()
+    client.get(link["url_path"])
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(uid)
+        sess["_fresh"] = True
+    tb = client.get("/api/trial-balance").get_json()
+    assert tb["client_ref"] == "acc-7-42"
+    assert tb["workspace"] is True
+    assert tb["company_id"] == uid
 
 
 def test_expired_link_redirects_to_login(canary_app, monkeypatch):
