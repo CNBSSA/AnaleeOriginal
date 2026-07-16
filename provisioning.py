@@ -40,6 +40,11 @@ flows back to the right client. Same seam, same flags, same fail-closed bearer:
   verified (TTL-bounded, not single-use — the window is seconds and only
   workspace aliases are eligible) and the accountant is logged into the
   client workspace.
+- ``POST /api/provisioning/analee/workspace/trial-balance`` — S2S pull of the
+  workspace trial balance JSON (same Phase 5 contract as ``/api/trial-balance``,
+  plus ``client_ref`` for THE ACCOUNTANTS' mapping). Optional
+  ``ANALEE_PUBLIC_BASE_URL`` on login-link responses yields a full ``login_url``
+  for cross-origin redirects.
 """
 import hmac
 import logging
@@ -132,6 +137,25 @@ def _link_ttl():
         return DEFAULT_LINK_TTL_SECONDS
 
 
+def workspace_client_ref(email):
+    """Recover THE ACCOUNTANTS' ``client_ref`` from a workspace alias email."""
+    e = (email or "").strip().lower()
+    suffix = "@" + WORKSPACE_EMAIL_DOMAIN
+    if not e.endswith(suffix):
+        return None
+    local = e[: -len(suffix)]
+    prefix = "client+"
+    if not local.startswith(prefix):
+        return None
+    ref = local[len(prefix):]
+    return ref or None
+
+
+def _public_base_url():
+    """Optional public Analee origin for absolute login URLs (THE ACCOUNTANTS)."""
+    return (os.environ.get("ANALEE_PUBLIC_BASE_URL") or "").strip().rstrip("/") or None
+
+
 def workspace_email(client_ref):
     """Deterministic alias email for a firm client — the idempotency key.
 
@@ -172,8 +196,9 @@ def ensure_workspace(client_ref, client_name, entity_name=None):
         if settings is not None and client_name and settings.company_name != client_name:
             settings.company_name = client_name
         db.session.commit()
+        ref = workspace_client_ref(email)
         return {"created": False, "workspace_user_id": user.id, "email": email,
-                "company": settings.company_name if settings else None}
+                "client_ref": ref, "company": settings.company_name if settings else None}
 
     user = User(username=email[:64], email=email, subscription_status="active")
     user.set_password(secrets.token_urlsafe(32))  # random, never shared
@@ -212,9 +237,10 @@ def ensure_workspace(client_ref, client_name, entity_name=None):
     db.session.commit()
     logger.info("workspace provisioning: created workspace user %s (%s)",
                 user.id, email)
+    ref = workspace_client_ref(email)
     return {"created": True, "workspace_user_id": user.id, "email": email,
-            "company": settings.company_name, "entity": entity_used,
-            "chart_provisioned": chart_provisioned}
+            "client_ref": ref, "company": settings.company_name,
+            "entity": entity_used, "chart_provisioned": chart_provisioned}
 
 
 def _login_serializer():
@@ -267,9 +293,66 @@ def workspace_login_link():
     if user is None or user.is_deleted or user.subscription_status != "active":
         return jsonify({"found": False}), 200
     token = _login_serializer().dumps({"uid": user.id})
-    return jsonify({"found": True,
-                    "url_path": f"/workspace/enter?token={token}",
-                    "expires_in": _link_ttl()}), 200
+    url_path = f"/workspace/enter?token={token}"
+    body = {"found": True, "url_path": url_path, "expires_in": _link_ttl(),
+            "client_ref": workspace_client_ref(email)}
+    base = _public_base_url()
+    if base:
+        body["login_url"] = f"{base}{url_path}"
+    return jsonify(body), 200
+
+
+def _workspace_trial_balance_payload(user):
+    """Phase 5 TB JSON for a workspace user (frozen service — import only)."""
+    from models import CompanySettings
+    from reports.trial_balance_service import build_trial_balance_payload, load_trial_balance
+
+    company_settings = CompanySettings.query.filter_by(user_id=user.id).first()
+    if company_settings is None:
+        raise ValueError("Company settings are not configured.")
+    ctx = load_trial_balance(user.id)
+    if not ctx.rows:
+        raise ValueError("No trial balance amounts for this period.")
+    payload = build_trial_balance_payload(
+        ctx,
+        user_id=user.id,
+        company_name=company_settings.company_name,
+        registration_number=company_settings.registration_number,
+    )
+    payload["client_ref"] = workspace_client_ref(user.email)
+    payload["workspace_email"] = user.email
+    return payload
+
+
+@provisioning.route("/api/provisioning/analee/workspace/trial-balance",
+                    methods=["POST"])
+def workspace_trial_balance():
+    """S2S: THE ACCOUNTANTS pulls trial balance JSON for a client workspace."""
+    if not enabled():
+        return jsonify({"error": "not found"}), 404
+    ok = _bearer_ok(request.headers.get("Authorization", ""))
+    if ok is None:
+        return jsonify({"error": "provisioning not configured"}), 503
+    if not ok:
+        return jsonify({"error": "unauthorized"}), 401
+    from models import db, User
+
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    client_ref = data.get("client_ref")
+    if not email and client_ref:
+        email = workspace_email(client_ref) or ""
+    if not _is_workspace_email(email):
+        return jsonify({"error": "not a workspace account"}), 400
+    user = User.query.filter(db.func.lower(User.email) == email).first()
+    if user is None or user.is_deleted or user.subscription_status != "active":
+        return jsonify({"found": False}), 200
+    try:
+        payload = _workspace_trial_balance_payload(user)
+    except ValueError as exc:
+        return jsonify({"found": True, "client_ref": workspace_client_ref(email),
+                        "workspace_email": email, "error": str(exc)}), 400
+    return jsonify({"found": True, **payload}), 200
 
 
 @provisioning.route("/workspace/enter", methods=["GET"])

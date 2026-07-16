@@ -9,6 +9,7 @@ bearer as the base endpoint; no schema change.
 
 ENSURE_URL = "/api/provisioning/analee/workspace"
 LINK_URL = "/api/provisioning/analee/workspace/login-link"
+TB_URL = "/api/provisioning/analee/workspace/trial-balance"
 ENTER_URL = "/workspace/enter"
 SECRET = "s3cr3t-provisioning-key"
 
@@ -35,6 +36,7 @@ def test_workspace_routes_dark_when_disabled(canary_app, monkeypatch):
     client = canary_app.test_client()
     assert client.post(ENSURE_URL, json={}).status_code == 404
     assert client.post(LINK_URL, json={}).status_code == 404
+    assert client.post(TB_URL, json={}).status_code == 404
     assert client.get(ENTER_URL + "?token=x").status_code == 404
 
 
@@ -74,6 +76,7 @@ def test_ensure_creates_workspace_with_chart(canary_app, monkeypatch):
     body = r.get_json()
     assert body["created"] is True
     assert body["email"] == "client+acc-7-42@ws.theaccountants.local"
+    assert body["client_ref"] == "acc-7-42"
     assert body["company"] == "Mokoena Traders"
     assert body["chart_provisioned"] is True
 
@@ -155,6 +158,7 @@ def test_login_link_round_trip_logs_into_workspace(canary_app, monkeypatch):
     link = client.post(LINK_URL, json={"client_ref": "acc-7-42"},
                        headers=_auth()).get_json()
     assert link["found"] is True
+    assert link["client_ref"] == "acc-7-42"
     assert link["url_path"].startswith(ENTER_URL + "?token=")
 
     r = client.get(link["url_path"])
@@ -201,3 +205,94 @@ def test_revoked_workspace_cannot_enter(canary_app, monkeypatch):
     r = client.get(link["url_path"])
     assert r.status_code == 302
     assert "login" in r.headers["Location"]
+
+
+def test_login_link_includes_absolute_url_when_base_set(canary_app, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("ANALEE_PUBLIC_BASE_URL", "https://analee.example.com")
+    client = canary_app.test_client()
+    _ensure(client)
+    link = client.post(LINK_URL, json={"client_ref": "acc-7-42"},
+                       headers=_auth()).get_json()
+    assert link["login_url"].startswith("https://analee.example.com/workspace/enter?token=")
+
+
+def test_s2s_trial_balance_requires_workspace(canary_app, monkeypatch):
+    _enable(monkeypatch)
+    client = canary_app.test_client()
+    r = client.post(TB_URL, json={"email": "human@example.com"}, headers=_auth())
+    assert r.status_code == 400
+
+
+def test_s2s_trial_balance_unknown_workspace(canary_app, monkeypatch):
+    _enable(monkeypatch)
+    client = canary_app.test_client()
+    r = client.post(TB_URL, json={"client_ref": "missing"}, headers=_auth())
+    assert r.status_code == 200
+    assert r.get_json()["found"] is False
+
+
+def test_s2s_trial_balance_empty_period(canary_app, monkeypatch):
+    _enable(monkeypatch)
+    client = canary_app.test_client()
+    _ensure(client)
+    r = client.post(TB_URL, json={"client_ref": "acc-7-42"}, headers=_auth())
+    assert r.status_code == 400
+    body = r.get_json()
+    assert body["found"] is True
+    assert body["client_ref"] == "acc-7-42"
+
+
+def test_s2s_trial_balance_with_balanced_data(canary_app, monkeypatch):
+    from models import Account, CompanySettings, Transaction, User, db
+
+    _enable(monkeypatch)
+    client = canary_app.test_client()
+    made = _ensure(client).get_json()
+    with canary_app.app_context():
+        user = User.query.get(made["workspace_user_id"])
+        settings = CompanySettings.query.filter_by(user_id=user.id).first()
+        bank = Account(
+            link="ca.810.001",
+            name="Bank Cheque Account 1",
+            category="Assets",
+            sub_category="Current Asset",
+            user_id=user.id,
+        )
+        sales = Account(
+            link="i.100.000",
+            name="Sales",
+            category="Income",
+            sub_category="Income",
+            user_id=user.id,
+        )
+        db.session.add_all([bank, sales])
+        db.session.flush()
+        fy = settings.get_financial_year()
+        mid = fy["start_date"] + (fy["end_date"] - fy["start_date"]) / 2
+        db.session.add_all([
+            Transaction(
+                date=mid,
+                description="Receipt",
+                amount=50.0,
+                user_id=user.id,
+                account_id=bank.id,
+            ),
+            Transaction(
+                date=mid,
+                description="Sale",
+                amount=-50.0,
+                user_id=user.id,
+                account_id=sales.id,
+            ),
+        ])
+        db.session.commit()
+
+    r = client.post(TB_URL, json={"client_ref": "acc-7-42"}, headers=_auth())
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["found"] is True
+    assert body["client_ref"] == "acc-7-42"
+    assert body["source"] == "analee"
+    assert len(body["rows"]) == 2
+    assert body["balanced"] is True
