@@ -74,6 +74,14 @@ def test_helper_club_member_entitled_without_subscription(canary_app):
         assert entitlement.analee_entitled(_U("inactive")) is True
 
 
+def test_helper_workspace_session_entitled_without_subscription(canary_app):
+    import entitlement
+    from flask import session
+    with canary_app.test_request_context("/"):
+        session["workspace_session"] = True
+        assert entitlement.analee_entitled(_U("inactive")) is True
+
+
 def test_helper_anonymous_not_entitled(canary_app):
     import entitlement
     with canary_app.test_request_context("/"):

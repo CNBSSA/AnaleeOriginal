@@ -43,13 +43,21 @@ def is_subscriber(user):
     return getattr(user, "subscription_status", None) in ("active", "pending")
 
 
+def is_workspace_session():
+    """True when THE ACCOUNTANTS dropped the user into a client workspace."""
+    return bool(session.get("workspace_session"))
+
+
 def analee_entitled(user):
     """Single source of truth: may this user use Analee?
 
-    ``True`` for a Practice Club member (session-bound) OR an Accountants /
-    Analee subscriber. Anonymous / ``None`` users are never entitled.
+    ``True`` for a Practice Club member (session-bound), a client workspace
+    session (THE ACCOUNTANTS signed login link), OR an Accountants / Analee
+    subscriber. Anonymous / ``None`` users are never entitled.
     """
     if is_club_member():
+        return True
+    if is_workspace_session():
         return True
     if user is None or not getattr(user, "is_authenticated", False):
         return False

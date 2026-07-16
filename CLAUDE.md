@@ -94,6 +94,17 @@ frozen rules apply to it exactly as to everything else. The heavy lifting
 (client mapping, buttons, orchestration) lives in `CNBSSA/accountants`, which
 is not frozen — future workspace ideas land there, not here.
 
+### Scoped re-open + re-freeze record (Festus, 2026-07-16)
+
+Festus re-opened for **ONE scope only**: **accountants companion polish** on the
+existing workspace seam (no new routes): echo ``client_ref`` on ensure responses,
+optional absolute ``login_url`` when ``ANALEE_PUBLIC_BASE_URL`` is set, treat
+``workspace_session`` as entitled when the entitlement gate is on, and exempt
+``provisioning.*`` from that gate. 3 new tests; companion to the orchestration
+PR in ``CNBSSA/accountants``.
+
+**The repo is RE-FROZEN with this polish inside the freeze.**
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)

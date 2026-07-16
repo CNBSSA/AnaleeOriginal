@@ -36,6 +36,9 @@ flows back to the right client. Same seam, same flags, same fail-closed bearer:
   straight into the client's Analee. Signed with ``itsdangerous`` off the same
   ``ANALEE_PROVISIONING_SECRET`` (purpose-salted); refuses to mint for any
   non-workspace account, so it can never become an account-takeover vector.
+  When ``ANALEE_PUBLIC_BASE_URL`` is set (e.g. ``https://analee.example``), the
+  JSON also includes ``login_url`` for THE ACCOUNTANTS to redirect without
+  guessing the host.
 - ``GET /workspace/enter?token=…`` — the browser lands here; the token is
   verified (TTL-bounded, not single-use — the window is seconds and only
   workspace aliases are eligible) and the accountant is logged into the
@@ -132,16 +135,30 @@ def _link_ttl():
         return DEFAULT_LINK_TTL_SECONDS
 
 
+def _sanitised_client_ref(client_ref):
+    """THE ACCOUNTANTS' stable client id → safe local-part (or ``None``)."""
+    safe = re.sub(r"[^a-z0-9]+", "-", (client_ref or "").strip().lower()).strip("-")
+    if not safe or len(safe) > 60:
+        return None
+    return safe
+
+
 def workspace_email(client_ref):
     """Deterministic alias email for a firm client — the idempotency key.
 
     ``client_ref`` is THE ACCOUNTANTS' stable identifier for the client (it
     owns the mapping). Sanitised to a safe local-part; empty/oversized refs
     are rejected so a malformed caller can't mint junk identities."""
-    safe = re.sub(r"[^a-z0-9]+", "-", (client_ref or "").strip().lower()).strip("-")
-    if not safe or len(safe) > 60:
+    safe = _sanitised_client_ref(client_ref)
+    if safe is None:
         return None
     return f"client+{safe}@{WORKSPACE_EMAIL_DOMAIN}"
+
+
+def _public_base_url():
+    """Optional public Analee origin for cross-app redirects (THE ACCOUNTANTS)."""
+    base = (os.environ.get("ANALEE_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    return base or None
 
 
 def _is_workspace_email(email):
@@ -159,6 +176,7 @@ def ensure_workspace(client_ref, client_name, entity_name=None):
     """
     from models import db, Entity, User, CompanySettings
 
+    safe_ref = _sanitised_client_ref(client_ref)
     email = workspace_email(client_ref)
     if email is None:
         return {"error": "client_ref is required (letters/digits)"}
@@ -173,6 +191,7 @@ def ensure_workspace(client_ref, client_name, entity_name=None):
             settings.company_name = client_name
         db.session.commit()
         return {"created": False, "workspace_user_id": user.id, "email": email,
+                "client_ref": safe_ref,
                 "company": settings.company_name if settings else None}
 
     user = User(username=email[:64], email=email, subscription_status="active")
@@ -213,8 +232,8 @@ def ensure_workspace(client_ref, client_name, entity_name=None):
     logger.info("workspace provisioning: created workspace user %s (%s)",
                 user.id, email)
     return {"created": True, "workspace_user_id": user.id, "email": email,
-            "company": settings.company_name, "entity": entity_used,
-            "chart_provisioned": chart_provisioned}
+            "client_ref": safe_ref, "company": settings.company_name,
+            "entity": entity_used, "chart_provisioned": chart_provisioned}
 
 
 def _login_serializer():
@@ -267,9 +286,12 @@ def workspace_login_link():
     if user is None or user.is_deleted or user.subscription_status != "active":
         return jsonify({"found": False}), 200
     token = _login_serializer().dumps({"uid": user.id})
-    return jsonify({"found": True,
-                    "url_path": f"/workspace/enter?token={token}",
-                    "expires_in": _link_ttl()}), 200
+    url_path = f"/workspace/enter?token={token}"
+    body = {"found": True, "url_path": url_path, "expires_in": _link_ttl()}
+    base = _public_base_url()
+    if base:
+        body["login_url"] = f"{base}{url_path}"
+    return jsonify(body), 200
 
 
 @provisioning.route("/workspace/enter", methods=["GET"])

@@ -333,7 +333,8 @@ def create_app(env=None):
             endpoint = request.endpoint or ""
             if (endpoint in ("main.entitlement_required", "static")
                     or endpoint.startswith("auth.")
-                    or endpoint.startswith("errors.")):
+                    or endpoint.startswith("errors.")
+                    or endpoint.startswith("provisioning.")):
                 return
             if not entitlement.analee_entitled(current_user):
                 return redirect(url_for("main.entitlement_required"))
