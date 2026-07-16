@@ -73,6 +73,7 @@ def test_ensure_creates_workspace_with_chart(canary_app, monkeypatch):
     assert r.status_code == 200
     body = r.get_json()
     assert body["created"] is True
+    assert body["client_ref"] == "acc-7-42"
     assert body["email"] == "client+acc-7-42@ws.theaccountants.local"
     assert body["company"] == "Mokoena Traders"
     assert body["chart_provisioned"] is True
@@ -148,6 +149,18 @@ def test_login_link_unknown_workspace_found_false(canary_app, monkeypatch):
     assert r.get_json()["found"] is False
 
 
+def test_login_link_includes_absolute_url_when_public_base_set(
+        canary_app, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("ANALEE_PUBLIC_BASE_URL", "https://analee.test")
+    client = canary_app.test_client()
+    _ensure(client)
+    link = client.post(LINK_URL, json={"client_ref": "acc-7-42"},
+                       headers=_auth()).get_json()
+    assert link["login_url"].startswith(
+        "https://analee.test/workspace/enter?token=")
+
+
 def test_login_link_round_trip_logs_into_workspace(canary_app, monkeypatch):
     _enable(monkeypatch)
     client = canary_app.test_client()
@@ -155,6 +168,7 @@ def test_login_link_round_trip_logs_into_workspace(canary_app, monkeypatch):
     link = client.post(LINK_URL, json={"client_ref": "acc-7-42"},
                        headers=_auth()).get_json()
     assert link["found"] is True
+    assert link["client_ref"] == "acc-7-42"
     assert link["url_path"].startswith(ENTER_URL + "?token=")
 
     r = client.get(link["url_path"])
