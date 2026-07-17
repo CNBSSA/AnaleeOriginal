@@ -63,6 +63,69 @@ group" intent). Delivered, all **dark** and **additive** (no schema change):
 freeze.** The frozen rules apply to them exactly as to everything else. Any
 further Analee work requires Festus's explicit, scoped re-open.
 
+### Scoped re-open + re-freeze record (Festus, 2026-07-15)
+
+Festus re-opened this repo for **ONE scope only**: the **client-workspace
+provisioning seam** — Analee becomes "a companion of the accountants": THE
+ACCOUNTANTS orchestrates one Analee workspace per firm client, so bank
+statements are analysed per client and the trial balance flows back to the
+right client over the existing share-URL import. Delivered entirely **inside
+the sealed `provisioning.py` module** (same dark flag
+`ANALEE_PROVISIONING_ENABLED`, same fail-closed bearer
+`ANALEE_PROVISIONING_SECRET`), all **additive, no schema change**:
+- `POST /api/provisioning/analee/workspace` — idempotent ensure: dedicated
+  `User` under a deterministic alias email
+  (`client+<ref>@ws.theaccountants.local`, random password nobody learns) +
+  `CompanySettings` named after the client + entity-correct chart via the
+  **frozen** chart service (called, never changed). Re-ensure renames /
+  reactivates.
+- `POST /api/provisioning/analee/workspace/login-link` — short-TTL
+  (`ANALEE_WORKSPACE_LINK_TTL`, default 90 s) `itsdangerous`-signed login
+  path, purpose-salted off the same secret; **refuses non-workspace
+  accounts**, so it can never authenticate as a human user.
+- `GET /workspace/enter?token=…` — verifies and logs the accountant into the
+  client workspace (`session['workspace_session']`); expired/tampered/revoked
+  → friendly redirect to login.
+- 12 tests in `tests/test_workspace_provisioning.py`; full suite 149 OK;
+  `protected_assets.py --check` clean.
+
+**The repo is RE-FROZEN with the workspace seam inside the freeze.** The
+frozen rules apply to it exactly as to everything else. The heavy lifting
+(client mapping, buttons, orchestration) lives in `CNBSSA/accountants`, which
+is not frozen — future workspace ideas land there, not here.
+
+### Scoped re-open + re-freeze record (Festus, 2026-07-17)
+
+Festus re-opened this repo for **ONE scope only**: extending the existing
+detect-only `services/chart_reconciliation.py` guard into an additive-only,
+conflict-safe **propose + apply** sync from BooksXperts' live chart seed —
+so a BooksXperts chart change can flow into Analee's own chart without
+losing the existing safety net. Delivered:
+- `services/chart_reconciliation.py` — `compute_sync_diff()` (reads
+  BooksXperts' `seed_chart_of_accounts.py` via `ast`, no BooksXperts changes)
+  classifies every link as **ADD** (safe, auto-proposed), **CONFLICT** (same
+  link, different subcategory — never auto-applied, surfaced), **STALE**
+  (Analee has it, BooksXperts no longer does — surfaced, never removed), or
+  **out-of-scope** (a BooksXperts entity — Personal Liability Company, Trust —
+  with no Analee `ENTITY_NAMES` counterpart). `apply_sync_diff()` writes
+  ADD-only rows into `services/chart_seed_data.py`, insertion points located
+  via `ast` (never guessed by hand); new account numbers auto-allocated
+  per-subcategory, collision-checked.
+- `scripts/sync_chart_from_booksxperts.py` — dry-run report by default;
+  `--apply` writes.
+- Ran `--apply` for real: **34 ADD rows, 0 conflicts, 0 stale** (the chart
+  was already well-reconciled), 24 out-of-scope entries. No duplicate links
+  in any entity's combined chart after the merge.
+- 8 tests in `tests/test_chart_sync.py` (fixture-based diff classification +
+  number-allocator collision safety + apply-writer correctness + a
+  real-checkout smoke test); full suite 157 OK.
+
+**The repo is RE-FROZEN with the sync machinery inside the freeze.** The
+frozen rules apply to it exactly as to everything else. The equivalent
+full-parity sync for THE ACCOUNTANTS' chart templates lives in
+`CNBSSA/accountants` (`chart/booksxperts_sync.py`), which is not frozen the
+same way — future chart-sync ideas for that repo land there, not here.
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)
