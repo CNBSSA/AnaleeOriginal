@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
@@ -81,6 +81,86 @@ def normalize_date(raw) -> str:
         except ValueError:
             continue
     raise ValueError(f"unrecognised date format: {raw!r}")
+
+
+_DAY_MONTH_FORMATS = (
+    "%d %b", "%d %B",
+    "%d-%b", "%d-%B",
+    "%d/%m", "%d-%m", "%d.%m",
+)
+
+
+def resolve_date_with_period(
+    raw,
+    period_start: Optional[str] = None,
+    period_end: Optional[str] = None,
+    today: Optional[date] = None,
+) -> str:
+    """Like :func:`normalize_date`, but also resolves YEAR-LESS dates.
+
+    Many SA statements print transaction dates without a year ("05 Sep",
+    "05/09") — the year lives only in the statement period header. Pick the
+    year that places the date inside [period_start, period_end] (handles
+    Dec–Jan statements spanning a year boundary). With no usable period,
+    fall back to the most recent occurrence not in the future.
+    """
+    try:
+        return normalize_date(raw)
+    except ValueError:
+        pass
+
+    s = str(raw).strip()
+    parsed = None
+    for fmt in _DAY_MONTH_FORMATS:
+        try:
+            parsed = datetime.strptime(s, fmt)
+            break
+        except ValueError:
+            continue
+    if parsed is None:
+        raise ValueError(f"unrecognised date format: {raw!r}")
+
+    def _try_year(year: int) -> Optional[date]:
+        try:
+            return date(year, parsed.month, parsed.day)
+        except ValueError:  # e.g. 29 Feb outside a leap year
+            return None
+
+    def _to_date(value) -> Optional[date]:
+        if value in (None, ""):
+            return None
+        try:
+            return date.fromisoformat(normalize_date(value))
+        except ValueError:
+            return None
+
+    start = _to_date(period_start)
+    end = _to_date(period_end)
+
+    if start or end:
+        years = []
+        for y in ((start.year if start else None), (end.year if end else None)):
+            if y is not None and y not in years:
+                years.append(y)
+        for y in years:
+            candidate = _try_year(y)
+            if candidate is None:
+                continue
+            if (start is None or candidate >= start) and (end is None or candidate <= end):
+                return candidate.isoformat()
+        # No year lands inside the period — anchor to the period's end year.
+        anchor = (end or start).year
+        candidate = _try_year(anchor) or _try_year(anchor - 1)
+        if candidate:
+            return candidate.isoformat()
+
+    today = today or date.today()
+    candidate = _try_year(today.year)
+    if candidate is None or candidate > today:
+        candidate = _try_year(today.year - 1)
+    if candidate is None:
+        raise ValueError(f"unrecognised date format: {raw!r}")
+    return candidate.isoformat()
 
 
 def _normalize_description(desc: str) -> str:

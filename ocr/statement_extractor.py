@@ -26,6 +26,7 @@ from .statement_integrity import (
     StatementHeader,
     StatementLine,
     normalize_amount,
+    resolve_date_with_period,
     self_audit,
 )
 
@@ -60,6 +61,9 @@ Respond with JSON ONLY — no markdown fences, no commentary — exactly this sh
 
 Rules (critical):
 - SA dates are usually DD/MM/YYYY or "01 Jan 2026". Preserve meaning; do not swap day/month.
+- If a line's printed date has NO year (e.g. "05 Sep"), infer the year from the
+  statement period and include it (e.g. "05 Sep 2025"). Always report the
+  statement period_start/period_end when the header shows them.
 - Amounts use ZAR (R). Debits often show as trailing minus (e.g. "1 234.56-") or in a Debit column.
 - If the statement has separate Debit and Credit columns, use ONE signed amount per row
   (debit/out = negative, credit/in = positive). Never double-count.
@@ -229,8 +233,15 @@ def _payload_to_result(
             balance = None
             if balance_raw not in (None, "", "null"):
                 balance = normalize_amount(balance_raw)
+            # Many SA statements print line dates WITHOUT a year ("05 Sep");
+            # resolve it from the statement period before validation.
+            iso_date = resolve_date_with_period(
+                raw["date"],
+                period_start=payload.get("period_start"),
+                period_end=payload.get("period_end"),
+            )
             lines.append(StatementLine(
-                date=raw["date"],
+                date=iso_date,
                 description=str(raw.get("description") or "").strip(),
                 amount=raw["amount"],
                 balance=balance,
