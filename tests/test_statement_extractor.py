@@ -27,9 +27,21 @@ class _FakeMessages:
         self._text = text
         self.last_kwargs = None
 
-    def create(self, **kwargs):
+    def stream(self, **kwargs):
         self.last_kwargs = kwargs
-        return _FakeResponse(self._text)
+        resp = _FakeResponse(self._text)
+
+        class _Ctx:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def get_final_message(self):
+                return resp
+
+        return _Ctx()
 
 
 class _FakeClient:
