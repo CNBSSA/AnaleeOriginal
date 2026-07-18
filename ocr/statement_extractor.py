@@ -112,10 +112,83 @@ def _parse_claude_json(text: str) -> dict:
         parts = text.split("```")
         text = parts[1].lstrip("json").strip() if len(parts) > 1 else text
     start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end < start:
+    if start == -1:
         raise ValueError("no JSON object in model response")
-    return json.loads(text[start:end + 1])
+    end = text.rfind("}")
+    if end > start:
+        try:
+            return json.loads(text[start:end + 1])
+        except ValueError:
+            pass
+    # The reply is not valid JSON — most often it was truncated mid-array by
+    # the max_tokens ceiling. Salvage every COMPLETE transaction line instead
+    # of throwing the whole extraction away.
+    salvaged = _salvage_truncated_payload(text[start:])
+    if salvaged is not None:
+        logger.warning(
+            "Model reply was not valid JSON (likely truncated) — salvaged "
+            "%d complete line(s)", len(salvaged.get("lines") or []),
+        )
+        return salvaged
+    raise ValueError("no JSON object in model response")
+
+
+def _salvage_truncated_payload(text: str) -> Optional[dict]:
+    """Recover header fields + complete line objects from a truncated reply.
+
+    ``text`` starts at the payload's opening ``{``. Returns None when nothing
+    usable can be recovered.
+    """
+    lines_key = text.find('"lines"')
+
+    header: dict = {}
+    if lines_key != -1:
+        head = text[:lines_key].rstrip().rstrip(",").rstrip()
+        if not head.endswith("}"):
+            head += "}"
+        try:
+            header = json.loads(head)
+        except ValueError:
+            header = {}
+
+    lines: list = []
+    array_start = text.find("[", lines_key) if lines_key != -1 else -1
+    if array_start != -1:
+        depth = 0
+        obj_start = None
+        in_string = False
+        escaped = False
+        for i in range(array_start + 1, len(text)):
+            ch = text[i]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                if depth == 0:
+                    obj_start = i
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and obj_start is not None:
+                    try:
+                        lines.append(json.loads(text[obj_start:i + 1]))
+                    except ValueError:
+                        pass
+                    obj_start = None
+            elif ch == "]" and depth == 0:
+                break
+
+    if not lines and not header:
+        return None
+    header["lines"] = lines
+    return header
 
 
 def _payload_to_result(
@@ -125,14 +198,22 @@ def _payload_to_result(
 ) -> ExtractionResult:
     opening = opening_override
     closing = closing_override
+    # An unreadable header balance must not fail the whole extraction — the
+    # lines still import and the integrity gate reports "unverified" instead.
     if opening is None:
         raw = payload.get("opening_balance")
         if raw not in (None, "", "null"):
-            opening = normalize_amount(raw)
+            try:
+                opening = normalize_amount(raw)
+            except ValueError:
+                logger.warning("Unreadable opening balance %r — continuing unverified", raw)
     if closing is None:
         raw = payload.get("closing_balance")
         if raw not in (None, "", "null"):
-            closing = normalize_amount(raw)
+            try:
+                closing = normalize_amount(raw)
+            except ValueError:
+                logger.warning("Unreadable closing balance %r — continuing unverified", raw)
     # opening/closing are optional — if missing, the lines are still captured and
     # the integrity gate reports "not verified" (see statement_integrity.self_audit).
 
@@ -239,7 +320,7 @@ def _claude_extract_pdf_payload(
     encoded = base64.standard_b64encode(pdf_bytes).decode("ascii")
     response = client.messages.create(
         model=OCR_MODEL,
-        max_tokens=16000,
+        max_tokens=32000,
         messages=[{
             "role": "user",
             "content": [
@@ -255,8 +336,23 @@ def _claude_extract_pdf_payload(
             ],
         }],
     )
+    stop_reason = getattr(response, "stop_reason", None)
+    if stop_reason == "max_tokens":
+        logger.warning(
+            "Model reply hit the max_tokens ceiling — the JSON tail may be "
+            "truncated; salvage parser will recover complete lines."
+        )
     text = response.content[0].text.strip()
-    return _parse_claude_json(text)
+    try:
+        return _parse_claude_json(text)
+    except ValueError:
+        # Name the cause in the logs: reply length, stop reason, and both ends
+        # of the raw text — enough to diagnose without re-running the upload.
+        logger.error(
+            "Unparseable model reply (len=%d, stop_reason=%s): first 300=%r "
+            "last 300=%r", len(text), stop_reason, text[:300], text[-300:],
+        )
+        raise
 
 
 def _extract_via_claude(
