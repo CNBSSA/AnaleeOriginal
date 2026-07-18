@@ -93,12 +93,17 @@ def test_readable_balances_still_parse():
 
 
 class _FakeMessages:
+    """Implements ONLY the streaming interface — a regression back to the
+    non-streaming .create() (which the SDK rejects for long max_tokens with
+    'Streaming is required for operations that may take longer than 10
+    minutes') fails these tests with AttributeError."""
+
     def __init__(self, text, stop_reason="end_turn"):
         self._text = text
         self._stop = stop_reason
         self.last_kwargs = None
 
-    def create(self, **kwargs):
+    def stream(self, **kwargs):
         self.last_kwargs = kwargs
 
         class _Block:
@@ -113,7 +118,18 @@ class _FakeMessages:
         resp = _Resp()
         resp.content = [block]
         resp.stop_reason = self._stop
-        return resp
+
+        class _Ctx:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def get_final_message(self):
+                return resp
+
+        return _Ctx()
 
 
 class _FakeClient:

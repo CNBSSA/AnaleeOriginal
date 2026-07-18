@@ -325,7 +325,12 @@ def _claude_extract_pdf_payload(
     client,
 ) -> dict:
     encoded = base64.standard_b64encode(pdf_bytes).decode("ascii")
-    response = client.messages.create(
+    # Streaming is REQUIRED here: the SDK refuses non-streaming calls whose
+    # max_tokens implies they could run past 10 minutes ("Streaming is
+    # required for operations that may take longer than 10 minutes"). The
+    # result is identical — we just receive it incrementally, which also
+    # keeps the connection alive during long scanned-statement reads.
+    with client.messages.stream(
         model=OCR_MODEL,
         max_tokens=32000,
         messages=[{
@@ -342,7 +347,8 @@ def _claude_extract_pdf_payload(
                 {"type": "text", "text": prompt},
             ],
         }],
-    )
+    ) as stream:
+        response = stream.get_final_message()
     stop_reason = getattr(response, "stop_reason", None)
     if stop_reason == "max_tokens":
         logger.warning(
