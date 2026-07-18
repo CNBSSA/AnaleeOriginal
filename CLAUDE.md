@@ -1,26 +1,70 @@
 # Project Working Agreement
 
-## ❄️ STATUS: FROZEN — MAINTENANCE ONLY (Festus, 2026-06-26)
+## ❄️ THE FREEZE — REDEFINED BY FESTUS, 2026-07-18: A CAPABILITY FREEZE, NOT A WHOLE-REPO FREEZE
 
-**This standalone Analee repo is frozen.** It is no longer the place for new
-feature work. The canonical Analee is the **embedded `analee/` module inside
-`CNBSSA/booksxpert`** (Django, multi-tenant, real GL/journal posting, plus the
-BooksXperts Assistant). Standalone Analee and the embedded one were investigated
-side by side (2026-06-26): the embedded version is equal-or-better on every
-capability, and the **one** thing standalone had that it lacked — **Recall**
-(similarity-based "find my similar past transactions", formerly *ERF*) — has been
-**harvested into `booksxpert/analee/services/recall.py`** with an agent tool and
-tests. With that extracted, this repo's reason to grow is gone.
+Festus (voice note, 2026-07-18): *"I'm not freezing the entire application. I'm
+just freezing those capacities because I lost it before, and I do not want to
+lose it again. That is the analysis feature that I'm locking — the capacity to
+analyze things and learn from the past and suggest things. I'm not locking the
+upload, download, and all that."*
 
-**Rules while frozen:**
-- **Allowed:** security fixes, dependency CVEs, and keeping the deployed instance
-  running. Each still goes through the company development workflow below.
-- **Not allowed without Festus re-opening the repo:** new features, refactors, or
-  cosmetic churn — **including the previously-planned internal ERF/ASF/ESF symbol
-  rename (#3), which is now formally DROPPED** (see
-  `docs/PERSONA_AND_TOOL_NAMING.md`). Polishing the internals of a frozen app is
-  wasted effort.
-- New ideas for Analee go to **booksxpert** (the embedded module), not here.
+**What IS frozen (do not touch without Festus's explicit approval):**
+1. **The analysis engine** — the data-processing capacity: bank-statement
+   analysis, categorisation, the learn-from-past-transactions capability
+   (Recall/similarity), and the suggestion logic. Any module whose job is to
+   *analyze, learn, or suggest* is inside the freeze.
+2. **The chart of accounts + trial-balance core** — already machine-enforced
+   (see PROTECTED ASSETS below): `services/chart_of_accounts.py`,
+   `services/chart_seed_data.py`, `services/entity_chart_rules.py`,
+   `services/entity_chart_schema.py`, `utils/chart_of_accounts.py`,
+   `reports/trial_balance_service.py`.
+
+**What is NOT frozen (normal working surface — standard workflow applies, no
+"scoped re-open" ceremony needed):** upload/download flows, pages/templates/
+navigation, auth/login/session, the `club_sso/` module, `entitlement.py`,
+`provisioning.py` (the seam), and new accountant-companion surfaces (e.g. the
+One-Login Practice Layer planned in
+`autonomusFV/docs/analee_accountants_companion_redesign.md`). Every change
+still runs the full Company Development Workflow below — audits are never
+waived — but Festus's per-scope unfreeze approval is only required when a
+change would touch the frozen capabilities above.
+
+**Standing engineering rule:** any task that modifies the non-frozen surface
+must *call* the frozen engine, never *change* it — and its Change-Impact Audit
+must explicitly state "frozen analysis engine + chart/TB core untouched".
+
+**TODO (next Analee coding task):** enumerate the analysis-engine files and add
+them to `protected_assets.lock.json` so capability-freeze #1 is machine-enforced
+exactly like the chart freeze (#2), not just policy-enforced. `?` — file list to
+be verified in-repo at that time.
+
+### Historical note — the 2026-06-26 whole-repo freeze framing (superseded 2026-07-18)
+
+The section below recorded a whole-repo "maintenance only" freeze on 2026-06-26,
+when the embedded `analee/` module inside `CNBSSA/booksxpert` was designated the
+canonical Analee. That framing is **superseded** by the capability freeze above:
+Festus's 2026-07-15 "companion of the accountants" direction and 2026-07-18
+Practice Layer decision place the accountant-facing Analee surface back in
+active development **in this repo**. The text is retained as history; the
+"scoped re-open + re-freeze" records that follow it remain accurate history of
+work done while the whole-repo framing stood.
+
+> **[Historical, 2026-06-26]** This standalone Analee repo is frozen. It is no
+> longer the place for new feature work. The canonical Analee is the **embedded
+> `analee/` module inside `CNBSSA/booksxpert`** (Django, multi-tenant, real
+> GL/journal posting, plus the BooksXperts Assistant). Standalone Analee and the
+> embedded one were investigated side by side (2026-06-26): the embedded version
+> is equal-or-better on every capability, and the **one** thing standalone had
+> that it lacked — **Recall** (similarity-based "find my similar past
+> transactions", formerly *ERF*) — has been **harvested into
+> `booksxpert/analee/services/recall.py`** with an agent tool and tests.
+>
+> Rules while frozen: **Allowed:** security fixes, dependency CVEs, and keeping
+> the deployed instance running. **Not allowed without Festus re-opening the
+> repo:** new features, refactors, or cosmetic churn — including the
+> previously-planned internal ERF/ASF/ESF symbol rename (#3), formally DROPPED
+> (see `docs/PERSONA_AND_TOOL_NAMING.md`). New ideas for Analee go to
+> **booksxpert** (the embedded module), not here.
 
 ### Scoped re-open + re-freeze record (Festus, 2026-07-10)
 
@@ -35,7 +79,8 @@ per-user workspace mapping, env-guarded walkthrough seed
 **The repo is now RE-FROZEN with `club_sso/` inside the freeze.** The frozen
 rules above apply to `club_sso/` exactly as to everything else. Festus's future
 Analee ideas ("I'm going to build upon it") each require his explicit re-open,
-scoped like this one.
+scoped like this one. *(2026-07-18: under the redefined capability freeze,
+`club_sso/` is now normal working surface.)*
 
 ### Scoped re-open + re-freeze record (Festus, 2026-07-13)
 
@@ -61,7 +106,8 @@ group" intent). Delivered, all **dark** and **additive** (no schema change):
 
 **The repo is RE-FROZEN with the entitlement gate + provisioning inside the
 freeze.** The frozen rules apply to them exactly as to everything else. Any
-further Analee work requires Festus's explicit, scoped re-open.
+further Analee work requires Festus's explicit, scoped re-open. *(2026-07-18:
+under the redefined capability freeze, these are now normal working surface.)*
 
 ### Scoped re-open + re-freeze record (Festus, 2026-07-15)
 
@@ -92,7 +138,9 @@ the sealed `provisioning.py` module** (same dark flag
 **The repo is RE-FROZEN with the workspace seam inside the freeze.** The
 frozen rules apply to it exactly as to everything else. The heavy lifting
 (client mapping, buttons, orchestration) lives in `CNBSSA/accountants`, which
-is not frozen — future workspace ideas land there, not here.
+is not frozen — future workspace ideas land there, not here. *(2026-07-18:
+under the redefined capability freeze, the seam is now normal working surface;
+the Practice Layer plan builds on it.)*
 
 ### Scoped re-open + re-freeze record (Festus, 2026-07-17)
 
@@ -125,6 +173,8 @@ frozen rules apply to it exactly as to everything else. The equivalent
 full-parity sync for THE ACCOUNTANTS' chart templates lives in
 `CNBSSA/accountants` (`chart/booksxperts_sync.py`), which is not frozen the
 same way — future chart-sync ideas for that repo land there, not here.
+*(2026-07-18: chart-sync machinery touches the chart seed — it REMAINS inside
+the capability freeze, per frozen item #2.)*
 
 ---
 
