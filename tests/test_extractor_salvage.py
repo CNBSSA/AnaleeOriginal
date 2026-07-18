@@ -121,6 +121,32 @@ class _FakeClient:
         self.messages = _FakeMessages(text, stop_reason)
 
 
+def test_all_lines_rejected_names_the_first_reason():
+    """When every row fails validation (e.g. year-less dates), the error must
+    carry the first rejection reason so the on-page message is a diagnosis."""
+    payload = json.loads(_payload_json(2))
+    for ln in payload["lines"]:
+        ln["date"] = "01/07"  # no year — normalize_date can't place it
+    with pytest.raises(ValueError) as exc_info:
+        _payload_to_result(payload)
+    msg = str(exc_info.value)
+    assert "no transaction lines could be read" in msg
+    assert "First problem:" in msg
+    assert "unrecognised date format" in msg
+
+
+def test_on_page_error_carries_the_actual_reason():
+    """extract_bank_statement's user-facing error must include the exception
+    detail, not just '(ValueError)'."""
+    from ocr.statement_extractor import extract_bank_statement
+
+    client = _FakeClient("I'm sorry, I cannot read this document.")
+    outcome = extract_bank_statement(b"%PDF-fake", client=client)
+    assert not outcome.ok
+    assert outcome.error_code == "EXTRACTION_FAILED"
+    assert "ValueError: no JSON object in model response" in outcome.error
+
+
 def test_claude_call_uses_raised_reply_budget():
     client = _FakeClient(_payload_json(1))
     payload = _claude_extract_pdf_payload(b"%PDF-fake", "prompt", client)

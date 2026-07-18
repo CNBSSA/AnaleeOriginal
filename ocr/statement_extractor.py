@@ -218,6 +218,7 @@ def _payload_to_result(
     # the integrity gate reports "not verified" (see statement_integrity.self_audit).
 
     lines: list[StatementLine] = []
+    skip_reasons: list[str] = []
     for raw in payload.get("lines") or []:
         if not isinstance(raw, dict):
             continue
@@ -237,10 +238,16 @@ def _payload_to_result(
             ))
         except Exception as exc:
             logger.warning("OCR statement line skipped: %s — %s", raw, exc)
+            skip_reasons.append(str(exc))
             continue
 
     if not lines:
-        raise ValueError("no transaction lines could be read from the statement.")
+        # Name WHY: when every row is rejected, the first rejection reason
+        # (e.g. an unrecognised date format) is the diagnosis. Surfacing it
+        # here puts it on the user's screen, not just in server logs.
+        detail = f" First problem: {skip_reasons[0]}" if skip_reasons else ""
+        raise ValueError(
+            f"no transaction lines could be read from the statement.{detail}")
 
     return ExtractionResult(
         header=StatementHeader(
@@ -493,8 +500,15 @@ def extract_bank_statement(
                     " If this is a scanned statement, try entering the opening and "
                     "closing balances on the upload form."
                 )
+            # Put the ACTUAL reason on the user's screen, not just the
+            # exception class — "(ValueError)" alone forced a log dive to
+            # learn what went wrong.
+            detail = str(exc).strip()
+            if len(detail) > 300:
+                detail = detail[:300] + "…"
+            label = f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
             return BankStatementExtraction(
-                error=f"Could not read transactions from that PDF ({type(exc).__name__}).{hint}",
+                error=f"Could not read transactions from that PDF ({label}).{hint}",
                 error_code="EXTRACTION_FAILED",
             )
 
