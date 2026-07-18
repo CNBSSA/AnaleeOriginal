@@ -142,7 +142,9 @@ def test_all_lines_rejected_names_the_first_reason():
     carry the first rejection reason so the on-page message is a diagnosis."""
     payload = json.loads(_payload_json(2))
     for ln in payload["lines"]:
-        ln["date"] = "01/07"  # no year — normalize_date can't place it
+        # Genuinely unparseable (year-less dates like "01/07" now resolve
+        # from the statement period — see test_yearless_dates.py).
+        ln["date"] = "not-a-date"
     with pytest.raises(ValueError) as exc_info:
         _payload_to_result(payload)
     msg = str(exc_info.value)
