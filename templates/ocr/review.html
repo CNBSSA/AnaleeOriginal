@@ -4,6 +4,13 @@
 
 {% block content %}
 <div class="container mt-4">
+    <div class="alert alert-success">
+        <i class="fas fa-check-circle"></i>
+        <strong>Extraction successful.</strong>
+        {{ rows|length }} transaction(s) read from <strong>{{ filename }}</strong>.
+        Review below, then confirm to import.
+    </div>
+
     <h2>Review extracted transactions</h2>
     <p class="text-muted">
         Check the values read from <strong>{{ filename }}</strong>. Edit anything that's
