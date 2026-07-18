@@ -1,0 +1,8 @@
+{
+  "build": {
+    "builder": "railpack"
+  },
+  "deploy": {
+    "startCommand": "gunicorn wsgi:app --bind 0.0.0.0:$PORT --worker-class gthread --workers 3 --threads 4 --timeout 600"
+  }
+}
