@@ -134,3 +134,66 @@ def test_seed_creates_demo_member_and_entry_lands(canary_app, client):
             f"/sso/enter/?token={_token(member_id=900001, seat_id=900001)}")
     assert resp.status_code == 302
     assert resp.headers["Location"].endswith("/dashboard")
+
+
+# --- jwt_util hardening backport (2026-07-18) -------------------------------
+# Two fixes present in the hub's own hub/jwt_util.py (hardened over time) had
+# never been backported to this consumer copy: (1) normalize_pem repairs a PEM
+# mangled by a host's env-var UI (escaped or flattened newlines); (2) header/
+# payload must be JSON *objects* — a non-dict JSON value must raise JWTError
+# cleanly rather than surface as an uncaught AttributeError from `.get()`.
+
+def test_normalize_pem_repairs_escaped_newlines():
+    from club_sso.jwt_util import normalize_pem
+
+    body = "".join(f"{i%10}" for i in range(200))  # arbitrary base64-ish body
+    valid_pem = (
+        f"-----BEGIN PUBLIC KEY-----\n"
+        + "\n".join(body[i:i + 64] for i in range(0, len(body), 64))
+        + "\n-----END PUBLIC KEY-----\n"
+    )
+    mangled = valid_pem.replace("\n", "\\n")
+    assert mangled != valid_pem  # sanity: the fixture actually mangled it
+
+    assert normalize_pem(mangled) == valid_pem.encode("utf-8")
+
+
+def test_normalize_pem_leaves_valid_pem_unchanged():
+    from club_sso.jwt_util import normalize_pem
+
+    assert normalize_pem(PUB) == PUB.encode("utf-8")
+
+
+def _b64url_json(value) -> str:
+    return _b64url(json.dumps(value).encode())
+
+
+def test_verify_rejects_non_dict_header():
+    from club_sso.jwt_util import JWTError, verify_rs256
+
+    # header segment decodes to a JSON *list*, not an object — must not raise
+    # an uncaught AttributeError from header.get("alg").
+    header = _b64url_json(["RS256"])
+    payload = _b64url_json({"iss": ISSUER, "aud": "analee", "member_id": 1,
+                             "seat_id": 1, "exp": int(time.time()) + 300})
+    sig = PRIV.sign(f"{header}.{payload}".encode("ascii"),
+                     padding.PKCS1v15(), hashes.SHA256())
+    token = f"{header}.{payload}.{_b64url(sig)}"
+
+    with pytest.raises(JWTError, match="malformed header"):
+        verify_rs256(token, PUB, audience="analee", issuer=ISSUER)
+
+
+def test_verify_rejects_non_dict_payload():
+    from club_sso.jwt_util import JWTError, verify_rs256
+
+    # payload segment decodes to a JSON number, not an object — must not raise
+    # an uncaught AttributeError from payload.get("exp").
+    header = _b64url_json({"alg": "RS256", "typ": "JWT"})
+    payload = _b64url_json(42)
+    sig = PRIV.sign(f"{header}.{payload}".encode("ascii"),
+                     padding.PKCS1v15(), hashes.SHA256())
+    token = f"{header}.{payload}.{_b64url(sig)}"
+
+    with pytest.raises(JWTError, match="malformed payload"):
+        verify_rs256(token, PUB, audience="analee", issuer=ISSUER)
