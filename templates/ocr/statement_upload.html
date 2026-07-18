@@ -58,9 +58,23 @@
                             </select>
                         </div>
 
-                        <button type="submit" class="btn btn-primary">
+                        <button type="submit" class="btn btn-primary" id="extract-btn">
                             <i class="fas fa-magic"></i> Extract transactions
                         </button>
+
+                        <div id="extract-progress" class="alert alert-info mt-3 d-none" role="status">
+                            <div class="d-flex align-items-center">
+                                <div class="spinner-border spinner-border-sm me-2" aria-hidden="true"></div>
+                                <div>
+                                    <strong>Reading your statement&hellip;</strong>
+                                    <span id="extract-progress-text">
+                                        This usually takes under a minute for digital PDFs.
+                                    </span>
+                                    <br><small>Please keep this page open — you'll be taken
+                                    to the review screen when it's done.</small>
+                                </div>
+                            </div>
+                        </div>
                     </form>
                 </div>
             </div>
@@ -73,4 +87,42 @@
         </div>
     </div>
 </div>
+
+<script>
+(function () {
+    var form = document.getElementById('extract-btn').closest('form');
+    var btn = document.getElementById('extract-btn');
+    var progress = document.getElementById('extract-progress');
+    var progressText = document.getElementById('extract-progress-text');
+    var timers = [];
+
+    form.addEventListener('submit', function () {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span> Working&hellip;';
+        progress.classList.remove('d-none');
+        timers.push(setTimeout(function () {
+            progressText.textContent =
+                ' Looks like a scanned statement — the AI is reading each page. ' +
+                'This can take a couple of minutes for multi-page scans.';
+        }, 20000));
+        timers.push(setTimeout(function () {
+            progressText.textContent =
+                ' Still working — long or multi-page scans are read in sections. ' +
+                'Thanks for your patience.';
+        }, 75000));
+    });
+
+    // If the user comes back via the browser's Back button, the page may be
+    // restored from cache mid-"working" state — reset it so it is usable.
+    window.addEventListener('pageshow', function (e) {
+        if (e.persisted) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-magic"></i> Extract transactions';
+            progress.classList.add('d-none');
+            timers.forEach(clearTimeout);
+            timers = [];
+        }
+    });
+})();
+</script>
 {% endblock %}
