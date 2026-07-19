@@ -469,6 +469,25 @@ class PracticeLink(db.Model):
         return f'<PracticeLink user={self.accountant_user_id} firm={self.firm_ref}>'
 
 
+class PracticeClientMeta(db.Model):
+    """Display metadata for a client workspace (Practice Layer P2): the
+    visible practice number ("ACC-0042") minted by THE ACCOUNTANTS — the
+    human match key shown next to the company name in BOTH apps. Additive
+    table; upserted by the provisioning seam, never required."""
+    __tablename__ = 'practice_client_meta'
+
+    id = Column(Integer, primary_key=True)
+    workspace_user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'),
+                               unique=True, nullable=False)
+    client_number = Column(String(16))
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    workspace_user = relationship('User')
+
+    def __repr__(self):
+        return f'<PracticeClientMeta ws={self.workspace_user_id} no={self.client_number}>'
+
+
 class AdminChartOfAccounts(db.Model):
     __tablename__ = 'admin_chart_of_accounts'
     __table_args__ = (

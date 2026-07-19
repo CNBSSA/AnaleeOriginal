@@ -19,6 +19,7 @@
                     <thead>
                         <tr>
                             <th>Client</th>
+                            <th>Number</th>
                             <th>Reference</th>
                             <th class="text-end">Action</th>
                         </tr>
@@ -27,6 +28,7 @@
                         {% for c in clients %}
                         <tr>
                             <td>{{ c.company_name }}</td>
+                            <td>{% if c.client_number %}<span class="badge bg-secondary">{{ c.client_number }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                             <td><code>{{ c.client_ref }}</code></td>
                             <td class="text-end">
                                 <form method="post"
@@ -48,8 +50,38 @@
     </div>
     {% else %}
     <div class="alert alert-secondary">
-        No clients yet. Clients you add in <strong>THE ACCOUNTANTS</strong> appear here
-        automatically once their bank-statement workspace is set up.
+        No clients yet. Add one below, or add clients in <strong>THE ACCOUNTANTS</strong> —
+        they appear here automatically once their bank-statement workspace is set up.
+    </div>
+    {% endif %}
+
+    {% if add_client_available %}
+    <div class="card mt-3">
+        <div class="card-body">
+            <h5 class="card-title">Add a client</h5>
+            <p class="text-muted mb-2">Added in both places at once — the client is
+            registered in THE ACCOUNTANTS (which assigns their ACC number) and their
+            bank-statement workspace opens here.</p>
+            <form method="post" action="{{ url_for('practice.add_client') }}" class="row g-2">
+                {% if csrf_token is defined %}
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% endif %}
+                <div class="col-md-5">
+                    <input type="text" name="name" class="form-control" required
+                           maxlength="200" placeholder="Client / company name">
+                </div>
+                <div class="col-md-4">
+                    <select name="entity_type" class="form-select">
+                        {% for value, label in entity_choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-success w-100">Add client</button>
+                </div>
+            </form>
+        </div>
     </div>
     {% endif %}
 </div>
