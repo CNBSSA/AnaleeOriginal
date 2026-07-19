@@ -73,6 +73,21 @@
                             </li>
                         </ul>
                         <ul class="navbar-nav ms-auto">
+                            {% if session.get('practice_return_uid') and session.get('workspace_session') %}
+                            <li class="nav-item me-2">
+                                {# Literal path (not url_for): a stale session key must never
+                                   500 every page if the practice blueprint isn't registered. #}
+                                <form method="post" action="/practice/return" class="d-inline">
+                                    {% if csrf_token is defined %}
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    {% endif %}
+                                    <button type="submit" class="btn btn-outline-info btn-sm mt-1"
+                                            title="Back to your full client list">
+                                        &larr; My Clients
+                                    </button>
+                                </form>
+                            </li>
+                            {% endif %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout</a>
                             </li>

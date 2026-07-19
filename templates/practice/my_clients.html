@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>My Clients{% if link.firm_name %} — {{ link.firm_name }}{% endif %}</h2>
+
+    <div class="alert alert-info">
+        <p class="mb-0">One login, all your clients. Click <strong>Open</strong> to work on a
+        client's bank statements — no separate password, no logging out. When you're
+        inside a client, use the <strong>My Clients</strong> chip in the menu bar to
+        come straight back here.</p>
+    </div>
+
+    {% if clients %}
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Client</th>
+                            <th>Reference</th>
+                            <th class="text-end">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in clients %}
+                        <tr>
+                            <td>{{ c.company_name }}</td>
+                            <td><code>{{ c.client_ref }}</code></td>
+                            <td class="text-end">
+                                <form method="post"
+                                      action="{{ url_for('practice.open_client', workspace_user_id=c.workspace_user_id) }}"
+                                      class="d-inline">
+                                    {% if csrf_token is defined %}
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    {% endif %}
+                                    <button type="submit" class="btn btn-primary btn-sm">Open</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-muted mb-0">{{ clients|length }} client{{ 's' if clients|length != 1 }} in your practice.</p>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-secondary">
+        No clients yet. Clients you add in <strong>THE ACCOUNTANTS</strong> appear here
+        automatically once their bank-statement workspace is set up.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
