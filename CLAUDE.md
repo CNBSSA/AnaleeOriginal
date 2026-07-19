@@ -8,11 +8,24 @@ lose it again. That is the analysis feature that I'm locking — the capacity to
 analyze things and learn from the past and suggest things. I'm not locking the
 upload, download, and all that."*
 
+Festus (2026-07-19, with a screenshot of the **Analyze Data** page): *"This is
+the feature I am freezing — here and everywhere it rears its head. And the rest
+of AI agents, the data processing features must be preserved. It is the engine —
+not how data get to the processing features or after the processing features."*
+
 **What IS frozen (do not touch without Festus's explicit approval):**
-1. **The analysis engine** — the data-processing capacity: bank-statement
-   analysis, categorisation, the learn-from-past-transactions capability
-   (Recall/similarity), and the suggestion logic. Any module whose job is to
-   *analyze, learn, or suggest* is inside the freeze.
+1. **THE ENGINE — the Analyze Data processing pipeline**, concretely (as shown
+   on the Financial Analysis → Analyze Data screen): the transaction work loop
+   (assign accounts + explanations, **10 at a time**), **Auto-process next 10**
+   (AI account suggestions), the **iCountant Assistant** guided one-by-one
+   review, and the machinery beneath them — categorisation, the
+   learn-from-past-transactions capability (Recall/similarity), and the
+   suggestion logic. Any module whose job is to *analyze, learn, or suggest* is
+   inside the freeze. **The freeze follows the engine everywhere it rears its
+   head** — including the embedded `analee/` module in `CNBSSA/booksxpert` —
+   and the same principle protects the data-processing features of every AI
+   agent across the corporation's products (corporation-wide copy:
+   `autonomusFV/CLAUDE.md` → "DATA-PROCESSING ENGINE FREEZE").
 2. **The chart of accounts + trial-balance core** — already machine-enforced
    (see PROTECTED ASSETS below): `services/chart_of_accounts.py`,
    `services/chart_seed_data.py`, `services/entity_chart_rules.py`,
@@ -20,10 +33,12 @@ upload, download, and all that."*
    `reports/trial_balance_service.py`.
 
 **What is NOT frozen (normal working surface — standard workflow applies, no
-"scoped re-open" ceremony needed):** upload/download flows, pages/templates/
-navigation, auth/login/session, the `club_sso/` module, `entitlement.py`,
-`provisioning.py` (the seam), and new accountant-companion surfaces (e.g. the
-One-Login Practice Layer planned in
+"scoped re-open" ceremony needed):** how data GETS TO the engine (upload/
+download flows, ingress) and what happens AFTER it (trial-balance export,
+transmission, reporting — reporting lives in BooksXperts/THE ACCOUNTANTS, never
+here), pages/templates/navigation, auth/login/session, the `club_sso/` module,
+`entitlement.py`, `provisioning.py` (the seam), and new accountant-companion
+surfaces (e.g. the One-Login Practice Layer planned in
 `autonomusFV/docs/analee_accountants_companion_redesign.md`). Every change
 still runs the full Company Development Workflow below — audits are never
 waived — but Festus's per-scope unfreeze approval is only required when a
@@ -33,10 +48,11 @@ change would touch the frozen capabilities above.
 must *call* the frozen engine, never *change* it — and its Change-Impact Audit
 must explicitly state "frozen analysis engine + chart/TB core untouched".
 
-**TODO (next Analee coding task):** enumerate the analysis-engine files and add
-them to `protected_assets.lock.json` so capability-freeze #1 is machine-enforced
-exactly like the chart freeze (#2), not just policy-enforced. `?` — file list to
-be verified in-repo at that time.
+**TODO (next Analee coding task):** enumerate the engine's files (the Analyze
+Data pipeline, Auto-process, iCountant Assistant, prediction/suggestion
+services) and add them to `protected_assets.lock.json` so capability-freeze #1
+is machine-enforced exactly like the chart freeze (#2), not just
+policy-enforced. `?` — file list to be verified in-repo at that time.
 
 ### Historical note — the 2026-06-26 whole-repo freeze framing (superseded 2026-07-18)
 
