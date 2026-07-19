@@ -220,3 +220,142 @@ def test_return_without_switch_redirects_to_login(canary_app, monkeypatch):
     client = canary_app.test_client()
     r = client.post(RETURN_URL)
     assert r.status_code == 302 and "/login" in r.headers["Location"]
+
+
+# ---------------------------------------------------- P2: ACC numbers + add
+
+API = "https://acc.example/api/practice"
+
+
+def _enable_api(monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("ACCOUNTANTS_PRACTICE_API_URL", API)
+
+
+class _FakeResponse:
+    def __init__(self, status=200, body=None):
+        self.status_code = status
+        self._body = body if body is not None else {}
+
+    def json(self):
+        return self._body
+
+
+def test_ensure_seam_upserts_client_number(canary_app, monkeypatch):
+    _enable(monkeypatch)
+    client = canary_app.test_client()
+    r = client.post("/api/provisioning/analee/workspace", json={
+        "client_ref": "acc-7-42", "client_name": "Mokoena Traders",
+        "client_number": "ACC-0042"}, headers=_auth())
+    assert r.status_code == 200
+    from models import PracticeClientMeta
+    with canary_app.app_context():
+        meta = PracticeClientMeta.query.filter_by(
+            workspace_user_id=r.get_json()["workspace_user_id"]).first()
+        assert meta is not None and meta.client_number == "ACC-0042"
+    # Re-ensure with an updated number keeps it in step, never duplicates.
+    r2 = client.post("/api/provisioning/analee/workspace", json={
+        "client_ref": "acc-7-42", "client_name": "Mokoena Traders",
+        "client_number": "ACC-0099"}, headers=_auth())
+    assert r2.status_code == 200
+    with canary_app.app_context():
+        metas = PracticeClientMeta.query.filter_by(
+            workspace_user_id=r.get_json()["workspace_user_id"]).all()
+        assert len(metas) == 1 and metas[0].client_number == "ACC-0099"
+
+
+def test_my_clients_shows_acc_number(canary_app, monkeypatch):
+    _enable(monkeypatch)
+    _mk_accountant(canary_app, firm_ref="acc-7")
+    from provisioning import ensure_workspace
+    with canary_app.app_context():
+        ensure_workspace("acc-7-1", "Mokoena Trading", client_number="ACC-0001")
+    client = canary_app.test_client()
+    _login(client)
+    html = client.get(PRACTICE_URL).get_data(as_text=True)
+    assert "ACC-0001" in html
+
+
+def test_add_client_creates_both_sides(canary_app, monkeypatch):
+    _enable_api(monkeypatch)
+    _mk_accountant(canary_app, firm_ref="acc-7")
+    client = canary_app.test_client()
+    _login(client)
+    from unittest import mock
+    fake = _FakeResponse(body={
+        "created": True, "client_ref": "acc-7-55", "client_number": "ACC-0003",
+        "name": "Dlamini Stores", "entity_type": "cc",
+        "analee_entity_name": "Close Corporation"})
+    with mock.patch("practice_layer.requests.post", return_value=fake) as post:
+        r = client.post("/practice/add",
+                        data={"name": "Dlamini Stores", "entity_type": "cc"})
+    assert r.status_code == 302
+    kwargs = post.call_args.kwargs
+    assert post.call_args.args[0] == API + "/clients"
+    assert kwargs["json"] == {"firm_ref": "acc-7", "name": "Dlamini Stores",
+                              "entity_type": "cc"}
+    assert kwargs["headers"]["Authorization"] == f"Bearer {SECRET}"
+    # The workspace now exists locally, with the number, and is listed.
+    html = client.get(PRACTICE_URL).get_data(as_text=True)
+    assert "Dlamini Stores" in html and "ACC-0003" in html
+
+
+def test_add_client_s2s_failure_is_friendly_and_creates_nothing(canary_app, monkeypatch):
+    _enable_api(monkeypatch)
+    _mk_accountant(canary_app, firm_ref="acc-7")
+    client = canary_app.test_client()
+    _login(client)
+    from unittest import mock
+    with mock.patch("practice_layer.requests.post",
+                    return_value=_FakeResponse(status=503)):
+        r = client.post("/practice/add", data={"name": "Ghost Client"},
+                        follow_redirects=True)
+    assert b"could not complete" in r.data
+    from models import db, User
+    with canary_app.app_context():
+        assert User.query.filter(
+            User.email.like("%ghost%")).first() is None
+
+
+def test_add_client_hidden_without_api_env(canary_app, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.delenv("ACCOUNTANTS_PRACTICE_API_URL", raising=False)
+    _mk_accountant(canary_app, firm_ref="acc-7")
+    client = canary_app.test_client()
+    _login(client)
+    html = client.get(PRACTICE_URL).get_data(as_text=True)
+    assert "Add a client" not in html
+
+
+# ------------------------------------------------------------ P3: Send TB
+
+def test_send_tb_hands_share_url_to_accountants(canary_app, monkeypatch):
+    _enable_api(monkeypatch)
+    _mk_accountant(canary_app, firm_ref="acc-7")
+    ws_id = _mk_workspace(canary_app, "acc-7-1", "Mokoena Trading")
+    client = canary_app.test_client()
+    _login(client)
+    assert client.post(f"/practice/open/{ws_id}").status_code == 302
+
+    from unittest import mock
+    fake = _FakeResponse(body={"received": True, "client_number": "ACC-0001"})
+    with mock.patch("practice_layer.requests.post", return_value=fake) as post:
+        r = client.post("/practice/send-tb", follow_redirects=True)
+    assert post.call_args.args[0] == API + "/tb-drop"
+    payload = post.call_args.kwargs["json"]
+    assert payload["client_ref"] == "acc-7-1"
+    assert "/api/trial-balance/shared/" in payload["share_url"]
+    assert payload["share_url"].startswith("http")
+    assert b"Trial balance sent" in r.data
+
+
+def test_send_tb_refused_outside_workspace_session(canary_app, monkeypatch):
+    _enable_api(monkeypatch)
+    _mk_accountant(canary_app, firm_ref="acc-7")
+    client = canary_app.test_client()
+    _login(client)
+    from unittest import mock
+    with mock.patch("practice_layer.requests.post") as post:
+        r = client.post("/practice/send-tb")
+    post.assert_not_called()
+    assert r.status_code == 302

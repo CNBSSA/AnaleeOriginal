@@ -148,14 +148,32 @@ def _is_workspace_email(email):
     return (email or "").lower().endswith("@" + WORKSPACE_EMAIL_DOMAIN)
 
 
-def ensure_workspace(client_ref, client_name, entity_name=None):
+def _upsert_client_number(workspace_user_id, client_number):
+    """P2: keep the visible ACC-number in step (display metadata only)."""
+    from models import db, PracticeClientMeta
+
+    number = (client_number or "").strip()[:16]
+    if not number:
+        return
+    meta = PracticeClientMeta.query.filter_by(
+        workspace_user_id=workspace_user_id).first()
+    if meta is None:
+        db.session.add(PracticeClientMeta(
+            workspace_user_id=workspace_user_id, client_number=number))
+    elif meta.client_number != number:
+        meta.client_number = number
+
+
+def ensure_workspace(client_ref, client_name, entity_name=None,
+                     client_number=None):
     """Idempotently create (or fetch) the Analee workspace for a firm client.
 
     Creates a dedicated ``User`` (random password nobody learns — the only way
     in is the signed login link), ``CompanySettings`` carrying the client's
     real name, and the entity-correct chart via the frozen chart service
     (called, never modified). Re-ensuring an existing workspace refreshes the
-    company name and reactivates it if it had been revoked. No schema change.
+    company name (and the visible ACC-number, P2) and reactivates it if it had
+    been revoked.
     """
     from models import db, Entity, User, CompanySettings
 
@@ -171,6 +189,7 @@ def ensure_workspace(client_ref, client_name, entity_name=None):
         settings = CompanySettings.query.filter_by(user_id=user.id).first()
         if settings is not None and client_name and settings.company_name != client_name:
             settings.company_name = client_name
+        _upsert_client_number(user.id, client_number)
         db.session.commit()
         return {"created": False, "workspace_user_id": user.id, "email": email,
                 "company": settings.company_name if settings else None}
@@ -209,6 +228,7 @@ def ensure_workspace(client_ref, client_name, entity_name=None):
         chart_provisioned = False
         logger.exception("workspace provisioning: chart failed for user %s "
                          "(workspace kept; re-ensure heals)", user.id)
+    _upsert_client_number(user.id, client_number)
     db.session.commit()
     logger.info("workspace provisioning: created workspace user %s (%s)",
                 user.id, email)
@@ -235,7 +255,7 @@ def workspace_ensure():
     data = request.get_json(silent=True) or {}
     result = ensure_workspace(
         data.get("client_ref"), data.get("client_name"),
-        data.get("entity_name"))
+        data.get("entity_name"), data.get("client_number"))
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result), 200
