@@ -68,3 +68,6 @@ temp/
 # System Files
 .DS_Store
 Thumbs.db
+
+# Local test virtualenv (dotted)
+.venv/
