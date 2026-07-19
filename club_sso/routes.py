@@ -96,6 +96,33 @@ def enter():
     if member_id is None or seat_id is None:
         return "incomplete token", 401
 
+    # P4 (One-Login Practice Layer, Festus 2026-07-19): a practice
+    # accountant's Club identity IS their Analee identity. When the
+    # hub-verified email (a signed claim; hub emails are mailbox-verified at
+    # §25 onboarding) matches a real accountant account that carries a
+    # PracticeLink, log them into THAT account and land on My Clients — one
+    # identity across the estate. Ordinary members keep the existing
+    # per-member alias path unchanged; alias-domain emails are excluded so a
+    # hidden workspace/SSO identity can never be entered this way.
+    try:
+        import practice_layer
+        email = (payload.get("email") or "").strip().lower()
+        if practice_layer.enabled() and email and "@" in email \
+                and not email.endswith(".theaccountants.local"):
+            from models import PracticeLink
+            real = User.query.filter(
+                db.func.lower(User.email) == email).first()
+            if (real is not None and not real.is_deleted
+                    and PracticeLink.query.filter_by(
+                        accountant_user_id=real.id).first() is not None):
+                login_user(real)
+                session["club_session"] = True
+                session["club_member_id"] = str(member_id)
+                return redirect("/practice")
+    except Exception:  # noqa: BLE001 — never let P4 break plain SSO entry
+        logger.exception("club_sso: practice one-login check failed "
+                         "(falling back to member alias entry)")
+
     user = _resolve_user(member_id, seat_id)
     login_user(user)
     session["club_session"] = True
