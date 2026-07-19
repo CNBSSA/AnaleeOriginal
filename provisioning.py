@@ -272,6 +272,80 @@ def workspace_login_link():
                     "expires_in": _link_ttl()}), 200
 
 
+def practice_firm_ref(raw_ref):
+    """Sanitise THE ACCOUNTANTS' firm ref (e.g. ``acc-7``) the same way client
+    refs are sanitised, so prefix matching against workspace alias emails is
+    exact. Returns None for empty/oversized junk."""
+    safe = re.sub(r"[^a-z0-9]+", "-", (raw_ref or "").strip().lower()).strip("-")
+    if not safe or len(safe) > 40:
+        return None
+    return safe
+
+
+def ensure_practice_link(accountant_email, firm_ref, firm_name=None):
+    """Idempotently bind an accountant's own Analee account to their firm.
+
+    Creates the accountant ``User`` if absent (random password — they set their
+    own via the normal password reset; the alias-domain is refused so this can
+    never bind a hidden workspace identity as an accountant). One firm per
+    accountant (P1); re-ensuring updates firm name and re-points the ref."""
+    from models import db, User, PracticeLink
+
+    email = (accountant_email or "").strip().lower()
+    if not email or "@" not in email or _is_workspace_email(email):
+        return {"error": "a real accountant email is required"}
+    ref = practice_firm_ref(firm_ref)
+    if ref is None:
+        return {"error": "firm_ref is required (letters/digits)"}
+
+    user = User.query.filter(db.func.lower(User.email) == email).first()
+    created_user = False
+    if user is None:
+        user = User(username=email[:64], email=email, subscription_status="active")
+        user.set_password(secrets.token_urlsafe(32))  # they reset to their own
+        db.session.add(user)
+        db.session.flush()
+        created_user = True
+    elif user.is_deleted:
+        return {"error": "account is deleted"}
+
+    link = PracticeLink.query.filter_by(accountant_user_id=user.id).first()
+    if link is None:
+        link = PracticeLink(accountant_user_id=user.id, firm_ref=ref,
+                            firm_name=(firm_name or "").strip() or None)
+        db.session.add(link)
+    else:
+        link.firm_ref = ref
+        if firm_name:
+            link.firm_name = firm_name.strip()
+    db.session.commit()
+    logger.info("practice link: user %s bound to firm %s (created_user=%s)",
+                user.id, ref, created_user)
+    return {"linked": True, "accountant_user_id": user.id,
+            "firm_ref": ref, "created_user": created_user}
+
+
+@provisioning.route("/api/provisioning/analee/practice", methods=["POST"])
+def practice_link_ensure():
+    """S2S: THE ACCOUNTANTS binds an accountant's one Analee login to their
+    firm, so /practice lists all the firm's client workspaces. Same dark flag
+    + fail-closed bearer as every other seam endpoint."""
+    if not enabled():
+        return jsonify({"error": "not found"}), 404
+    ok = _bearer_ok(request.headers.get("Authorization", ""))
+    if ok is None:
+        return jsonify({"error": "provisioning not configured"}), 503
+    if not ok:
+        return jsonify({"error": "unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    result = ensure_practice_link(
+        data.get("accountant_email"), data.get("firm_ref"),
+        data.get("firm_name"))
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result), 200
+
+
 @provisioning.route("/workspace/enter", methods=["GET"])
 def workspace_enter():
     """Browser lands here from THE ACCOUNTANTS; verify and log into the workspace."""

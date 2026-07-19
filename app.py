@@ -455,6 +455,12 @@ def create_app(env=None):
             import club_sso
             club_sso.register(app)
 
+            # One-Login Practice Layer (Festus 2026-07-18): the accountant's
+            # single login + My Clients page + client switcher. Dark unless
+            # ANALEE_PRACTICE_LAYER_ENABLED; fail-soft, never blocks startup.
+            import practice_layer
+            practice_layer.register(app)
+
             @app.cli.command('seed-charts')
             def seed_charts_command():
                 """Seed entity types and master chart (BooksXperts parity)."""
