@@ -359,3 +359,72 @@ def test_send_tb_refused_outside_workspace_session(canary_app, monkeypatch):
         r = client.post("/practice/send-tb")
     post.assert_not_called()
     assert r.status_code == 302
+
+
+# ------------------------------------------------- P4: Club SSO one identity
+
+def _sso_token(email=None, member_id=9, seat_id=9):
+    import base64, json, time
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pub = key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    b64 = lambda b: base64.urlsafe_b64encode(b).decode().rstrip("=")
+    claims = {"iss": "the-accountants-hub", "aud": "analee",
+              "member_id": member_id, "seat_id": seat_id,
+              "exp": int(time.time()) + 300}
+    if email:
+        claims["email"] = email
+    header = b64(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+    payload = b64(json.dumps(claims).encode())
+    sig = key.sign(f"{header}.{payload}".encode("ascii"),
+                   padding.PKCS1v15(), hashes.SHA256())
+    return f"{header}.{payload}.{b64(sig)}", pub
+
+
+def test_sso_with_email_and_link_lands_on_my_clients(canary_app, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("CLUB_ENABLED", "True")
+    acct_id = _mk_accountant(canary_app, email="sso-acct@firm.co.za",
+                             firm_ref="acc-7")
+    token, pub = _sso_token(email="SSO-Acct@firm.co.za")
+    monkeypatch.setenv("HUB_JWT_PUBLIC_KEY", pub)
+    client = canary_app.test_client()
+    r = client.get(f"/sso/enter/?token={token}")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/practice")
+    with client.session_transaction() as sess:
+        assert sess.get("_user_id") == str(acct_id)
+        assert sess.get("club_session") is True
+
+
+def test_sso_email_without_link_uses_alias_path(canary_app, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("CLUB_ENABLED", "True")
+    token, pub = _sso_token(email="stranger@firm.co.za")
+    monkeypatch.setenv("HUB_JWT_PUBLIC_KEY", pub)
+    client = canary_app.test_client()
+    r = client.get(f"/sso/enter/?token={token}")
+    assert r.status_code == 302 and "/dashboard" in r.headers["Location"]
+
+
+def test_sso_alias_domain_email_refused_for_one_login(canary_app, monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("CLUB_ENABLED", "True")
+    token, pub = _sso_token(email="client+acc-7-1@ws.theaccountants.local")
+    monkeypatch.setenv("HUB_JWT_PUBLIC_KEY", pub)
+    client = canary_app.test_client()
+    r = client.get(f"/sso/enter/?token={token}")
+    assert r.status_code == 302 and "/dashboard" in r.headers["Location"]
+
+
+def test_sso_one_login_dark_when_practice_layer_off(canary_app, monkeypatch):
+    monkeypatch.delenv("ANALEE_PRACTICE_LAYER_ENABLED", raising=False)
+    monkeypatch.setenv("CLUB_ENABLED", "True")
+    _mk_accountant(canary_app, email="off-acct@firm.co.za", firm_ref="acc-7")
+    token, pub = _sso_token(email="off-acct@firm.co.za")
+    monkeypatch.setenv("HUB_JWT_PUBLIC_KEY", pub)
+    client = canary_app.test_client()
+    r = client.get(f"/sso/enter/?token={token}")
+    assert r.status_code == 302 and "/dashboard" in r.headers["Location"]
