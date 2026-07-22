@@ -4,7 +4,8 @@ THE ACCOUNTANTS and Analee are priced together: buying THE ACCOUNTANTS as a
 standalone grants **full** Analee access (policy D-F). Analee learns "this
 person is an Accountants subscriber" via a **server-to-server** provisioning
 call from THE ACCOUNTANTS that activates (or deactivates) the matching Analee
-user **by email**.
+user **by email** — and, for a first-time buyer with no Analee account yet,
+**creates** one (G10 / B-A1) so the bundle promise holds from day one.
 
 Ships **DARK** + **fail-closed**:
 - ``ANALEE_PROVISIONING_ENABLED`` (default off) gates the endpoint entirely →
@@ -73,20 +74,73 @@ def _bearer_ok(header_value):
     return hmac.compare_digest(token, secret)
 
 
-def provision_by_email(email, entitled):
-    """Activate/deactivate the Analee user matching ``email``.
+def _create_entitled_user(email):
+    """Create a first-time buyer's own Analee account (G10 / B-A1).
 
-    Returns a small result dict. Never raises for a missing user — returns
-    ``found=False`` so the caller can log without leaking existence to the wire
-    via status codes. Reuses ``subscription_status`` (no migration); leaves
-    ``is_deleted`` untouched.
+    The "buy THE ACCOUNTANTS → get Analee" promise must be real for someone who
+    has NEVER used Analee: when the provisioning call names an email with no
+    matching account, we create it — active, with a random password nobody
+    learns (the buyer signs in with their real email via Analee's normal
+    login / password-reset), plus a default company + chart so the account is
+    usable on first login. The chart comes from the FROZEN chart service —
+    called, never changed (same pattern as ``ensure_workspace`` and club_sso).
+
+    Returns the new ``User`` (committed), or ``None`` if creation was refused
+    (e.g. a workspace-alias email, which only ``ensure_workspace`` may mint).
+    """
+    from models import db, User, CompanySettings
+
+    if _is_workspace_email(email):
+        # Real buyers never use the workspace alias domain; those identities are
+        # owned exclusively by ensure_workspace. Refuse to mint one here.
+        return None
+    user = User(username=email[:64], email=email, subscription_status="active")
+    user.set_password(secrets.token_urlsafe(32))  # random, never shared
+    db.session.add(user)
+    db.session.flush()  # assign user.id
+    settings = CompanySettings(
+        user_id=user.id,
+        company_name="My Company",  # editable in-app on first login
+        financial_year_end=2,       # SA default (Feb year-end); editable in-app
+    )
+    db.session.add(settings)
+    db.session.flush()
+    try:
+        # Default chart via the FROZEN service — called, never modified.
+        User.create_default_accounts(user.id)
+    except Exception:  # noqa: BLE001 — a chart hiccup must not lose the account
+        logger.exception("provisioning: default chart failed for new user %s "
+                         "(account kept; chart heals on first use)", user.id)
+    db.session.commit()
+    logger.info("provisioning: created Analee account for new buyer (user %s)", user.id)
+    return user
+
+
+def provision_by_email(email, entitled):
+    """Activate/deactivate — and now auto-CREATE (G10) — the Analee user for
+    ``email``.
+
+    Returns a small result dict. Reuses ``subscription_status`` (no migration);
+    leaves ``is_deleted`` untouched.
+
+    - Match found → set active/inactive as before.
+    - No match + ``entitled`` → **create** the buyer's account (B-A1) so the
+      bundle promise holds for a first-time buyer. ``created=True`` in the result.
+    - No match + not entitled → nothing to revoke; ``found=False`` (unchanged).
     """
     from models import db, User
 
     user = User.query.filter(db.func.lower(User.email) == (email or "").strip().lower()).first()
     if user is None:
-        logger.info("provisioning: no Analee user for email (entitled=%s)", entitled)
-        return {"found": False, "entitled": bool(entitled)}
+        if not entitled:
+            # Deactivation for someone who never had an account — nothing to do.
+            logger.info("provisioning: no Analee user for email (entitled=False)")
+            return {"found": False, "entitled": False}
+        created = _create_entitled_user((email or "").strip())
+        if created is None:
+            return {"found": False, "created": False, "entitled": True}
+        return {"found": False, "created": True, "entitled": True,
+                "subscription_status": created.subscription_status}
     user.subscription_status = "active" if entitled else "inactive"
     db.session.commit()
     logger.info("provisioning: user %s set subscription_status=%s",
