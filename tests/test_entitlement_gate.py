@@ -4,14 +4,12 @@ Rule: Analee is available only to a **Practice Club member** OR an
 **Accountants / Analee subscriber**. The gate ships dark behind
 ``ANALEE_ENTITLEMENT_ENFORCED``.
 
-Live-code note (verified against the running app): access to Analee is already
-gated by Flask-Login ``is_active`` = ``subscription_status in
-('active','pending')``. A non-subscriber cannot be authenticated at all —
-``login_required`` bounces them to ``/auth/login`` *before* this gate runs. So
-the only reachable authenticated local state is a subscriber; the gate's
-block-path is therefore exercised deterministically by forcing the entitlement
-helper (its real trigger will be a future Club-SSO login of a non-subscriber, or
-a change to the ``subscription_status`` default). These tests cover:
+Live-code note (updated for B-A2): a new self-registered user now defaults to
+``subscription_status='login_only'`` — they CAN log in (``is_active`` includes
+it) but are NOT Analee-entitled (``is_subscriber`` excludes it). So the gate's
+block-path is now reachable by a real logged-in non-subscriber (as well as a
+future Club-SSO login), and is also exercised deterministically by forcing the
+entitlement helper. These tests cover:
 
 * the pure ``entitlement.analee_entitled`` helper (subscriber / Club / anon);
 * the enforcement flag;
@@ -40,6 +38,17 @@ def _make_admin(app):
         db.session.commit()
 
 
+def _make_subscriber(app):
+    """Promote the freshly-registered user to a full subscriber. Needed because
+    a new sign-up now defaults to 'login_only' (can log in, not Analee-entitled)
+    — B-A2. Setting 'active' simulates them subscribing / being provisioned."""
+    from models import db, User
+    with app.app_context():
+        u = User.query.filter_by(email=EMAIL).first()
+        u.subscription_status = "active"
+        db.session.commit()
+
+
 # ---- pure helper -----------------------------------------------------------
 
 class _U:
@@ -60,6 +69,8 @@ def test_helper_non_subscriber_not_entitled(canary_app):
     import entitlement
     with canary_app.test_request_context("/"):
         assert entitlement.analee_entitled(_U("inactive")) is False
+        # 'login_only' (the new-signup default) can log in but is NOT entitled.
+        assert entitlement.analee_entitled(_U("login_only")) is False
 
 
 def test_helper_club_member_entitled_without_subscription(canary_app):
@@ -108,7 +119,8 @@ def test_gate_off_never_consults_helper(canary_app, monkeypatch):
 def test_gate_on_allows_subscriber(canary_app, monkeypatch):
     monkeypatch.setenv("ANALEE_ENTITLEMENT_ENFORCED", "True")
     client = canary_app.test_client()
-    _register_and_login(client)  # default subscription_status == 'active'
+    _register_and_login(client)      # new sign-up defaults to 'login_only'
+    _make_subscriber(canary_app)     # ...promote to a full subscriber ('active')
     resp = client.get("/dashboard")
     assert resp.status_code == 200
 

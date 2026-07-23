@@ -28,7 +28,14 @@ class User(UserMixin, db.Model):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_admin = Column(Boolean, default=False)
     is_deleted = Column(Boolean, default=False)
-    subscription_status = Column(String(20), default='active')  # Changed default to active
+    # 'active'/'pending' = full (can log in AND Analee-entitled); 'login_only' =
+    # can log in but NOT Analee-entitled (a new self-registered user — Analee is
+    # only for Accountants subscribers or Club members, G10/B-A2); 'inactive' =
+    # suspended (no login). New signups default to 'login_only' so casual
+    # sign-ups are not Analee-entitled under enforcement WITHOUT breaking login;
+    # existing 'active' rows are grandfathered (no data migration — this is a
+    # Python-side ORM default applied only on new inserts).
+    subscription_status = Column(String(20), default='login_only')
 
     # Define relationships with explicit back_populates
     financial_goals = relationship('FinancialGoal', back_populates='user', cascade='all, delete-orphan')
@@ -66,8 +73,14 @@ class User(UserMixin, db.Model):
 
     @property
     def is_active(self) -> bool:
-        """Check if user is active for Flask-Login"""
-        return not self.is_deleted and self.subscription_status in ['active', 'pending']
+        """Check if user is active for Flask-Login.
+
+        'login_only' users CAN log in (they're new self-registered users) but
+        are NOT Analee-entitled — that separate check lives in
+        ``entitlement.is_subscriber`` (which excludes 'login_only'). Decoupling
+        login from Analee entitlement is what lets casual sign-ups be
+        un-entitled without being locked out of the app (G10/B-A2)."""
+        return not self.is_deleted and self.subscription_status in ['active', 'pending', 'login_only']
 
     def __repr__(self):
         return f'<User {self.username}>'

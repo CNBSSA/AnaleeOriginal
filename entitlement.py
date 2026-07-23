@@ -16,12 +16,18 @@ API — is still open; today "subscriber" here means the local
 ``subscription_status``, and the Club path already flows in via SSO.)
 
 Ships **DARK** behind ``ANALEE_ENTITLEMENT_ENFORCED`` (default off): with the
-flag off the app behaves exactly as before. Turning the flag on gates *new*
-access decisions; it does **not** by itself lock out existing users, because
-``User.subscription_status`` defaults to ``'active'`` (see ``models.py``) — so
-every current user counts as a subscriber until Festus explicitly changes that
-default and migrates existing rows. That default-change + data migration is the
-separate, **destructive** step and is deliberately NOT taken here.
+flag off the app behaves exactly as before.
+
+**New-signup gating (G10/B-A2, done the safe way):** ``User.subscription_status``
+now defaults to ``'login_only'`` (see ``models.py``) — a value that CAN log in
+(``is_active`` includes it) but is **not** a subscriber, so a casual new sign-up
+is not Analee-entitled once the flag is on. This deliberately does NOT reuse
+``'inactive'`` (which would also block login). Existing ``'active'`` rows are
+**grandfathered** — the default is a Python-side ORM default applied only to new
+inserts, so no data migration touches current users. To actually entitle a user:
+they subscribe (Accountants → provisioning sets ``'active'``) or join the Club
+(session marker). Turning the flag on then gates non-entitled users to the
+friendly ``/entitlement-required`` page.
 """
 import os
 
