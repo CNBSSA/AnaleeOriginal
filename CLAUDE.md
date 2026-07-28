@@ -1,5 +1,9 @@
 # Project Working Agreement
 
+## CNBSSA agent system (corp)
+
+- **Corp agent system (context layers, memory, learning):** `autonomusFV/agents/CNBSSA_AGENT_SYSTEM.md` (workspace clone path); org conventions: `autonomusFV/org-conventions/`.
+
 ## ❄️ THE FREEZE — REDEFINED BY FESTUS, 2026-07-18: A CAPABILITY FREEZE, NOT A WHOLE-REPO FREEZE
 
 Festus (voice note, 2026-07-18): *"I'm not freezing the entire application. I'm

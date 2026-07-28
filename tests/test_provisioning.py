@@ -92,10 +92,47 @@ def test_deactivates_on_entitled_false(canary_app, monkeypatch):
     assert _status(canary_app, "revoke@e.com") == "inactive"
 
 
-def test_unknown_email_returns_found_false(canary_app, monkeypatch):
+def test_first_time_buyer_account_is_created(canary_app, monkeypatch):
+    """G10 / B-A1: an entitled email with no existing account is CREATED
+    (active), so the 'buy Accountants → get Analee' promise holds for a
+    first-time buyer."""
     _enable(monkeypatch)
     client = canary_app.test_client()
-    r = client.post(URL, json={"email": "nobody@e.com", "entitled": True},
+    r = client.post(URL, json={"email": "NewBuyer@e.com", "entitled": True},
                     headers={"Authorization": f"Bearer {SECRET}"})
     assert r.status_code == 200
-    assert r.get_json()["found"] is False
+    body = r.get_json()
+    assert body["found"] is False          # no PRE-EXISTING account...
+    assert body["created"] is True          # ...but one was created
+    assert body["subscription_status"] == "active"
+    # the account now exists and is entitled (email stored as given)
+    assert _status(canary_app, "NewBuyer@e.com") == "active"
+
+
+def test_unknown_email_not_entitled_creates_nothing(canary_app, monkeypatch):
+    """A deactivation for an unknown email is a no-op — never creates an
+    account just to mark it inactive."""
+    _enable(monkeypatch)
+    client = canary_app.test_client()
+    r = client.post(URL, json={"email": "ghost@e.com", "entitled": False},
+                    headers={"Authorization": f"Bearer {SECRET}"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["found"] is False
+    assert body.get("created") is not True
+    assert _status(canary_app, "ghost@e.com") is None  # nothing created
+
+
+def test_workspace_alias_email_is_refused_for_creation(canary_app, monkeypatch):
+    """A workspace-alias email is owned exclusively by ensure_workspace — the
+    buyer-create path must refuse to mint one."""
+    _enable(monkeypatch)
+    client = canary_app.test_client()
+    alias = "client+acme@ws.theaccountants.local"
+    r = client.post(URL, json={"email": alias, "entitled": True},
+                    headers={"Authorization": f"Bearer {SECRET}"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["found"] is False
+    assert body["created"] is False
+    assert _status(canary_app, alias) is None  # not created here
