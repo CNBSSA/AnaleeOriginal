@@ -9,9 +9,9 @@ included), logs them in, and lands them on their dashboard.
 Ships DARK behind ``CLUB_ENABLED`` (default off → this view 404s; the existing
 login and every direct flow are unaffected — Iron Rule).
 
-Analee tenancy: PER-USER. There is no client/company concept here, so a
-``target_client_company_id`` claim is deliberately ignored — the member always
-enters their own workspace.
+Analee tenancy: PER-USER for the member alias, but a hub ``target_client_ref``
+(Phase C workspace ref, e.g. ``club-7-42``) opens that client's dedicated
+workspace when it belongs to the signed-in member.
 
 Security invariants (mirror the other five consumers):
 - Analee stores only the hub **public** key; tokens are short-lived; the
@@ -73,6 +73,30 @@ def _resolve_user(member_id, seat_id) -> User:
     return user
 
 
+def _enter_member_workspace(member_id, client_ref: str):
+    """Open a Club-provisioned client workspace when the ref is scoped to member."""
+    from provisioning import _is_workspace_email, workspace_email
+
+    ref = (client_ref or "").strip()
+    prefix = f"club-{member_id}-"
+    if not ref.startswith(prefix):
+        return None
+    email = workspace_email(ref)
+    if not email:
+        return None
+    ws = User.query.filter(db.func.lower(User.email) == email.lower()).first()
+    if (ws is None or ws.is_deleted
+            or not _is_workspace_email(ws.email)
+            or ws.subscription_status != "active"):
+        return None
+    login_user(ws)
+    session["club_session"] = True
+    session["club_member_id"] = str(member_id)
+    session["workspace_session"] = True
+    session["workspace_email"] = ws.email
+    return redirect(url_for("main.dashboard"))
+
+
 @bp.route("/enter/")
 def enter():
     """Validate a hub token and drop the member into their Analee workspace."""
@@ -122,6 +146,13 @@ def enter():
     except Exception:  # noqa: BLE001 — never let P4 break plain SSO entry
         logger.exception("club_sso: practice one-login check failed "
                          "(falling back to member alias entry)")
+
+    client_ref = (payload.get("target_client_ref")
+                  or request.args.get("client") or "").strip()
+    if client_ref:
+        ws_redirect = _enter_member_workspace(member_id, client_ref)
+        if ws_redirect is not None:
+            return ws_redirect
 
     user = _resolve_user(member_id, seat_id)
     login_user(user)
