@@ -41,6 +41,12 @@ flows back to the right client. Same seam, same flags, same fail-closed bearer:
   verified (TTL-bounded, not single-use — the window is seconds and only
   workspace aliases are eligible) and the accountant is logged into the
   client workspace.
+
+CLUB PRACTICE (Phase C, 2026-07): the hub pushes a ``PracticeClient`` profile
+to ``POST /api/practice/club/client`` (bearer ``CLUB_PRACTICE_SYNC_TOKEN``,
+gated by ``CLUB_ENABLED``). Workspaces use deterministic refs
+``club-<member_id>-<practice_client_id>`` so roster **Open** chips can deep-link
+via SSO ``target_client_ref``.
 """
 import hmac
 import logging
@@ -72,6 +78,44 @@ def _bearer_ok(header_value):
     prefix = "Bearer "
     token = header_value[len(prefix):] if (header_value or "").startswith(prefix) else ""
     return hmac.compare_digest(token, secret)
+
+
+def _club_enabled():
+    return (os.environ.get("CLUB_ENABLED", "") or "").strip().lower() in (
+        "1", "true", "yes")
+
+
+def _club_sync_secret():
+    return (os.environ.get("CLUB_PRACTICE_SYNC_TOKEN", "") or "").strip()
+
+
+def _club_sync_bearer_ok(header_value):
+    secret = _club_sync_secret()
+    if not secret:
+        return None
+    prefix = "Bearer "
+    token = header_value[len(prefix):] if (header_value or "").startswith(prefix) else ""
+    return hmac.compare_digest(token, secret)
+
+
+# Hub ``PracticeClient.entity_type`` → Analee Entity.name (frozen chart).
+_HUB_ENTITY_MAP = {
+    "company": "Private Company",
+    "cc": "Close Corporation",
+    "soleprop": "Sole Proprietor",
+    "individual": "Sole Proprietor",
+    "trust": None,
+}
+
+
+def club_practice_client_ref(member_id, practice_client_id):
+    """Stable idempotency key for a hub ``PracticeClient`` (Phase C)."""
+    return f"club-{int(member_id)}-{int(practice_client_id)}"
+
+
+def club_practice_firm_ref(member_id):
+    """Prefix for listing every workspace owned by one Club member."""
+    return f"club-{int(member_id)}"
 
 
 def _create_entitled_user(email):
@@ -313,6 +357,38 @@ def workspace_ensure():
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result), 200
+
+
+@provisioning.route("/api/practice/club/client", methods=["POST"])
+def club_practice_client():
+    """S2S: Club hub Phase C — ensure a per-client workspace from the roster."""
+    if not _club_enabled():
+        return jsonify({"error": "not found"}), 404
+    ok = _club_sync_bearer_ok(request.headers.get("Authorization", ""))
+    if ok is None:
+        return jsonify({"error": "club practice sync not configured"}), 503
+    if not ok:
+        return jsonify({"error": "unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    member_id = data.get("member_id")
+    client = data.get("client") or {}
+    client_id = client.get("id")
+    if member_id is None or client_id is None:
+        return jsonify({"error": "member_id and client.id are required"}), 400
+    ref = club_practice_client_ref(member_id, client_id)
+    entity_key = (client.get("entity_type") or "").strip().lower()
+    entity_name = _HUB_ENTITY_MAP.get(entity_key, "Private Company")
+    if entity_key == "trust":
+        entity_name = None
+    result = ensure_workspace(
+        ref,
+        client.get("name"),
+        entity_name,
+        client.get("client_number") or client.get("practice_number"),
+    )
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify({"external_ref": ref, **result}), 200
 
 
 @provisioning.route("/api/provisioning/analee/workspace/login-link",
