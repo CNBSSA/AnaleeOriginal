@@ -100,8 +100,9 @@ Festus re-opened for **ONE scope only**: **accountants companion polish** on the
 existing workspace seam (no new routes): echo ``client_ref`` on ensure responses,
 optional absolute ``login_url`` when ``ANALEE_PUBLIC_BASE_URL`` is set, treat
 ``workspace_session`` as entitled when the entitlement gate is on, and exempt
-``provisioning.*`` from that gate. 3 new tests; companion to the orchestration
-PR in ``CNBSSA/accountants``.
+``provisioning.*`` from that gate. Reference S2S client + Django view example
+for ``CNBSSA/accountants`` under ``integration/accountants/``. 8 new tests;
+companion to the orchestration PR in ``CNBSSA/accountants``.
 
 **The repo is RE-FROZEN with this polish inside the freeze.**
 
