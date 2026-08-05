@@ -63,9 +63,52 @@ def _as_bytes(pem) -> bytes:
     return normalize_pem(pem)
 
 
+def split_pem_blocks(raw) -> list:
+    """Split a blob that may hold several concatenated PEM blocks into a list of
+    normalized PEM byte-strings — used for zero-downtime key rotation, where the
+    hub's new and previous public keys are supplied together during the overlap.
+
+    Repairs escaped ``\\n``/``\\r\\n`` first (the same host env-var mangling
+    ``normalize_pem`` handles), then finds each ``BEGIN…END`` block (its END
+    label must match its BEGIN label) and normalizes each via ``normalize_pem``.
+    A blob holding a single key returns a 1-element list; empty/whitespace
+    returns ``[]``."""
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "ignore")
+    s = (raw or "").strip()
+    if not s:
+        return []
+    s = s.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
+    pattern = re.compile(
+        r"-----BEGIN ([A-Z0-9 ]+)-----.*?-----END \1-----", re.DOTALL)
+    return [normalize_pem(m.group(0)) for m in pattern.finditer(s)]
+
+
+def _any_key_verifies(pems, signature: bytes, signing_input: bytes) -> bool:
+    """True iff at least one candidate PEM verifies the signature. A key that
+    fails to load is simply skipped (a rotation list may briefly carry a
+    malformed block); the caller raises the SAME ``JWTError`` when none match."""
+    for pem in pems:
+        try:
+            key = serialization.load_pem_public_key(_as_bytes(pem))
+            key.verify(signature, signing_input,
+                       padding.PKCS1v15(), hashes.SHA256())
+            return True
+        except (InvalidSignature, ValueError, TypeError):
+            continue
+    return False
+
+
 def verify_rs256(token: str, public_key_pem, *, audience=None, issuer=None,
                  leeway: int = 0) -> dict:
-    """Verify signature + standard claims; return the payload or raise JWTError."""
+    """Verify signature + standard claims; return the payload or raise JWTError.
+
+    ``public_key_pem`` is either a single PEM (``str``/``bytes``) or a
+    ``list``/``tuple`` of PEMs. With a list the signature is accepted if ANY
+    candidate key verifies it (zero-downtime rotation); the single-PEM path is
+    byte-identical to before this change. Algorithm pinning, the header/payload
+    object guards, verify-before-trust ordering, and the exp/nbf/iss/aud checks
+    are identical in both cases."""
     try:
         h_b64, p_b64, s_b64 = token.split(".")
     except (ValueError, AttributeError):
@@ -80,15 +123,27 @@ def verify_rs256(token: str, public_key_pem, *, audience=None, issuer=None,
     if header.get("alg") != "RS256":  # pin the algorithm — no 'none'/HS256 confusion
         raise JWTError("unexpected alg")
 
-    try:
-        key = serialization.load_pem_public_key(_as_bytes(public_key_pem))
-    except (ValueError, TypeError):
-        raise JWTError("bad public key")
-    try:
-        key.verify(_b64url_decode(s_b64), f"{h_b64}.{p_b64}".encode("ascii"),
-                   padding.PKCS1v15(), hashes.SHA256())
-    except (InvalidSignature, ValueError):
-        raise JWTError("bad signature")
+    if isinstance(public_key_pem, (list, tuple)):
+        # Multi-key path (zero-downtime rotation): accept if ANY trusted key
+        # verifies the signature; else raise the same JWTError("bad signature").
+        try:
+            sig = _b64url_decode(s_b64)
+        except (ValueError, TypeError):
+            raise JWTError("bad signature")
+        if not _any_key_verifies(
+                public_key_pem, sig, f"{h_b64}.{p_b64}".encode("ascii")):
+            raise JWTError("bad signature")
+    else:
+        # Single-PEM path — byte-identical to the original single-key verifier.
+        try:
+            key = serialization.load_pem_public_key(_as_bytes(public_key_pem))
+        except (ValueError, TypeError):
+            raise JWTError("bad public key")
+        try:
+            key.verify(_b64url_decode(s_b64), f"{h_b64}.{p_b64}".encode("ascii"),
+                       padding.PKCS1v15(), hashes.SHA256())
+        except (InvalidSignature, ValueError):
+            raise JWTError("bad signature")
 
     try:
         payload = json.loads(_b64url_decode(p_b64))
