@@ -9,7 +9,7 @@ testing **and** a boot-verify (`manage.py check` + the suite). `develop` work an
 merges into `develop` continue anytime — only `develop → main` is gated. A genuine
 live-incident hotfix (active data/security harm) may promote outside the window
 **only with Festus's explicit say-so on that specific fix.** Corporation-wide
-authoritative copy + the US (12am–5am ET) / Nigeria (11pm–5am WAT) windows +
+authoritative copy + the US-Eastern equivalent (5–11 PM ET during EDT; 4–10 PM EST) — the SAME SA-anchored window, NOT a separate US clock (corrected Festus 2026-08-08) — and Nigeria (≈10 PM–4 AM WAT) +
 rationale: `autonomusFV/agents/infra_facts.md`.
 
 ## CNBSSA agent system (corp)
