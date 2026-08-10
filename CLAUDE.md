@@ -1,5 +1,17 @@
 # Project Working Agreement
 
+## ⛔ STANDING RULE — MAIN-BRANCH PROMOTION WINDOW ONLY (Festus, 2026-08-06)
+
+We now have live paying clients on the SA products. **Promote `develop → main`
+(production) ONLY inside the low-usage window: 11:00 PM – 5:00 AM SAST** (South
+Africa overnight; the SAST anchor is fixed across US DST). Always after sufficient
+testing **and** a boot-verify (`manage.py check` + the suite). `develop` work and PR
+merges into `develop` continue anytime — only `develop → main` is gated. A genuine
+live-incident hotfix (active data/security harm) may promote outside the window
+**only with Festus's explicit say-so on that specific fix.** Corporation-wide
+authoritative copy + the US-Eastern equivalent (5–11 PM ET during EDT; 4–10 PM EST) — the SAME SA-anchored window, NOT a separate US clock (corrected Festus 2026-08-08) — and Nigeria (≈10 PM–4 AM WAT) +
+rationale: `autonomusFV/agents/infra_facts.md`.
+
 ## CNBSSA agent system (corp)
 
 - **Corp agent system (context layers, memory, learning):** `autonomusFV/agents/CNBSSA_AGENT_SYSTEM.md` (workspace clone path); org conventions: `autonomusFV/org-conventions/`.

@@ -43,6 +43,27 @@ def _enabled() -> bool:
         "1", "true", "yes")
 
 
+def _trusted_public_keys() -> list:
+    """The hub public keys this consumer trusts.
+
+    Zero-downtime rotation (mirrors clubhub #141): during a hub key overlap the
+    multi-key var may hold several concatenated PEM blocks — the new key and the
+    previous one — and a token signed by EITHER is accepted. The multi-key var is
+    read as ``HUB_JWT_PUBLIC_KEYS`` (matching this repo's existing
+    ``HUB_JWT_PUBLIC_KEY``), and also as ``CLUB_JWT_PUBLIC_KEYS`` for parity with
+    the hub's env naming. When neither is set the trusted set is exactly
+    ``[HUB_JWT_PUBLIC_KEY]`` — byte-identical to before this change (dark until
+    the multi-key var is set). Empty → ``[]`` → the caller stays dark (404)."""
+    multi = (os.environ.get("HUB_JWT_PUBLIC_KEYS")
+             or os.environ.get("CLUB_JWT_PUBLIC_KEYS") or "").strip()
+    if multi:
+        keys = jwt_util.split_pem_blocks(multi)
+        if keys:
+            return keys
+    single = (os.environ.get("HUB_JWT_PUBLIC_KEY", "") or "").strip()
+    return [single] if single else []
+
+
 def _resolve_user(member_id, seat_id) -> User:
     """Map a hub (member, seat) to an Analee user, JIT-provisioning one (with
     their chart of accounts) on first SSO entry."""
@@ -103,14 +124,14 @@ def enter():
     if not _enabled():
         abort(404)
 
-    pub = (os.environ.get("HUB_JWT_PUBLIC_KEY", "") or "").strip()
-    if not pub:
+    keys = _trusted_public_keys()
+    if not keys:
         abort(404)  # not configured → behave as if dark
 
     token = request.args.get("token", "")
     try:
         payload = jwt_util.verify_rs256(
-            token, pub, audience=AUDIENCE,
+            token, keys, audience=AUDIENCE,
             issuer=os.environ.get("HUB_ISSUER", "the-accountants-hub"))
     except jwt_util.JWTError:
         return "invalid token", 401
