@@ -13,6 +13,14 @@
     <script src="https://cdn.jsdelivr.net/npm/plotly-latest.min.js"></script>
 </head>
 <body class="bg-light">
+  <div style="background:#0f172a;color:#fff;font-size:13.5px;">
+    <div style="max-width:1180px;margin:0 auto;padding:9px 20px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;">
+      <span style="opacity:.85;font-weight:600;">Questions? Talk to us:</span>
+      <a href="tel:+27870126784" style="color:#fff;text-decoration:none;font-weight:700;white-space:nowrap;">📞&nbsp;087&nbsp;012&nbsp;6784</a>
+      <a href="https://wa.me/27791996369" style="color:#fff;text-decoration:none;font-weight:700;white-space:nowrap;">💬&nbsp;WhatsApp&nbsp;079&nbsp;199&nbsp;6369</a>
+      <a href="mailto:supports@booksxperts.co.za" style="color:#fff;text-decoration:none;font-weight:700;white-space:nowrap;">✉&nbsp;supports@booksxperts.co.za</a>
+    </div>
+  </div>
     {% if current_user.is_authenticated %}
         {% if current_user.is_admin %}
             {% include "admin/layout.html" %}
