@@ -1,0 +1,53 @@
+---
+description: CNBSSA non-negotiable guardrails for every agent working in this repo (branch policy, no feature removal, minimal scope, no invented facts). Always applies.
+alwaysApply: true
+---
+
+# CNBSSA guardrails — read before any change
+
+These are the product owner's (Festus's) standing rules. They are
+non-negotiable and apply to EVERY task, no matter how small. The full
+workflow lives in `CLAUDE.md`; this file restates the rules that must never
+be missed. If a task seems to require breaking one of these, STOP and ask
+the owner first — do not proceed.
+
+## 1. Branch policy — develop only, NEVER main
+
+- Create every working branch FROM `develop`.
+- Open every pull request with **base = `develop`**.
+- **NEVER open, retarget, or push a pull request against `main`.** `main` is
+  production; promoting `develop → main` is the owner's decision alone, made
+  only inside the approved release window.
+- If you find yourself based on `main`, stop and re-base the work onto
+  `develop` before opening the PR.
+
+## 2. Additive-first — never remove or replace a feature or menu
+
+- No existing route, URL, view, nav/menu item, page, button, or user-facing
+  feature may disappear, be hidden, or be replaced as a side effect of another
+  change. List what the change touches, and confirm every one of those still
+  works afterwards.
+- Adding a new screen is fine; **redirecting or replacing an existing one is
+  not** without the owner's explicit, prior approval. Prefer adding a new nav
+  item over changing where an existing one leads.
+
+## 3. Minimal scope — no significant change without owner approval
+
+- Keep each PR to the specific fix or task described. Do not expand scope,
+  refactor unrelated code, or change business behaviour along the way.
+- A "significant change" (money/billing/pricing behaviour, auth, schema
+  migrations, access control, anything hard to reverse) must be called out
+  explicitly and approved by the owner before it lands — never slipped in.
+
+## 4. No invented facts
+
+- Never publish prices, contact details, dates, or claims you have not
+  verified in this repo or been given by the owner. If a value is unverified,
+  leave it out and say so — do not guess. (Example: do not put a price on a
+  public page unless the owner has explicitly approved publishing that exact
+  number.)
+
+## 5. Honesty
+
+- Do not claim success without running the tests. Mark uncertain claims with
+  `?`. Do not describe work as complete before verification finishes.
