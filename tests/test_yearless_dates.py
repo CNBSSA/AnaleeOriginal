@@ -68,3 +68,36 @@ def test_payload_with_yearless_lines_extracts():
     result = _payload_to_result(payload)
     assert [ln.date for ln in result.lines] == ["2025-09-05", "2025-09-12"]
     assert len(result.lines) == 2
+
+
+class TestSpaceSeparatedNumericDates:
+    """Festus's live dogfood statement (2026-08-26) printed dates like
+    '10 17' — space-separated numerics — which the importer rejected as
+    'unrecognised date format'. Day-first stays the SA default; month-first
+    is reached only when day-first is impossible (day value > 12)."""
+
+    def test_day_month_with_space(self):
+        from ocr.statement_integrity import resolve_date_with_period
+        assert resolve_date_with_period(
+            "17 10", period_start="2025-10-01", period_end="2025-10-31",
+        ) == "2025-10-17"
+
+    def test_month_day_fallback_unambiguous(self):
+        from ocr.statement_integrity import resolve_date_with_period
+        # "10 17": month 17 is impossible day-first → month-first 17 Oct.
+        assert resolve_date_with_period(
+            "10 17", period_start="2025-10-01", period_end="2025-10-31",
+        ) == "2025-10-17"
+
+    def test_ambiguous_pair_stays_day_first(self):
+        from ocr.statement_integrity import resolve_date_with_period
+        # "05 03" must remain SA day-first: 5 March, never 3 May.
+        assert resolve_date_with_period(
+            "05 03", period_start="2025-03-01", period_end="2025-03-31",
+        ) == "2025-03-05"
+
+    def test_garbage_still_rejected(self):
+        from ocr.statement_integrity import resolve_date_with_period
+        with pytest.raises(ValueError):
+            resolve_date_with_period("99 99", period_start="2025-03-01",
+                                     period_end="2025-03-31")
