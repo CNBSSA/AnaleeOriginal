@@ -22,6 +22,19 @@ export class BatchProcessor {
 
         this.startButton?.addEventListener('click', () => this.start());
         this.stopButton?.addEventListener('click', () => this.stop());
+
+        // Slice 1 (2026-08-27): the "Analyse the entire statement" hero button
+        // drives the SAME loop, with its own whole-file progress + a
+        // "review only the exceptions" CTA on completion. Additive — the phased
+        // controls above still work independently.
+        this.wholeButton = document.getElementById('analyseEntireStatement');
+        this.wholeStop = document.getElementById('stopWholeProcess');
+        this.wholeBar = document.getElementById('wholeProgressBar');
+        this.wholeStatus = document.getElementById('wholeStatusText');
+        this.exceptionsLink = document.getElementById('reviewExceptionsLink');
+        this.exceptionsCount = document.getElementById('reviewExceptionsCount');
+        this.wholeButton?.addEventListener('click', () => this.start());
+        this.wholeStop?.addEventListener('click', () => this.stop());
     }
 
     async start() {
@@ -35,14 +48,17 @@ export class BatchProcessor {
         this.updateStatus('Starting batch processing...');
 
         try {
+            let lastResult = null;
             while (this.running) {
                 const result = await this.processNextBatch();
+                lastResult = result;
                 if (!result?.has_more) {
                     this.updateStatus('Batch processing complete. Review suggestions on this page.');
                     break;
                 }
                 this.offset = result.next_offset;
             }
+            this.onComplete(lastResult);
         } catch (error) {
             console.error('Batch processing error:', error);
             this.updateStatus(`Error: ${error.message}`);
@@ -119,6 +135,32 @@ export class BatchProcessor {
         if (this.progressText) {
             this.progressText.textContent = `${done} / ${total} reviewed`;
         }
+        // Mirror progress onto the whole-statement hero bar.
+        if (this.wholeBar) {
+            this.wholeBar.style.width = `${percent}%`;
+            this.wholeBar.textContent = `${percent}%`;
+        }
+        if (this.wholeStatus) {
+            this.wholeStatus.textContent = `Analysed ${done} of ${total}…`;
+        }
+    }
+
+    onComplete(result) {
+        // Reveal the "review only the exceptions" CTA. remaining = rows the
+        // engine could not confidently place; those are the human's job.
+        const remaining = (result && result.remaining) || 0;
+        if (this.wholeStatus) {
+            this.wholeStatus.textContent = remaining
+                ? `Done. ${remaining} transaction${remaining === 1 ? '' : 's'} need your eye.`
+                : 'Done — every transaction was placed. Nothing left for you to review.';
+        }
+        if (this.exceptionsLink && remaining > 0) {
+            if (this.exceptionsCount) {
+                this.exceptionsCount.textContent =
+                    `Review the ${remaining} that need your eye`;
+            }
+            this.exceptionsLink.classList.remove('d-none');
+        }
     }
 
     updateStatus(message) {
@@ -133,6 +175,12 @@ export class BatchProcessor {
         }
         if (this.stopButton) {
             this.stopButton.disabled = !isRunning;
+        }
+        if (this.wholeButton) {
+            this.wholeButton.disabled = isRunning;
+        }
+        if (this.wholeStop) {
+            this.wholeStop.disabled = !isRunning;
         }
     }
 }

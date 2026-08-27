@@ -41,13 +41,27 @@ def get_paginated_transactions(
     user_id: int,
     page: int,
     per_page: int = ANALYZE_PAGE_SIZE,
+    only_unprocessed: bool = False,
 ) -> Tuple[List[Transaction], int, int]:
-    """Return (rows, total_count, total_pages) for the requested page."""
+    """Return (rows, total_count, total_pages) for the requested page.
+
+    ``only_unprocessed`` (Festus 2026-08-27, "review only the exceptions"):
+    when True, restrict to rows that still need an account or explanation —
+    the same predicate as ``transaction_needs_processing`` /
+    ``count_unprocessed_transactions`` — so after a whole-statement pass the
+    accountant sees the handful that need their eye, not all 1,469. Default
+    False → byte-identical to before (full paginated list)."""
     page = max(1, page)
     base_query = Transaction.query.filter_by(
         file_id=file_id,
         user_id=user_id,
-    ).order_by(Transaction.date, Transaction.id)
+    )
+    if only_unprocessed:
+        base_query = base_query.filter(
+            Transaction.account_id.is_(None),
+            or_(Transaction.explanation.is_(None), Transaction.explanation == ''),
+        )
+    base_query = base_query.order_by(Transaction.date, Transaction.id)
 
     total_count = base_query.count()
     total_pages = max(1, (total_count + per_page - 1) // per_page)
