@@ -360,6 +360,17 @@ def create_app(env=None):
             from ocr import ocr
             from provisioning import provisioning
 
+            # AI-availability honesty (Festus, 2026-08-27: "What if these is
+            # happenning to external subscribers?"). The suggestion engine
+            # silently falls back to basic text-matching when the Claude key
+            # is absent — a silent degradation that live testing exposed. This
+            # banner flag makes the state VISIBLE (template-only; the frozen
+            # engine is untouched — it never has to know).
+            @app.context_processor
+            def _inject_ai_status():
+                return {"ai_suggestions_online": bool(
+                    (os.environ.get("ANTHROPIC_API_KEY") or "").strip())}
+
             # Register blueprints
             app.register_blueprint(auth)
             app.register_blueprint(main)
