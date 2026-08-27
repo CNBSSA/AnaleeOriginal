@@ -110,6 +110,19 @@
                                 </form>
                             </li>
                             {% endif %}
+                            {% if session.get('club_session') %}
+                            {# Way back to the Accountants Workstation for members who
+                               arrived via Club SSO (Festus 2026-08-27: "how do I
+                               navigate back to the work station" — Analee had no back
+                               link; BooksXperts already carries one). Hidden for
+                               direct-login users. Nav-only — the frozen analysis
+                               engine is untouched. #}
+                            <li class="nav-item">
+                                <a class="nav-link fw-bold"
+                                   href="{{ config.get('CLUB_HUB_HOME_URL', 'https://www.accountantsclubhouse.com/practice/') }}"
+                                   title="Back to your Accountants Workstation client list">&larr; Workstation</a>
+                            </li>
+                            {% endif %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout</a>
                             </li>

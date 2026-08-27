@@ -403,11 +403,13 @@
 {% block scripts %}
 <script type="module">
     import AnalyzeApplication from "{{ url_for('static', filename='js/analyze/main.js') }}";
+    import enhanceAccountSelects from "{{ url_for('static', filename='js/analyze/accountSearch.js') }}";
     import BatchProcessor from "{{ url_for('static', filename='js/analyze/batchProcessor.js') }}";
 
     document.addEventListener('DOMContentLoaded', async () => {
         const app = new AnalyzeApplication();
         await app.initialize();
+        enhanceAccountSelects();  // type-to-search on account pickers (presentation only)
 
         {% if file is defined and file %}
         const batchProcessor = new BatchProcessor({{ file.id }});
