@@ -374,11 +374,16 @@ def analyze(file_id):
             flash(f'Saved changes for {saved} transaction(s).', 'success')
             return redirect(url_for('main.analyze', file_id=file_id, page=page))
 
+        # Exceptions view (Festus 2026-08-27): ?view=exceptions shows ONLY the
+        # rows that still need an account/explanation after a whole-statement
+        # pass — additive, default is the full list exactly as before.
+        exceptions_view = request.args.get('view') == 'exceptions'
         transactions, total_count, total_pages = get_paginated_transactions(
             file_id,
             current_user.id,
             page,
             ANALYZE_PAGE_SIZE,
+            only_unprocessed=exceptions_view,
         )
         page = min(max(1, page), total_pages)
 
@@ -407,6 +412,7 @@ def analyze(file_id):
             total_pages=total_pages,
             per_page=ANALYZE_PAGE_SIZE,
             ai_available=True,
+            exceptions_view=exceptions_view,
         )
 
     except Exception as e:

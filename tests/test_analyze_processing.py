@@ -263,3 +263,55 @@ def test_asf_declines_cleanly_when_ai_key_absent(canary_app):
     assert payload["success"] is False
     assert payload["ai_online"] is False
     assert "offline" in payload["message"].lower()
+
+
+def test_only_unprocessed_filter_returns_exceptions(app, analyze_user, analyze_file):
+    """Slice 1 (Festus 2026-08-27): the exceptions view returns ONLY rows that
+    still need an account/explanation; the full list is unchanged by default."""
+    from services.analyze_processing import get_paginated_transactions
+    with app.app_context():
+        # 3 done (have account or explanation), 2 still needing attention.
+        acc = _add_account(app, analyze_user)
+        done = [
+            Transaction(date=datetime(2025, 1, 1), description='D1', amount=1,
+                        user_id=analyze_user, file_id=analyze_file, account_id=acc),
+            Transaction(date=datetime(2025, 1, 2), description='D2', amount=2,
+                        user_id=analyze_user, file_id=analyze_file,
+                        explanation='Bank charge'),
+        ]
+        needy = [
+            Transaction(date=datetime(2025, 1, 3), description='N1', amount=3,
+                        user_id=analyze_user, file_id=analyze_file),
+            Transaction(date=datetime(2025, 1, 4), description='N2', amount=4,
+                        user_id=analyze_user, file_id=analyze_file),
+        ]
+        db.session.add_all(done + needy)
+        db.session.commit()
+
+        all_rows, all_total, _ = get_paginated_transactions(
+            analyze_file, analyze_user, 1, 50, only_unprocessed=False)
+        exc_rows, exc_total, _ = get_paginated_transactions(
+            analyze_file, analyze_user, 1, 50, only_unprocessed=True)
+
+    assert all_total == 4
+    assert exc_total == 2
+    assert {r.description for r in exc_rows} == {'N1', 'N2'}
+
+
+def test_exceptions_view_renders(canary_app):
+    """Post-engagement: the ?view=exceptions page renders without a template
+    error (guards the |pluralize→Django-only mistake and the new markup)."""
+    with canary_app.app_context():
+        u = User(username="exru", email="exr@x.test", subscription_status="active")
+        u.set_password("pw12345!"); db.session.add(u); db.session.commit()
+        f = UploadedFile(filename="s.xlsx", user_id=u.id); db.session.add(f); db.session.commit()
+        db.session.add(Transaction(date=datetime(2025, 1, 1), description="N",
+                                   amount=1, user_id=u.id, file_id=f.id)); db.session.commit()
+        uid, fid = u.id, f.id
+    from flask_login import login_user
+    with canary_app.test_request_context(f"/analyze/{fid}?view=exceptions"):
+        login_user(User.query.get(uid))
+        from routes import analyze
+        html = analyze(fid)
+    assert "need your eye" in html
+    assert "Analyse the entire statement" in html
