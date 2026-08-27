@@ -31,6 +31,14 @@ PROTECTED_FILES = [
     'services/entity_chart_schema.py',   # chart schema
     'utils/chart_of_accounts.py',        # chart helpers
     'reports/trial_balance_service.py',  # trial-balance (financial-reporting core)
+    # THE ANALYSIS ENGINE — capability freeze #1, machine-enforced 2026-08-27
+    # after Festus's escalation ("I yelled on top of my voice that no features
+    # should be touched"): the ASF/ESF/Recall suggestion machinery is now
+    # locked byte-for-byte like the chart, closing the CLAUDE.md TODO. Git
+    # history verified same day: neither file changed since June (pre-freeze);
+    # the live degradation was the runtime ANTHROPIC_API_KEY, not code.
+    'predictive_features.py',            # ASF/ESF suggestion engine
+    'ai_utils.py',                       # AI helpers the engine calls
 ]
 
 
