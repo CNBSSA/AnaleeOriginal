@@ -206,6 +206,48 @@
             accounts (e.g. Office Furniture - Cost). Avoid trade receivables/payables — BooksXperts or
             The Accountants handle depreciation and accrual adjustments after trial balance import.
         </div>
+        {# Slice 1 (Festus 2026-08-27, "I cannot imagine my client going through
+           400 pages"): one button analyses the WHOLE statement over the existing
+           loop, then routes the human to only the exceptions. Additive — the
+           phased card below is untouched; the frozen engine is only called. #}
+        <div class="card mb-3 border-success shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title mb-1">
+                    <i class="fas fa-wand-magic-sparkles me-1 text-success"></i>
+                    Analyse the entire statement
+                </h5>
+                <p class="text-muted mb-3">
+                    Let Analee work through <strong>all {{ total_count }} transactions</strong>
+                    in one pass — high-confidence accounts are applied automatically.
+                    You only review the few it can't place.
+                </p>
+                <div class="progress mb-2" style="height: 26px;">
+                    <div id="wholeProgressBar" class="progress-bar bg-success progress-bar-striped"
+                         role="progressbar" style="width: 0%">0%</div>
+                </div>
+                <p class="mb-3" id="wholeStatusText">Ready when you are.</p>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <button type="button" class="btn btn-success btn-lg" id="analyseEntireStatement">
+                        <i class="fas fa-play me-1"></i> Analyse the entire statement
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="stopWholeProcess" disabled>Stop</button>
+                    <a id="reviewExceptionsLink" class="btn btn-outline-warning d-none"
+                       href="{{ url_for('main.analyze', file_id=file.id, view='exceptions') }}">
+                        <span id="reviewExceptionsCount">Review the ones that need your eye</span> &rarr;
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        {% if exceptions_view %}
+        <div class="alert alert-warning d-flex justify-content-between align-items-center" role="alert">
+            <span><strong>{{ total_count }}</strong> transaction{% if total_count != 1 %}s{% endif %} still
+                need your eye — everything else is done.</span>
+            <a class="btn btn-sm btn-outline-secondary"
+               href="{{ url_for('main.analyze', file_id=file.id) }}">Show all transactions</a>
+        </div>
+        {% endif %}
+
         <div class="card mb-4 border-primary">
             <div class="card-body">
                 <h5 class="card-title">Phased auto-processing</h5>
