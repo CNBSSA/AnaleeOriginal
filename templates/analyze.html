@@ -1,6 +1,15 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% if not ai_suggestions_online %}
+<div class="alert alert-warning mb-3" role="alert">
+    <strong>AI suggestions are offline on this server</strong> — no Anthropic API
+    key is configured, so account and explanation suggestions fall back to basic
+    text matching (expect weaker matches). Your manual selections, saved rules,
+    and locked items work normally. Ask your administrator to set
+    ANTHROPIC_API_KEY to restore full intelligence.
+</div>
+{% endif %}
 
 <!-- Updated Tutorial Overlay with Progress Indicators -->
 <div id="tutorialOverlay" class="tutorial-overlay">
