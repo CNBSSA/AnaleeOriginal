@@ -87,6 +87,17 @@ _DAY_MONTH_FORMATS = (
     "%d %b", "%d %B",
     "%d-%b", "%d-%B",
     "%d/%m", "%d-%m", "%d.%m",
+    # Space-separated numeric day-month ("17 10") — seen in Festus's live
+    # dogfood statement, 2026-08-26 (rejected as "unrecognised date format").
+    "%d %m",
+)
+
+# Month-first numeric fallback ("10 17" = 17 October): tried ONLY after every
+# day-first format has failed, so an ambiguous "05 03" always stays SA
+# day-first (5 March) — month-first can only ever match when the day value is
+# > 12, which is exactly the unambiguous case.
+_MONTH_DAY_FORMATS = (
+    "%m %d", "%m/%d", "%m-%d",
 )
 
 
@@ -117,6 +128,15 @@ def resolve_date_with_period(
             break
         except ValueError:
             continue
+    if parsed is None:
+        # Unambiguous month-first fallback (see _MONTH_DAY_FORMATS): reached
+        # only when day-first parsing is impossible, e.g. "10 17".
+        for fmt in _MONTH_DAY_FORMATS:
+            try:
+                parsed = datetime.strptime(s, fmt)
+                break
+            except ValueError:
+                continue
     if parsed is None:
         raise ValueError(f"unrecognised date format: {raw!r}")
 
