@@ -239,3 +239,27 @@ def test_process_transaction_batch_without_ai_client(app, analyze_user, analyze_
     assert result['processed'] == 10
     assert result['has_more'] is True
     assert result['results'][0]['applied_account_id'] is not None
+
+
+def test_asf_declines_cleanly_when_ai_key_absent(canary_app):
+    """Degradation guard (Festus 2026-08-27): with no ANTHROPIC_API_KEY the
+    ASF route must NOT return a misleading text-match suggestion — it returns
+    ai_online=False + a clear message, and never invokes the frozen engine.
+    canary_app is the real app and already runs with the key popped."""
+    with canary_app.app_context():
+        u = User(username="guardu", email="guard@x.test", subscription_status="active")
+        u.set_password("pw12345!")
+        db.session.add(u); db.session.commit()
+        uid = u.id
+    from flask_login import login_user
+    from models import User as _User
+    with canary_app.test_request_context(
+            "/analyze/suggest-account", method="POST",
+            json={"description": "FEE BANK CHARGE", "explanation": "bank charges"}):
+        login_user(_User.query.get(uid))
+        from routes import suggest_account
+        resp = suggest_account()
+    payload = resp.get_json() if hasattr(resp, "get_json") else resp[0].get_json()
+    assert payload["success"] is False
+    assert payload["ai_online"] is False
+    assert "offline" in payload["message"].lower()

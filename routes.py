@@ -1,5 +1,6 @@
 """Main application routes including core functionality"""
 import logging
+import os
 import pandas as pd
 from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
@@ -537,6 +538,24 @@ def suggest_account():
 
         if not description:
             return jsonify({'error': 'Description is required'}), 400
+
+        # Degradation guard (Festus 2026-08-27: "We need to prevent the
+        # degradation"). Without the Claude key the frozen engine silently
+        # falls back to crude text-matching and returns confidently-WRONG
+        # account suggestions (the live 'Short-term Investments 0.42' on a bank
+        # charge). Rather than surface a misleading answer, decline cleanly and
+        # tell the user to use search / recall / manual — those never needed
+        # the AI. The frozen engine is NOT called in this state (boundary
+        # guard only; engine untouched).
+        if not (os.environ.get('ANTHROPIC_API_KEY') or '').strip():
+            return jsonify({
+                'success': False,
+                'ai_online': False,
+                'message': ('AI account suggestions are offline (no API key set '
+                            'on this server). Use the search box, a recalled '
+                            'similar transaction, or pick the account manually — '
+                            'your saved rules and locked items are unaffected.'),
+            })
 
         predictor = PredictiveFeatures()
         suggestion = predictor.suggest_account(
