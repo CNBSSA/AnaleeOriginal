@@ -200,14 +200,15 @@ def test_verify_rejects_non_dict_payload():
 
 
 def test_workstation_link_shown_for_club_sessions_only(canary_app, client):
-    """Festus 2026-08-27: Analee had no way back to the Workstation. The nav
-    link renders only for club sessions; direct logins never see it."""
+    """Festus 2026-08-27: Analee had no way back to the Practice Club. The nav
+    link renders only for club sessions; direct logins never see it.
+    2026-08-29: label unified to '← Practice Club', target the member home."""
     with mock.patch.dict(os.environ, _ON):
         client.get(f"/sso/enter/?token={_token(member_id=8, seat_id=4)}")
     resp = client.get("/dashboard", follow_redirects=True)
-    assert b"&larr; Workstation" in resp.data
-    assert b"accountantsclubhouse.com" in resp.data
+    assert b"&larr; Practice Club" in resp.data
+    assert b"accountantsclubhouse.com/home/" in resp.data
 
     client2 = canary_app.test_client()
     resp2 = client2.get("/dashboard", follow_redirects=True)
-    assert b"&larr; Workstation" not in resp2.data
+    assert b"&larr; Practice Club" not in resp2.data
