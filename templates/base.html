@@ -111,16 +111,16 @@
                             </li>
                             {% endif %}
                             {% if session.get('club_session') %}
-                            {# Way back to the Accountants Workstation for members who
+                            {# Way back to the Practice Club member home for members who
                                arrived via Club SSO (Festus 2026-08-27: "how do I
-                               navigate back to the work station" — Analee had no back
-                               link; BooksXperts already carries one). Hidden for
-                               direct-login users. Nav-only — the frozen analysis
-                               engine is untouched. #}
+                               navigate back to the work station"; 2026-08-29: land on
+                               the member home /home/ and label it identically across
+                               all products). Hidden for direct-login users. Nav-only —
+                               the frozen analysis engine is untouched. #}
                             <li class="nav-item">
                                 <a class="nav-link fw-bold"
-                                   href="{{ config.get('CLUB_HUB_HOME_URL', 'https://www.accountantsclubhouse.com/practice/') }}"
-                                   title="Back to your Accountants Workstation client list">&larr; Workstation</a>
+                                   href="{{ config.get('CLUB_HUB_HOME_URL', 'https://www.accountantsclubhouse.com/home/') }}"
+                                   title="Back to your Practice Club home">&larr; Practice Club</a>
                             </li>
                             {% endif %}
                             <li class="nav-item">
