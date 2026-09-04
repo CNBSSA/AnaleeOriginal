@@ -139,6 +139,7 @@ def confirm_receipt():
             account = None
 
     parsed_rows = []
+    unreadable_dates = []
     for index, (raw_date, raw_desc, raw_amount) in enumerate(zip(dates, descriptions, amounts)):
         if has_include_filter and str(index) not in included_indexes:
             continue
@@ -149,14 +150,35 @@ def confirm_receipt():
             amount = float(str(raw_amount).replace(',', '').replace('$', '').strip())
         except (TypeError, ValueError):
             continue
+        # A date we cannot read is NEVER silently replaced with today's date.
+        # It used to be, and that is a bookkeeping defect, not a convenience:
+        # the transaction lands in whatever VAT/tax period the import happened
+        # to run in, the books look complete, and nothing anywhere says the
+        # date was invented. Refuse the row and name it instead — the review
+        # screen the user just came from is editable, so this is a correction
+        # they can actually make. (QA audit, 2026-09-04.)
         try:
             date_value = datetime.strptime((raw_date or '').strip(), '%Y-%m-%d')
         except (TypeError, ValueError):
-            date_value = datetime.utcnow()
+            unreadable_dates.append(index + 1)
+            continue
         parsed_rows.append((date_value, description, amount))
 
+    def _rows_phrase(rows):
+        listed = ', '.join(str(r) for r in rows[:10])
+        return listed + ('…' if len(rows) > 10 else '')
+
     if not parsed_rows:
-        flash('No valid rows to import. Please review the extracted values.', 'error')
+        if unreadable_dates:
+            flash(
+                'Nothing was imported. The date could not be read on '
+                f'{len(unreadable_dates)} row(s): {_rows_phrase(unreadable_dates)}. '
+                'Go back, type each date as YYYY-MM-DD (for example 2026-03-15), '
+                'and import again.',
+                'error',
+            )
+        else:
+            flash('No valid rows to import. Please review the extracted values.', 'error')
         return redirect(url_for('ocr.upload_statement'))
 
     try:
@@ -185,5 +207,15 @@ def confirm_receipt():
         flash('Could not import the transactions. Please try again.', 'error')
         return redirect(url_for('ocr.upload_statement'))
 
-    flash(f'Imported {len(parsed_rows)} transaction(s).', 'success')
+    if unreadable_dates:
+        # Never report a partial import as a clean one.
+        flash(
+            f'Imported {len(parsed_rows)} transaction(s). '
+            f'{len(unreadable_dates)} row(s) were NOT imported because the date '
+            f'could not be read: {_rows_phrase(unreadable_dates)}. '
+            'Go back, type each date as YYYY-MM-DD, and import those rows.',
+            'warning',
+        )
+    else:
+        flash(f'Imported {len(parsed_rows)} transaction(s).', 'success')
     return redirect(url_for('main.upload'))
