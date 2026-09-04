@@ -45,16 +45,21 @@ class RegistrationForm(FlaskForm):
     submit = SubmitField('Register')
 
     def validate_email(self, email):
-        """Check if email is available for registration"""
+        """Check if the email is available for registration.
+
+        A validator VALIDATES. This one used to call restore_account() and then
+        db.session.delete(user) — a destructive, committed write performed
+        merely because someone typed an address into a signup form. Because
+        every financial relationship on User cascades, that delete destroyed
+        the old account's transactions, accounts, statement uploads and company
+        settings (it also raised AttributeError first, so it never completed).
+
+        Freeing the address is now done deliberately in auth.register, after
+        every validator has passed. See docs/DATA_RETENTION.md.
+        """
         user = User.query.filter_by(email=email.data.lower()).first()
-        if user:
-            if user.is_deleted:
-                # If the account is deleted, allow re-registration
-                user.restore_account()
-                db.session.delete(user)
-                db.session.commit()
-            else:
-                raise ValidationError('Email already registered. Please use a different email or login to your existing account.')
+        if user and not user.is_deleted:
+            raise ValidationError('Email already registered. Please use a different email or login to your existing account.')
 
 class RequestPasswordResetForm(FlaskForm):
     """Form for requesting a password reset"""

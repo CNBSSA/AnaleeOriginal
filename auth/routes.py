@@ -40,9 +40,22 @@ def register():
             # Check if user already exists
             existing_user = User.query.filter_by(email=form.email.data.lower().strip()).first()
 
-            if existing_user:
+            if existing_user and not existing_user.is_deleted:
                 flash('An account with this email already exists.', 'error')
                 return redirect(url_for('auth.login'))
+
+            if existing_user:
+                # A previously soft-deleted account holds this address. Move its
+                # login identifiers aside so the person can sign up again — the
+                # old row and all of its accounting records stay exactly where
+                # they are. Deleting it would destroy books the Companies Act
+                # and SARS require be kept (docs/DATA_RETENTION.md).
+                logger.info(
+                    'Releasing identifiers from soft-deleted user_id=%s so %s '
+                    'can be re-registered; records retained',
+                    existing_user.id, existing_user.email)
+                existing_user.release_identifiers_for_reregistration()
+                db.session.flush()
 
             try:
                 # Create new user
