@@ -2,6 +2,7 @@
 Authentication routes including login, password reset functionality
 """
 import logging
+import os
 from flask import (
     render_template, redirect, url_for, flash,
     request, session, current_app
@@ -14,6 +15,13 @@ from models import db, User
 from forms.auth import (
     LoginForm, RequestPasswordResetForm, ResetPasswordForm, 
     RegistrationForm
+)
+from password_reset_tokens import (
+    BadSignature,
+    SignatureExpired,
+    create_password_reset_token,
+    token_matches_current_password,
+    verify_password_reset_token,
 )
 
 # Configure logging
@@ -64,8 +72,16 @@ def register():
 def login():
     """Handle user login with enhanced security and session management."""
     try:
-        # Clear any existing session data
+        # Clear any existing session data (session-fixation hygiene on the way
+        # in). Preserve the flash queue across it, though: everything that
+        # redirects HERE to tell the user something — "your password has been
+        # reset", "check your email" — had its message destroyed by this line
+        # before the page rendered, so the user saw silence. The clear keeps
+        # doing its job; the messages now survive it. (QA audit, 2026-09-04.)
+        _pending_flashes = session.get('_flashes')
         session.clear()
+        if _pending_flashes:
+            session['_flashes'] = _pending_flashes
 
         # If user is already authenticated, redirect appropriately
         if current_user.is_authenticated and not current_user.is_deleted:
@@ -124,6 +140,21 @@ def logout():
         flash('Error during logout.', 'error')
     return redirect(url_for('auth.login'))
 
+# Same answer whether or not the address is registered. The old wording
+# ("Email address not found") turned this page into a free membership
+# checker for anyone who wanted to know who our customers are.
+_RESET_REQUESTED_MESSAGE = (
+    'If that email address has an account, a reset link has been created for '
+    'it. The link is valid for one hour. If nothing arrives, contact support '
+    'and we will reset it for you.'
+)
+
+_RESET_LINK_DEAD_MESSAGE = (
+    'That password reset link is no longer valid — it has expired, or it has '
+    'already been used. Request a new one below.'
+)
+
+
 @auth.route('/reset_password_request', methods=['GET', 'POST'])
 def reset_password_request():
     """Handle password reset requests"""
@@ -132,31 +163,80 @@ def reset_password_request():
 
     form = RequestPasswordResetForm()
     if form.validate_on_submit():
-        user = User.query.filter_by(email=form.email.data.lower().strip()).first()
+        user = User.query.filter_by(
+            email=form.email.data.lower().strip()).first()
         if user:
-            flash('Check your email for instructions to reset your password', 'info')
-            return redirect(url_for('auth.login'))
+            token = create_password_reset_token(
+                user, secret_key=current_app.config['SECRET_KEY'])
+            reset_url = url_for('auth.reset_password', token=token,
+                                _external=True)
+            # Email delivery is not wired up in this app yet, so nothing is
+            # actually sent. Saying "check your email" while sending nothing is
+            # how a locked-out customer ends up stranded, so we do not say it.
+            # Festus has no shell but does have Railway logs, so the link can be
+            # surfaced there to unstick someone — deliberately OFF by default,
+            # because a reset link in a log file is an account-takeover token in
+            # a log file. Turn it on only while helping a specific customer.
+            if (os.environ.get('ANALEE_PASSWORD_RESET_LOG_LINK') or '').strip() == '1':
+                logger.warning('PASSWORD RESET LINK for %s: %s',
+                               user.email, reset_url)
+            else:
+                logger.info('Password reset requested for user_id=%s '
+                            '(link not logged; set '
+                            'ANALEE_PASSWORD_RESET_LOG_LINK=1 to surface it)',
+                            user.id)
         else:
-            flash('Email address not found', 'error')
+            logger.info('Password reset requested for an unknown address')
+        flash(_RESET_REQUESTED_MESSAGE, 'info')
+        return redirect(url_for('auth.login'))
 
     return render_template('auth/reset_password_request.html', form=form)
 
+
 @auth.route('/reset_password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
-    """Handle password reset with token"""
+    """Handle password reset with token.
+
+    The TOKEN decides whose password changes — never anything posted in the
+    form. Do not reintroduce an email (or user id) field here: combined with a
+    lookup, that is unauthenticated account takeover. See
+    password_reset_tokens.py and tests/test_password_reset.py.
+    """
     if current_user.is_authenticated:
         return redirect(url_for('main.dashboard'))
 
+    secret_key = current_app.config['SECRET_KEY']
+
+    def _dead_link():
+        flash(_RESET_LINK_DEAD_MESSAGE, 'error')
+        return redirect(url_for('auth.reset_password_request'))
+
+    # Verified on GET as well as POST, so an invalid link never renders a form
+    # that looks like it will work.
+    try:
+        user_id = verify_password_reset_token(token, secret_key=secret_key)
+    except (BadSignature, SignatureExpired):
+        return _dead_link()
+
+    user = User.query.get(user_id)
+    if user is None or user.is_deleted:
+        return _dead_link()
+
+    # Bound to the password hash at issue time: once this token has been used
+    # (or the password changed by any other route) it stops working.
+    try:
+        if not token_matches_current_password(token, user, secret_key=secret_key):
+            return _dead_link()
+    except (BadSignature, SignatureExpired):
+        return _dead_link()
+
     form = ResetPasswordForm()
     if form.validate_on_submit():
-        user = User.query.filter_by(email=form.email.data.lower().strip()).first()
-        if user:
-            user.set_password(form.password.data)
-            db.session.commit()
-            flash('Your password has been reset', 'success')
-            return redirect(url_for('auth.login'))
-        else:
-            flash('Invalid email address', 'error')
+        user.set_password(form.password.data)
+        db.session.commit()
+        logger.info('Password reset completed for user_id=%s', user.id)
+        flash('Your password has been reset. You can log in now.', 'success')
+        return redirect(url_for('auth.login'))
 
     return render_template('auth/reset_password.html', form=form)
 
