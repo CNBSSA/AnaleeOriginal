@@ -518,30 +518,27 @@ def delete_subscriber(user_id):
         current_app.logger.info(f"Admin {current_user.username} deleting user {user.username}")
 
         try:
-            # Mark user as deleted first
+            # RETENTION RULING (2026-09-04, docs/DATA_RETENTION.md).
+            #
+            # This block used to purge the user's transactions, accounts, bank
+            # statement uploads and company settings, then report "permanently
+            # deleted". It never actually ran: user.soft_delete() was undefined,
+            # so it raised AttributeError and fell into the handler below every
+            # time. Implementing soft_delete() without changing this would have
+            # armed it.
+            #
+            # It must not be armed. Those are accounting records the customer
+            # needs for their own SARS and CIPC filings, and which the Companies
+            # Act (s24(3), seven years), the Tax Administration Act (ss29-30)
+            # and the VAT Act (s55) require be kept. POPIA s14(1)(a) permits
+            # retention required by law. So the person is retired and the books
+            # are kept.
+            #
+            # Purging records once the retention period has genuinely expired is
+            # a separate, deliberate operation. It does not exist yet, and is
+            # recorded as open in docs/QA_AUDIT_2026-09-04.md rather than being
+            # built as a side effect of this repair.
             user.soft_delete()
-
-            # Delete user's data in specific order to handle dependencies
-            BankStatementUpload.query.filter_by(user_id=user.id).delete()
-            db.session.flush()
-
-            Transaction.query.filter_by(user_id=user.id).delete()
-            db.session.flush()
-
-            # Delete accounts after transactions are removed
-            Account.query.filter_by(user_id=user.id).delete()
-            db.session.flush()
-
-            # Delete all other user-related data
-            CompanySettings.query.filter_by(user_id=user.id).delete()
-            UploadedFile.query.filter_by(user_id=user.id).delete()
-            FinancialGoal.query.filter_by(user_id=user.id).delete()
-            AlertConfiguration.query.filter_by(user_id=user.id).delete()
-            AlertHistory.query.filter_by(user_id=user.id).delete()
-            HistoricalData.query.filter_by(user_id=user.id).delete()
-            RiskAssessment.query.filter_by(user_id=user.id).delete()
-            FinancialRecommendation.query.filter_by(user_id=user.id).delete()
-            db.session.flush()
 
             # Force logout if the deleted user has any active sessions
             from flask_login import logout_user
@@ -549,8 +546,14 @@ def delete_subscriber(user_id):
                 logout_user()
 
             db.session.commit()
-            flash(f'User {user.username} has been permanently deleted', 'success')
-            current_app.logger.info(f"User {user.username} deleted successfully by admin {current_user.username}")
+            flash(
+                f'{user.username} has been removed and can no longer log in. '
+                'Their accounting records are retained, as the Companies Act '
+                'and SARS require.',
+                'success')
+            current_app.logger.info(
+                "User %s soft-deleted by admin %s; financial records retained",
+                user.username, current_user.username)
 
         except Exception as db_error:
             db.session.rollback()

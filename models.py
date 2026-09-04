@@ -82,6 +82,65 @@ class User(UserMixin, db.Model):
         un-entitled without being locked out of the app (G10/B-A2)."""
         return not self.is_deleted and self.subscription_status in ['active', 'pending', 'login_only']
 
+    # ---- deletion lifecycle -------------------------------------------------
+    #
+    # RULING (2026-09-04, docs/DATA_RETENTION.md): deleting a subscriber
+    # soft-deletes the PERSON and RETAINS their accounting records.
+    #
+    # This is not a preference. Every financial relationship above is
+    # cascade='all, delete-orphan' with ondelete='CASCADE', so db.session
+    # .delete(user) destroys that user's transactions, accounts, bank statement
+    # uploads and company settings. Those are accounting records, and South
+    # African law requires they be kept: Companies Act 71 of 2008 s24(3) (seven
+    # years), Tax Administration Act 28 of 2011 ss29-30 (five years from
+    # submission, longer under audit or objection), VAT Act 89 of 1991 s55
+    # (five years). POPIA s14(1)(a) expressly permits retention where another
+    # law requires it, so keeping them is lawful — and purging them would
+    # destroy the customer's own evidence for their filings.
+    #
+    # These methods were CALLED from admin/routes.py and forms/auth.py but
+    # defined nowhere, so both paths raised AttributeError. Implementing them
+    # without also fixing the admin purge would have armed a live landmine.
+
+    STATUS_DELETED = 'deleted'
+    STATUS_DEACTIVATED = 'deactivated'
+
+    def soft_delete(self) -> None:
+        """Retire the account. Login is refused; the books are kept.
+
+        ``is_active`` already excludes both a deleted flag and this status, so
+        Flask-Login refuses the session. The password hash is deliberately NOT
+        cleared, so ``restore_account`` is lossless.
+        """
+        self.is_deleted = True
+        self.subscription_status = self.STATUS_DELETED
+
+    def restore_account(self) -> None:
+        """Undo a soft delete, fail-closed.
+
+        Returns the user to 'deactivated' rather than to full access: the prior
+        status is not stored (no schema change), so an admin re-grants access
+        deliberately instead of this method guessing at an entitlement.
+        """
+        self.is_deleted = False
+        self.subscription_status = self.STATUS_DEACTIVATED
+
+    def release_identifiers_for_reregistration(self) -> None:
+        """Free this account's email/username so the person can sign up again.
+
+        The old row and every record hanging off it stay exactly where they are
+        — only the login identifiers move aside, to a reserved-by-RFC-2606
+        .invalid domain that can never be routed or re-registered. This is what
+        re-registration must call INSTEAD of deleting the row.
+        """
+        if not self.is_deleted:
+            raise ValueError(
+                'Refusing to release identifiers for an account that is not '
+                'soft-deleted.'
+            )
+        self.email = f'deleted+{self.id}@analee.invalid'
+        self.username = f'deleted_user_{self.id}'
+
     def __repr__(self):
         return f'<User {self.username}>'
 
