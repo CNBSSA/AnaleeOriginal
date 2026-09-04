@@ -3,14 +3,25 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Single source of truth for the Claude model id used by every AI feature.
-# Override per-environment with the CLAUDE_MODEL env var, no code change needed.
-# Vision/OCR uses OCR_MODEL (defaults to Sonnet — best balance of accuracy + cost for
-# bank-statement reading). claude-opus-4-7 was the old default but is not always
-# available on all API keys; Sonnet is the production standard across sister products.
+# The Claude model ids. There are TWO, and they are DELIBERATELY INDEPENDENT.
+#
+#   OCR_MODEL    — vision / bank-statement reading (ocr/).
+#   CLAUDE_MODEL — the analysis engine: ASF account suggestions, ESF explanations.
+#
+# They used to be coupled: CLAUDE_MODEL defaulted to OCR_MODEL, so setting
+# OCR_MODEL on Railway to tune statement reading SILENTLY re-pointed the
+# analysis engine at the same model. If that value was not valid for the key,
+# every ASF call raised, the frozen engine fell through to crude text matching,
+# and the user was shown a confidently-wrong account (the 'Bank charges' ->
+# 'Patents and Trademarks 0.42' defect, 2026-09-03). Tuning OCR must never be
+# able to reconfigure analysis. Decoupled — set each one explicitly.
+#
+# claude-opus-4-7 was the old default but is not available on all API keys;
+# Sonnet is the production standard across the sister products.
 _OCR_DEFAULT = 'claude-sonnet-4-6'
+_CLAUDE_DEFAULT = 'claude-sonnet-4-6'
 OCR_MODEL = os.environ.get('OCR_MODEL', _OCR_DEFAULT)
-CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', OCR_MODEL)
+CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', _CLAUDE_DEFAULT)
 
 # Global ceiling on request body size (Flask MAX_CONTENT_LENGTH). Werkzeug rejects
 # larger requests with 413 before reading the body into memory, guarding against

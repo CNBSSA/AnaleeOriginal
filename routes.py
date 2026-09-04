@@ -15,6 +15,7 @@ from sqlalchemy import func
 from models import Transaction
 from bank_statements.services import BankStatementService
 from predictive_features import PredictiveFeatures
+from config import CLAUDE_MODEL
 from ai_utils import predict_account as ai_predict_account
 
 
@@ -533,6 +534,46 @@ def find_similar_transactions_api():
         logger.error(f"Error finding similar transactions: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# --- ASF degradation guard (boundary only — the frozen engine is untouched) ---
+#
+# When the AI call cannot be made or fails, the frozen engine falls back to
+# `_basic_account_matching`: raw character similarity between
+# "<description> - <explanation>" and "<account name> <category>". On a real
+# statement line the user's explanation is a fifth of that string, so the
+# comparison is dominated by the bank's own reference text and the winner is
+# effectively noise — Festus's 2026-09-03 report: explanation "Bank charges",
+# suggestion "Patents and Trademarks - Amortisation, 42% match", while a
+# "Bank Charges" account existed. It returns success=True with a confidence
+# number, so it LOOKS like an answer. That is worse than no answer.
+#
+# We detect that state at the boundary and decline. Three doors, all closed:
+#   1. no API key configured at all;
+#   2. a key is present but the client did not construct (the engine logs
+#      "AI client initialized successfully" regardless — it cannot be trusted,
+#      so we check the client itself rather than the log);
+#   3. the engine answered, but with its fallback rather than the AI.
+#
+# Search, Recall and manual selection never needed the AI and are unaffected.
+_ASF_FALLBACK_MARKER = 'Best text match with account name and category'
+
+_ASF_OFFLINE_MESSAGE = (
+    'AI account suggestions are offline right now, so no suggestion is shown '
+    'rather than a guessed one. Use the search box, a recalled similar '
+    'transaction, or pick the account manually — your saved rules and locked '
+    'items are unaffected.'
+)
+
+
+def _asf_is_degraded(suggestion):
+    """True if this result came from the crude text-matching fallback."""
+    if not isinstance(suggestion, dict):
+        return False
+    reasoning = suggestion.get('reasoning')
+    if isinstance(reasoning, (list, tuple)):
+        reasoning = ' | '.join(str(part) for part in reasoning)
+    return _ASF_FALLBACK_MARKER in (reasoning or '')
+
+
 @main.route('/analyze/suggest-account', methods=['POST'])
 @login_required
 def suggest_account():
@@ -545,30 +586,51 @@ def suggest_account():
         if not description:
             return jsonify({'error': 'Description is required'}), 400
 
-        # Degradation guard (Festus 2026-08-27: "We need to prevent the
-        # degradation"). Without the Claude key the frozen engine silently
-        # falls back to crude text-matching and returns confidently-WRONG
-        # account suggestions (the live 'Short-term Investments 0.42' on a bank
-        # charge). Rather than surface a misleading answer, decline cleanly and
-        # tell the user to use search / recall / manual — those never needed
-        # the AI. The frozen engine is NOT called in this state (boundary
-        # guard only; engine untouched).
+        # Door 1 — no key at all. The engine is not called in this state.
         if not (os.environ.get('ANTHROPIC_API_KEY') or '').strip():
+            logger.warning('ASF declined: ANTHROPIC_API_KEY is not set')
             return jsonify({
                 'success': False,
                 'ai_online': False,
-                'message': ('AI account suggestions are offline (no API key set '
-                            'on this server). Use the search box, a recalled '
-                            'similar transaction, or pick the account manually — '
-                            'your saved rules and locked items are unaffected.'),
+                'message': _ASF_OFFLINE_MESSAGE,
             })
 
         predictor = PredictiveFeatures()
+
+        # Door 2 — a key is set but the client did not construct. The engine's
+        # own startup log claims success either way, so trust the object.
+        if getattr(predictor, 'client', None) is None:
+            logger.error(
+                'ASF declined: ANTHROPIC_API_KEY is set but the AI client did '
+                'not initialise. Check the key is valid and that CLAUDE_MODEL '
+                '(%s) is available on it.', CLAUDE_MODEL,
+            )
+            return jsonify({
+                'success': False,
+                'ai_online': False,
+                'message': _ASF_OFFLINE_MESSAGE,
+            })
+
         suggestion = predictor.suggest_account(
             description,
             explanation,
             user_id=current_user.id,
         )
+
+        # Door 3 — the engine answered, but from the fallback, not the AI.
+        if _asf_is_degraded(suggestion):
+            logger.error(
+                'ASF declined: the AI call failed and the engine fell back to '
+                'text matching (would have suggested %r at %s). Check the API '
+                'key and that CLAUDE_MODEL (%s) is available on it.',
+                suggestion.get('account'), suggestion.get('confidence'),
+                CLAUDE_MODEL,
+            )
+            return jsonify({
+                'success': False,
+                'ai_online': False,
+                'message': _ASF_OFFLINE_MESSAGE,
+            })
 
         return jsonify(suggestion)
 
