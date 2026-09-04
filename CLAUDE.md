@@ -12,6 +12,24 @@ live-incident hotfix (active data/security harm) may promote outside the window
 authoritative copy + the US-Eastern equivalent (5–11 PM ET during EDT; 4–10 PM EST) — the SAME SA-anchored window, NOT a separate US clock (corrected Festus 2026-08-08) — and Nigeria (≈10 PM–4 AM WAT) +
 rationale: `autonomusFV/agents/infra_facts.md`.
 
+## ⚠️ OPEN DEFECTS — READ BEFORE CALLING THIS REPO HEALTHY (2026-09-04)
+
+A green suite and a green deploy are **not** evidence that this product is
+ready. As of 2026-09-04 there are verified open defects, including one that may
+be a live incident. The standing register is **`docs/QA_AUDIT_2026-09-04.md`** —
+read it before reporting on Analee's readiness, and update it when a finding is
+fixed or a new one is verified.
+
+GitHub **Issues are disabled on this repo**, so that file IS the issue tracker.
+Do not let a finding live only in a chat transcript.
+
+Two lessons from that audit worth carrying:
+- **A security fix can exist in history and be on no branch.** `71eef5a` removed
+  the hard-coded admin credential in June and is an ancestor of neither `main`
+  nor `develop`. Checking recent CI would never have shown it.
+- **"Not configured" that exits 0 reads as healthy.** Green automation is not
+  evidence of availability.
+
 ## CNBSSA agent system (corp)
 
 - **Corp agent system (context layers, memory, learning):** `autonomusFV/agents/CNBSSA_AGENT_SYSTEM.md` (workspace clone path); org conventions: `autonomusFV/org-conventions/`.
