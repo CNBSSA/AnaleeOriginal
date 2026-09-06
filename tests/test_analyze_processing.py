@@ -62,15 +62,32 @@ def _add_account(app, user_id):
 
 
 def test_transaction_needs_processing():
+    """A row is finished only when it has BOTH an account and an explanation.
+
+    This used to be an AND of the two absences — having *either* one marked the
+    row done. Both import paths stamp the chosen bank account onto every row,
+    so a freshly imported statement was reported "All processed" before
+    anything had been categorised or explained.
+    """
     pending = Transaction(description='Test', amount=1, date=datetime.utcnow(), user_id=1)
     assert transaction_needs_processing(pending) is True
 
+    # Explanation only — still needs an account.
+    pending.explanation = 'Monthly fee'
+    assert transaction_needs_processing(pending) is True
+
+    # Account only (the import-stamped bank account) — still needs explaining.
+    pending.explanation = ''
+    pending.account_id = 5
+    assert transaction_needs_processing(pending) is True
+
+    # Both present — done.
     pending.explanation = 'Monthly fee'
     assert transaction_needs_processing(pending) is False
 
-    pending.explanation = ''
-    pending.account_id = 5
-    assert transaction_needs_processing(pending) is False
+    # Whitespace is not an explanation.
+    pending.explanation = '   '
+    assert transaction_needs_processing(pending) is True
 
 
 def test_pagination_returns_ten_rows_per_page(app, analyze_user, analyze_file):
@@ -152,6 +169,7 @@ def test_account_change_persists_on_client_locked_row(app, analyze_user, analyze
 
 
 def test_count_unprocessed_transactions(app, analyze_user, analyze_file):
+    """An account alone does not finish a row — it still needs explaining."""
     _add_transactions(app, analyze_user, analyze_file, count=3)
     account_id = _add_account(app, analyze_user)
 
@@ -159,9 +177,37 @@ def test_count_unprocessed_transactions(app, analyze_user, analyze_file):
         first = Transaction.query.filter_by(file_id=analyze_file).first()
         first.account_id = account_id
         db.session.commit()
-        unprocessed = count_unprocessed_transactions(analyze_file, analyze_user)
+        # All 3 still need work: one has an account but no explanation, two
+        # have neither.
+        assert count_unprocessed_transactions(analyze_file, analyze_user) == 3
 
-    assert unprocessed == 2
+        first.explanation = 'Monthly bank charge'
+        db.session.commit()
+        # Now that row has both halves and drops out.
+        assert count_unprocessed_transactions(analyze_file, analyze_user) == 2
+
+
+def test_imported_statement_is_not_reported_all_processed(app, analyze_user, analyze_file):
+    """The regression that hid 465 live transactions behind a green badge.
+
+    Both import paths stamp the selected bank account onto every row. Under the
+    old predicate that alone satisfied "processed", so the analyze list showed
+    "All processed" for a statement whose rows had never been categorised or
+    explained, and the exceptions view showed nothing to do.
+    """
+    _add_transactions(app, analyze_user, analyze_file, count=5)
+    bank_account_id = _add_account(app, analyze_user)
+
+    with app.app_context():
+        for txn in Transaction.query.filter_by(file_id=analyze_file).all():
+            txn.account_id = bank_account_id       # exactly what import does
+        db.session.commit()
+
+        assert count_unprocessed_transactions(analyze_file, analyze_user) == 5
+
+        rows, total, _ = get_paginated_transactions(
+            analyze_file, analyze_user, page=1, only_unprocessed=True)
+        assert total == 5, "exceptions view must still surface these rows"
 
 
 def test_find_similar_transactions_returns_list(app, analyze_user, analyze_file):
@@ -241,6 +287,84 @@ def test_process_transaction_batch_without_ai_client(app, analyze_user, analyze_
     assert result['results'][0]['applied_account_id'] is not None
 
 
+def test_batch_scopes_suggestions_to_the_owning_user(app, analyze_user, analyze_file, monkeypatch):
+    """The batch must pass user_id to the suggester.
+
+    suggest_account(..., user_id=None) falls back to
+    Account.query.filter_by(is_active=True) across EVERY tenant, so omitting it
+    put other customers' charts of accounts into the prompt.
+    """
+    _add_transactions(app, analyze_user, analyze_file, count=2)
+    _add_account(app, analyze_user)
+    seen = []
+
+    class FakePredictor:
+        def suggest_account(self, description, explanation, user_id=None):
+            seen.append(user_id)
+            return {'success': True, 'account': 'Bank Fees',
+                    'confidence': 0.9, 'reasoning': 'fee'}
+
+    monkeypatch.setattr('predictive_features.PredictiveFeatures', FakePredictor)
+    with app.app_context():
+        process_transaction_batch(analyze_file, analyze_user, offset=0, batch_size=10)
+
+    assert seen, "suggester was never called"
+    assert all(uid == analyze_user for uid in seen), (
+        "batch leaked every tenant's accounts by omitting user_id")
+
+
+def test_batch_does_not_skip_rows_it_could_not_assign(app, analyze_user, analyze_file, monkeypatch):
+    """Auto-applied rows leave the `account_id IS NULL` set, so the window must
+    not advance past them — doing so stepped over unassigned rows for good."""
+    _add_transactions(app, analyze_user, analyze_file, count=12)
+    _add_account(app, analyze_user)
+
+    class HalfConfidentPredictor:
+        """Alternates: half land above the 0.85 gate, half below."""
+        def __init__(self):
+            self.calls = 0
+
+        def suggest_account(self, description, explanation, user_id=None):
+            self.calls += 1
+            confident = self.calls % 2 == 0
+            return {'success': True, 'account': 'Bank Fees',
+                    'confidence': 0.95 if confident else 0.10,
+                    'reasoning': 'x'}
+
+    monkeypatch.setattr('predictive_features.PredictiveFeatures', HalfConfidentPredictor)
+
+    with app.app_context():
+        result = process_transaction_batch(analyze_file, analyze_user, offset=0, batch_size=10)
+        applied = result['applied']
+        # 5 of 10 applied -> 5 remain in the set at positions 0..4, so the next
+        # window must start at 5, NOT at 10 (which would skip 5 live rows).
+        assert applied == 5
+        assert result['next_offset'] == 5
+
+        # Drain the file and prove nothing was stepped over: every row ends up
+        # either assigned or still visible as needing work.
+        seen_ids = set()
+        offset = result['next_offset']
+        for _ in range(10):
+            nxt = process_transaction_batch(
+                analyze_file, analyze_user, offset=offset, batch_size=10)
+            seen_ids.update(r['transaction_id'] for r in nxt['results'])
+            offset = nxt['next_offset']
+            if not nxt['has_more']:
+                break
+
+        unassigned = Transaction.query.filter(
+            Transaction.file_id == analyze_file,
+            Transaction.account_id.is_(None),
+        ).count()
+        assigned = Transaction.query.filter(
+            Transaction.file_id == analyze_file,
+            Transaction.account_id.isnot(None),
+        ).count()
+        assert assigned + unassigned == 12
+        assert assigned > 5, "later batches never got to assign anything"
+
+
 def test_asf_declines_cleanly_when_ai_key_absent(canary_app):
     """Degradation guard (Festus 2026-08-27): with no ANTHROPIC_API_KEY the
     ASF route must NOT return a misleading text-match suggestion — it returns
@@ -270,19 +394,22 @@ def test_only_unprocessed_filter_returns_exceptions(app, analyze_user, analyze_f
     still need an account/explanation; the full list is unchanged by default."""
     from services.analyze_processing import get_paginated_transactions
     with app.app_context():
-        # 3 done (have account or explanation), 2 still needing attention.
+        # "Done" now means BOTH an account and an explanation. A row carrying
+        # only the import-stamped bank account (H1) is still an exception.
         acc = _add_account(app, analyze_user)
         done = [
             Transaction(date=datetime(2025, 1, 1), description='D1', amount=1,
-                        user_id=analyze_user, file_id=analyze_file, account_id=acc),
-            Transaction(date=datetime(2025, 1, 2), description='D2', amount=2,
                         user_id=analyze_user, file_id=analyze_file,
-                        explanation='Bank charge'),
+                        account_id=acc, explanation='Bank charge'),
         ]
         needy = [
-            Transaction(date=datetime(2025, 1, 3), description='N1', amount=3,
-                        user_id=analyze_user, file_id=analyze_file),
-            Transaction(date=datetime(2025, 1, 4), description='N2', amount=4,
+            Transaction(date=datetime(2025, 1, 2), description='H1', amount=2,
+                        user_id=analyze_user, file_id=analyze_file,
+                        account_id=acc),                      # account, no explanation
+            Transaction(date=datetime(2025, 1, 3), description='H2', amount=3,
+                        user_id=analyze_user, file_id=analyze_file,
+                        explanation='Bank charge'),           # explanation, no account
+            Transaction(date=datetime(2025, 1, 4), description='N1', amount=4,
                         user_id=analyze_user, file_id=analyze_file),
         ]
         db.session.add_all(done + needy)
@@ -294,8 +421,8 @@ def test_only_unprocessed_filter_returns_exceptions(app, analyze_user, analyze_f
             analyze_file, analyze_user, 1, 50, only_unprocessed=True)
 
     assert all_total == 4
-    assert exc_total == 2
-    assert {r.description for r in exc_rows} == {'N1', 'N2'}
+    assert exc_total == 3
+    assert {r.description for r in exc_rows} == {'H1', 'H2', 'N1'}
 
 
 def test_exceptions_view_renders(canary_app):

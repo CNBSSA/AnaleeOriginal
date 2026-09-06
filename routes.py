@@ -471,9 +471,17 @@ def analyze_process_batch(file_id):
 def save_transaction(transaction_id):
     """Save transaction details with enhanced error handling"""
     try:
-        data = request.get_json()
-        account_id = data.get('account_id', type=int)
-        explanation = data.get('explanation', '').strip()
+        data = request.get_json() or {}
+        # request.get_json() returns a plain dict, and dict.get() takes no
+        # keyword arguments — `data.get('account_id', type=int)` raised
+        # TypeError on EVERY call, so this endpoint 500'd every time an
+        # accountant changed the account dropdown. The JS catch only logged to
+        # the console, so the edit was lost with no visible error.
+        try:
+            account_id = int(data.get('account_id'))
+        except (TypeError, ValueError):
+            account_id = None
+        explanation = (data.get('explanation') or '').strip()
 
         if not account_id:
             return jsonify({'error': 'Account is required'}), 400
@@ -643,9 +651,18 @@ def suggest_account():
 def replicate_explanation_api():
     """ERF: Copy an explanation from a similar transaction."""
     try:
-        data = request.get_json()
-        transaction_id = data.get('transaction_id', type=int)
-        similar_transaction_id = data.get('similar_transaction_id', type=int)
+        data = request.get_json() or {}
+        # Same dict.get(type=int) TypeError as save_transaction — Recall
+        # ("copy the explanation from a similar past transaction") 500'd on
+        # every use.
+        def _as_int(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        transaction_id = _as_int(data.get('transaction_id'))
+        similar_transaction_id = _as_int(data.get('similar_transaction_id'))
 
         if not transaction_id or not similar_transaction_id:
             return jsonify({'error': 'transaction_id and similar_transaction_id are required'}), 400
