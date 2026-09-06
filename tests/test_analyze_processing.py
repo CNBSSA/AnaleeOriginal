@@ -263,20 +263,25 @@ def test_replicate_explanation_helper(app, analyze_user, analyze_file):
         assert updated.explanation == 'Bank service fee'
 
 
-def test_process_transaction_batch_without_ai_client(app, analyze_user, analyze_file, monkeypatch):
+def test_batch_costs_one_ai_call_for_the_whole_batch(app, analyze_user, analyze_file, monkeypatch):
+    """The Tier 1 point: N rows cost ONE call, not N.
+
+    The old path called Claude once per transaction, each prompt carrying the
+    user's entire chart of accounts.
+    """
     _add_transactions(app, analyze_user, analyze_file, count=12)
-    _add_account(app, analyze_user)
+    account_id = _add_account(app, analyze_user)
+    calls = []
 
-    class FakePredictor:
-        def suggest_account(self, description, explanation, user_id=None):
-            return {
-                'success': True,
-                'account': 'Bank Fees',
-                'confidence': 0.9,
-                'reasoning': 'Looks like a fee',
-            }
+    from services.bulk_suggestions import RowSuggestion
 
-    monkeypatch.setattr('predictive_features.PredictiveFeatures', FakePredictor)
+    def _suggest(rows, accounts, client=None):
+        calls.append(len(rows))
+        return {r['index']: RowSuggestion(
+            index=r['index'], account_id=account_id, account_name='Bank Fees',
+            confidence=0.9, explanation='Monthly bank charge') for r in rows}
+
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows', _suggest)
 
     with app.app_context():
         result = process_transaction_batch(analyze_file, analyze_user, offset=0, batch_size=10)
@@ -285,84 +290,211 @@ def test_process_transaction_batch_without_ai_client(app, analyze_user, analyze_
     assert result['processed'] == 10
     assert result['has_more'] is True
     assert result['results'][0]['applied_account_id'] is not None
+    assert calls == [10], f"expected one batched call for 10 rows, got {calls}"
 
 
-def test_batch_scopes_suggestions_to_the_owning_user(app, analyze_user, analyze_file, monkeypatch):
-    """The batch must pass user_id to the suggester.
+def test_batch_sends_only_the_owning_users_accounts(app, analyze_user, analyze_file, monkeypatch):
+    """The chart put in the prompt must be scoped to this user.
 
-    suggest_account(..., user_id=None) falls back to
-    Account.query.filter_by(is_active=True) across EVERY tenant, so omitting it
-    put other customers' charts of accounts into the prompt.
+    The per-row suggester defaulted user_id to None and then queried
+    Account.query.filter_by(is_active=True) across EVERY tenant. The batched
+    path passes an explicitly scoped list instead — this pins that.
     """
     _add_transactions(app, analyze_user, analyze_file, count=2)
     _add_account(app, analyze_user)
-    seen = []
 
-    class FakePredictor:
-        def suggest_account(self, description, explanation, user_id=None):
-            seen.append(user_id)
-            return {'success': True, 'account': 'Bank Fees',
-                    'confidence': 0.9, 'reasoning': 'fee'}
+    with app.app_context():
+        other = User(username='other', email='other@x.test', subscription_status='active')
+        other.set_password('pw12345!')
+        db.session.add(other)
+        db.session.commit()
+        db.session.add(Account(link='e.999.000', name='OTHER TENANT SECRET ACCOUNT',
+                               category='Expenses', user_id=other.id))
+        db.session.commit()
 
-    monkeypatch.setattr('predictive_features.PredictiveFeatures', FakePredictor)
+    seen_charts = []
+
+    def _suggest(rows, accounts, client=None):
+        seen_charts.append([a.name for a in accounts])
+        return {}
+
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows', _suggest)
     with app.app_context():
         process_transaction_batch(analyze_file, analyze_user, offset=0, batch_size=10)
 
-    assert seen, "suggester was never called"
-    assert all(uid == analyze_user for uid in seen), (
-        "batch leaked every tenant's accounts by omitting user_id")
+    assert seen_charts, "suggester was never called"
+    for chart in seen_charts:
+        assert 'OTHER TENANT SECRET ACCOUNT' not in chart, (
+            "another tenant's accounts reached the prompt")
 
 
-def test_batch_does_not_skip_rows_it_could_not_assign(app, analyze_user, analyze_file, monkeypatch):
-    """Auto-applied rows leave the `account_id IS NULL` set, so the window must
-    not advance past them — doing so stepped over unassigned rows for good."""
+def test_batch_does_not_skip_rows_it_could_not_complete(app, analyze_user, analyze_file, monkeypatch):
+    """Completed rows leave the result set, so the window must advance only
+    past the rows that remain — otherwise live rows are stepped over for good."""
     _add_transactions(app, analyze_user, analyze_file, count=12)
-    _add_account(app, analyze_user)
+    account_id = _add_account(app, analyze_user)
 
-    class HalfConfidentPredictor:
-        """Alternates: half land above the 0.85 gate, half below."""
-        def __init__(self):
-            self.calls = 0
+    from services.bulk_suggestions import RowSuggestion
 
-        def suggest_account(self, description, explanation, user_id=None):
-            self.calls += 1
-            confident = self.calls % 2 == 0
-            return {'success': True, 'account': 'Bank Fees',
-                    'confidence': 0.95 if confident else 0.10,
-                    'reasoning': 'x'}
+    def _half_confident(rows, accounts, client=None):
+        out = {}
+        for position, row in enumerate(rows):
+            confident = position % 2 == 1
+            out[row['index']] = RowSuggestion(
+                index=row['index'],
+                account_id=account_id,
+                account_name='Bank Fees',
+                confidence=0.95 if confident else 0.10,
+                explanation='Reviewed automatically',
+            )
+        return out
 
-    monkeypatch.setattr('predictive_features.PredictiveFeatures', HalfConfidentPredictor)
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows', _half_confident)
 
     with app.app_context():
         result = process_transaction_batch(analyze_file, analyze_user, offset=0, batch_size=10)
-        applied = result['applied']
-        # 5 of 10 applied -> 5 remain in the set at positions 0..4, so the next
-        # window must start at 5, NOT at 10 (which would skip 5 live rows).
-        assert applied == 5
+        # 5 of 10 got an account (and all 10 got an explanation), so 5 rows are
+        # now complete and drop out; the next window starts at 5, not 10.
+        assert result['applied'] == 5
         assert result['next_offset'] == 5
 
-        # Drain the file and prove nothing was stepped over: every row ends up
-        # either assigned or still visible as needing work.
-        seen_ids = set()
+        # Drain the file; nothing may be stepped over.
         offset = result['next_offset']
         for _ in range(10):
             nxt = process_transaction_batch(
                 analyze_file, analyze_user, offset=offset, batch_size=10)
-            seen_ids.update(r['transaction_id'] for r in nxt['results'])
             offset = nxt['next_offset']
             if not nxt['has_more']:
                 break
 
-        unassigned = Transaction.query.filter(
-            Transaction.file_id == analyze_file,
-            Transaction.account_id.is_(None),
-        ).count()
         assigned = Transaction.query.filter(
             Transaction.file_id == analyze_file,
             Transaction.account_id.isnot(None),
         ).count()
-        assert assigned + unassigned == 12
         assert assigned > 5, "later batches never got to assign anything"
+
+
+def _fake_bulk(mapping):
+    """Patch the batched suggester with a canned index -> RowSuggestion map."""
+    from services.bulk_suggestions import RowSuggestion
+
+    def _suggest(rows, accounts, client=None):
+        out = {}
+        for row in rows:
+            spec = mapping.get(row['index'])
+            if spec is None:
+                continue
+            out[row['index']] = RowSuggestion(index=row['index'], **spec)
+        return out
+
+    return _suggest
+
+
+def test_batch_writes_an_explanation_as_well_as_an_account(app, analyze_user, analyze_file, monkeypatch):
+    """A processed row must come back COMPLETE. The old batch wrote only the
+    account, so every row it touched was left without an explanation."""
+    _add_transactions(app, analyze_user, analyze_file, count=1)
+    account_id = _add_account(app, analyze_user)
+
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows', _fake_bulk({
+        0: {'account_id': account_id, 'account_name': 'Bank Fees',
+            'confidence': 0.95, 'explanation': 'Monthly bank charge'},
+    }))
+
+    with app.app_context():
+        result = process_transaction_batch(analyze_file, analyze_user, offset=0)
+        txn = Transaction.query.filter_by(file_id=analyze_file).first()
+
+        assert result['applied'] == 1
+        assert result['explained'] == 1
+        assert txn.account_id == account_id
+        assert txn.explanation == 'Monthly bank charge'
+        assert txn.explanation_source == 'ai', "machine writing must be attributed"
+
+
+def test_batch_never_overwrites_a_human_explanation(app, analyze_user, analyze_file, monkeypatch):
+    """Re-running bulk processing over a partly-worked file is safe."""
+    _add_transactions(app, analyze_user, analyze_file, count=1)
+    account_id = _add_account(app, analyze_user)
+
+    with app.app_context():
+        txn = Transaction.query.filter_by(file_id=analyze_file).first()
+        txn.explanation = 'Client says: annual insurance premium'
+        txn.explanation_source = 'client'
+        db.session.commit()
+
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows', _fake_bulk({
+        0: {'account_id': account_id, 'account_name': 'Bank Fees',
+            'confidence': 0.99, 'explanation': 'Monthly bank charge'},
+    }))
+
+    with app.app_context():
+        process_transaction_batch(analyze_file, analyze_user, offset=0)
+        txn = Transaction.query.filter_by(file_id=analyze_file).first()
+
+        assert txn.explanation == 'Client says: annual insurance premium'
+        assert txn.explanation_source == 'client'
+        # The account was still legitimately assigned into its empty slot.
+        assert txn.account_id == account_id
+
+
+def test_batch_never_overwrites_an_existing_account(app, analyze_user, analyze_file, monkeypatch):
+    """Import stamps the bank account onto every row; a suggestion must not
+    silently replace it."""
+    _add_transactions(app, analyze_user, analyze_file, count=1)
+    bank_id = _add_account(app, analyze_user)
+
+    with app.app_context():
+        txn = Transaction.query.filter_by(file_id=analyze_file).first()
+        txn.account_id = bank_id
+        db.session.commit()
+
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows', _fake_bulk({
+        0: {'account_id': 999999, 'account_name': 'Something Else',
+            'confidence': 0.99, 'explanation': 'Reclassified'},
+    }))
+
+    with app.app_context():
+        process_transaction_batch(analyze_file, analyze_user, offset=0)
+        txn = Transaction.query.filter_by(file_id=analyze_file).first()
+
+        assert txn.account_id == bank_id, "an existing assignment was overwritten"
+        # ...but the empty explanation slot was still filled.
+        assert txn.explanation == 'Reclassified'
+
+
+def test_batch_applies_nothing_below_the_confidence_gate(app, analyze_user, analyze_file, monkeypatch):
+    _add_transactions(app, analyze_user, analyze_file, count=1)
+    account_id = _add_account(app, analyze_user)
+
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows', _fake_bulk({
+        0: {'account_id': account_id, 'account_name': 'Bank Fees',
+            'confidence': 0.42, 'explanation': 'Possibly a bank charge'},
+    }))
+
+    with app.app_context():
+        result = process_transaction_batch(analyze_file, analyze_user, offset=0)
+        txn = Transaction.query.filter_by(file_id=analyze_file).first()
+
+        assert result['applied'] == 0
+        assert txn.account_id is None
+        # A low-confidence ACCOUNT does not suppress the explanation.
+        assert txn.explanation == 'Possibly a bank charge'
+
+
+def test_batch_offline_changes_nothing(app, analyze_user, analyze_file, monkeypatch):
+    """With no suggestions at all, the rows are left exactly as they were."""
+    _add_transactions(app, analyze_user, analyze_file, count=3)
+    _add_account(app, analyze_user)
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows',
+                        lambda rows, accounts, client=None: {})
+
+    with app.app_context():
+        result = process_transaction_batch(analyze_file, analyze_user, offset=0)
+        assert result['applied'] == 0
+        assert result['explained'] == 0
+        assert all(t.account_id is None
+                   for t in Transaction.query.filter_by(file_id=analyze_file).all())
 
 
 def test_asf_declines_cleanly_when_ai_key_absent(canary_app):

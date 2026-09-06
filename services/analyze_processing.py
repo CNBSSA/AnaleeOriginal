@@ -9,7 +9,9 @@ from models import Account, Transaction, UploadedFile, db
 logger = logging.getLogger(__name__)
 
 ANALYZE_PAGE_SIZE = 10
-ANALYZE_BATCH_SIZE = 10
+#: Rows per auto-process request. Raised from 10 now that a batch is ONE AI
+#: call rather than one call per row — see services/bulk_suggestions.py.
+ANALYZE_BATCH_SIZE = 25
 
 
 def transaction_needs_processing(transaction: Transaction) -> bool:
@@ -148,76 +150,109 @@ def process_transaction_batch(
     batch_size: int = ANALYZE_BATCH_SIZE,
     auto_apply_threshold: float = 0.85,
 ) -> Dict[str, Any]:
-    """Auto-assign accounts to up to batch_size rows that have none.
+    """Fill in both halves of up to batch_size rows in ONE AI call.
 
-    Deliberately scoped to ``account_id IS NULL`` — NOT the wider
-    "needs processing" predicate. A row that already carries an account (both
-    import paths stamp the bank account onto every row) must never have that
-    assignment silently overwritten by a suggestion; those rows are surfaced
-    for review instead.
+    Previously this made one Claude call per transaction, each carrying the
+    user's entire chart of accounts (~1 000 accounts) — a 160-row statement
+    therefore sent ~160 copies of that chart — and it only ever wrote the
+    account, leaving every row it "processed" without an explanation. It now
+    asks for both in a single batched call.
+
+    Two rules that must not be relaxed:
+
+    * An account is written ONLY where there is none. Both import paths stamp
+      the chosen bank account onto every row, and that assignment must never be
+      silently replaced by a suggestion.
+    * An explanation is written ONLY where there is none, and always tagged
+      ``SOURCE_AI`` so the books show a machine wrote it. ``save_explanation``
+      refuses to let it overwrite anything a person wrote.
     """
-    batch_size = max(1, min(batch_size, ANALYZE_BATCH_SIZE))
+    from services.bulk_suggestions import BULK_SUGGESTION_BATCH, suggest_for_rows
+    from services.client_explanation import SOURCE_AI, save_explanation
+
+    batch_size = max(1, min(batch_size, BULK_SUGGESTION_BATCH))
     offset = max(0, offset)
 
+    # A row still needs work if it is missing EITHER half.
     unprocessed_query = Transaction.query.filter(
         Transaction.file_id == file_id,
         Transaction.user_id == user_id,
-        Transaction.account_id.is_(None),
+        _needs_processing_clause(),
     ).order_by(Transaction.date, Transaction.id)
 
     total_unprocessed = unprocessed_query.count()
     transactions = unprocessed_query.offset(offset).limit(batch_size).all()
+    if not transactions:
+        return {
+            'success': True, 'processed': 0, 'offset': offset,
+            'next_offset': offset, 'applied': 0, 'explained': 0,
+            'total_unprocessed': total_unprocessed, 'remaining': 0,
+            'has_more': False, 'results': [],
+        }
 
     accounts = Account.query.filter_by(user_id=user_id, is_active=True).all()
-    account_by_name = {account.name.lower(): account for account in accounts}
 
-    from predictive_features import PredictiveFeatures
-    predictor = PredictiveFeatures()
+    suggestions = suggest_for_rows(
+        [{
+            'index': index,
+            'date': txn.date.strftime('%Y-%m-%d') if txn.date else '',
+            'description': txn.description or '',
+            'amount': txn.amount,
+        } for index, txn in enumerate(transactions)],
+        accounts,
+    )
 
     results: List[Dict[str, Any]] = []
-    for transaction in transactions:
-        # user_id is REQUIRED: without it suggest_account() falls back to
-        # Account.query.filter_by(is_active=True) across every tenant, putting
-        # other customers' charts of accounts into the prompt and degrading the
-        # suggestion by drowning this user's real accounts in foreign ones.
-        suggestion = predictor.suggest_account(
-            transaction.description,
-            transaction.explanation or '',
-            user_id=user_id,
-        )
+    for index, transaction in enumerate(transactions):
+        suggestion = suggestions.get(index)
 
         applied_account_id = None
         applied_account_name = None
-        confidence = suggestion.get('confidence', 0) if suggestion else 0
+        explained = False
 
-        if suggestion.get('success') and suggestion.get('account'):
-            account_name = suggestion['account']
-            matched = account_by_name.get(str(account_name).lower())
-            if matched and confidence >= auto_apply_threshold:
-                transaction.account_id = matched.id
-                applied_account_id = matched.id
-                applied_account_name = matched.name
+        if suggestion is not None:
+            # Account: only into an empty slot, only above the gate.
+            if (transaction.account_id is None
+                    and suggestion.account_id is not None
+                    and suggestion.confidence >= auto_apply_threshold):
+                transaction.account_id = suggestion.account_id
+                applied_account_id = suggestion.account_id
+                applied_account_name = suggestion.account_name
+
+            # Explanation: only into an empty slot, always attributed.
+            if suggestion.explanation and not (transaction.explanation or '').strip():
+                saved, _reason = save_explanation(
+                    transaction, suggestion.explanation, SOURCE_AI)
+                explained = saved
 
         results.append({
             'transaction_id': transaction.id,
             'description': transaction.description,
-            'suggestion': suggestion,
+            'suggestion': {
+                'success': suggestion is not None,
+                'account': suggestion.account_name if suggestion else None,
+                'confidence': suggestion.confidence if suggestion else 0,
+                'explanation': suggestion.explanation if suggestion else '',
+            },
             'applied_account_id': applied_account_id,
             'applied_account_name': applied_account_name,
+            'explained': explained,
         })
 
-    if results:
-        db.session.commit()
+    db.session.commit()
 
     processed_count = len(results)
     applied_count = sum(1 for r in results if r['applied_account_id'] is not None)
+    explained_count = sum(1 for r in results if r['explained'])
 
-    # Auto-applied rows now have an account, so they DROP OUT of this query's
-    # result set. Advancing the window by the full batch size would therefore
-    # step over that many still-unassigned rows and never show them again.
-    # Advance only past the rows that remain (the ones we could not apply).
-    next_offset = offset + (processed_count - applied_count)
-    remaining = max(0, total_unprocessed - applied_count - next_offset)
+    # A row leaves the result set only when BOTH halves are now present, so the
+    # window must advance past exactly those rows that still need work.
+    completed = sum(
+        1 for index, txn in enumerate(transactions)
+        if txn.account_id is not None and (txn.explanation or '').strip()
+    )
+    next_offset = offset + (processed_count - completed)
+    remaining = max(0, total_unprocessed - completed - next_offset)
 
     return {
         'success': True,
@@ -225,6 +260,7 @@ def process_transaction_batch(
         'offset': offset,
         'next_offset': next_offset,
         'applied': applied_count,
+        'explained': explained_count,
         'total_unprocessed': total_unprocessed,
         'remaining': remaining,
         'has_more': remaining > 0,
