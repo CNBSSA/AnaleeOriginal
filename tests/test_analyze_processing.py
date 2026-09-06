@@ -497,6 +497,78 @@ def test_batch_offline_changes_nothing(app, analyze_user, analyze_file, monkeypa
                    for t in Transaction.query.filter_by(file_id=analyze_file).all())
 
 
+def test_a_payee_with_history_costs_no_ai_call(app, analyze_user, analyze_file, monkeypatch):
+    """The compounding rule: what the practice already decided beats a guess,
+    and the model is never asked about a payee it has already been taught."""
+    account_id = _add_account(app, analyze_user)
+
+    with app.app_context():
+        # Settled practice on an EARLIER file.
+        old_file = UploadedFile(filename='jan.xlsx', user_id=analyze_user)
+        db.session.add(old_file)
+        db.session.commit()
+        for day in (5, 20):
+            db.session.add(Transaction(
+                date=datetime(2026, 1, day), description=f'FNB FEE 00{day}',
+                amount=-59.0, user_id=analyze_user, file_id=old_file.id,
+                account_id=account_id, explanation='Monthly bank fee',
+                explanation_source='accountant'))
+        # This month's statement: same payee, new reference.
+        db.session.add(Transaction(
+            date=datetime(2026, 2, 5), description='FNB FEE 0099', amount=-59.0,
+            user_id=analyze_user, file_id=analyze_file))
+        db.session.commit()
+
+    asked = []
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows',
+                        lambda rows, accounts, client=None: asked.append(len(rows)) or {})
+
+    with app.app_context():
+        result = process_transaction_batch(analyze_file, analyze_user, offset=0)
+        txn = Transaction.query.filter_by(file_id=analyze_file).first()
+
+    assert asked == [], "the model was asked about a payee already in history"
+    assert result['from_history'] == 1
+    assert result['applied'] == 1
+    assert txn.account_id == account_id
+    assert txn.explanation == 'Monthly bank fee'
+    assert result['results'][0]['suggestion']['source'] == 'history'
+
+
+def test_only_unknown_payees_are_sent_to_the_model(app, analyze_user, analyze_file, monkeypatch):
+    account_id = _add_account(app, analyze_user)
+
+    with app.app_context():
+        old_file = UploadedFile(filename='jan.xlsx', user_id=analyze_user)
+        db.session.add(old_file)
+        db.session.commit()
+        db.session.add(Transaction(
+            date=datetime(2026, 1, 5), description='FNB FEE 0011', amount=-59.0,
+            user_id=analyze_user, file_id=old_file.id, account_id=account_id,
+            explanation='Monthly bank fee', explanation_source='accountant'))
+        db.session.add_all([
+            Transaction(date=datetime(2026, 2, 5), description='FNB FEE 0099',
+                        amount=-59.0, user_id=analyze_user, file_id=analyze_file),
+            Transaction(date=datetime(2026, 2, 6), description='BRAND NEW SUPPLIER',
+                        amount=-800.0, user_id=analyze_user, file_id=analyze_file),
+        ])
+        db.session.commit()
+
+    sent = []
+
+    def _spy(rows, accounts, client=None):
+        sent.extend(r['description'] for r in rows)
+        return {}
+
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows', _spy)
+
+    with app.app_context():
+        process_transaction_batch(analyze_file, analyze_user, offset=0)
+
+    assert sent == ['BRAND NEW SUPPLIER'], (
+        f"only the unseen payee should reach the model, got {sent}")
+
+
 def test_asf_declines_cleanly_when_ai_key_absent(canary_app):
     """Degradation guard (Festus 2026-08-27): with no ANTHROPIC_API_KEY the
     ASF route must NOT return a misleading text-match suggestion — it returns
