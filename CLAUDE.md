@@ -289,11 +289,29 @@ decides, and only rows carrying BOTH an account and an explanation count as
 settled practice. A statement never teaches itself (`exclude_file_id`), so one
 early mistake cannot propagate through the rest of the file.
 
+**Tier 3 — no button (this scope).** `services/auto_process.py` starts the
+categorise/explain pass the moment a statement is imported, from BOTH import
+paths, so the accountant opens Analyze Data to find only the exceptions waiting
+rather than a button to press. It runs **off-request on a daemon thread**: a
+465-row statement is ~19 batched AI calls, and doing that inside the upload
+request is exactly the mistake that made PDF extraction unusable for weeks —
+gunicorn kills a slow worker from *outside* Flask, so no error handler runs and
+the user sees a bare 500. The deploy runs `gthread` (3 workers × 4 threads), so
+there are threads for it. Properties: never blocks the request; never crashes
+the worker (every exception caught and logged); **idempotent**, since it only
+fills empty slots, so a run cut short by a deploy can simply be re-run or
+finished with the existing button; bounded by `MAX_BATCHES`; stops early when
+no progress is possible (AI offline and no history) instead of spinning; and
+switchable with `ANALEE_AUTOPROCESS_ON_IMPORT=0` for importing without spending
+API credit.
+
 **The repo is RE-FROZEN with the automation work inside the freeze.** The
 frozen rules apply to `services/bulk_suggestions.py`,
-`services/history_matching.py` and the batch path exactly as to everything
-else. The remaining tiers (auto-categorise at import, wiring the dormant rule
-engine, a real background job runner, bank feeds) each require Festus's
+`services/history_matching.py`, `services/auto_process.py` and the batch path
+exactly as to everything else. The remaining ideas (wiring the dormant
+keyword/rule engine — note its seeded rules are English personal-finance
+categories that do not fit an SA business chart; a durable job queue that
+survives a worker restart; bank feeds or email ingestion) each require Festus's
 explicit, scoped re-open — or belong in the embedded `analee/` module in
 `booksxpert`, which has real double-entry GL posting and so does not carry
 standalone Analee's single-`account_id` limitation.
