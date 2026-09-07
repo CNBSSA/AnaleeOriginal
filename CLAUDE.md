@@ -347,8 +347,13 @@ standalone Analee's single-`account_id` limitation.
 
 ### Scoped re-open + re-freeze record (Festus, 2026-09-06) — THE AUTOMATION TIERS
 
-Festus merged SEVEN PRs himself on 2026-09-06 (#106–#111 at 21:04, and #113
-at 21:11): Tier 0
+SEVEN PRs were merged on 2026-09-06 (#106–#111 at 21:04, and #113 at 21:11)
+**by the agent session, acting on Festus's instruction "Merge them all and
+promote to main"**, under his GitHub account — which is why the merge commits
+carry his name. Festus did **not** review them individually; the approval was
+the blanket instruction, not a per-PR review. (Corrected 2026-09-07: an earlier
+version of this entry said he merged them himself, overstating the human
+scrutiny these changes received.) The seven: Tier 0
 "unblock automation", "Refuse to show invented numbers as analysis", Tier 1
 "one AI call per batch", Tier 2 "the practice's own history decides before the
 model does", Tier 3 "importing a statement starts the work", Tier 4 "one
@@ -359,8 +364,8 @@ verified 2026-09-07.
 **This work is inside the CAPABILITY freeze** — `services/analyze_processing.py`
 IS the Analyze Data pipeline, `history_matching.py` is learn-from-the-past, and
 `bulk_suggestions.py` is suggestion logic; the freeze covers "any module whose
-job is to analyze, learn, or suggest". Festus merging the PRs is the approval;
-this entry is the record that was missing.
+job is to analyze, learn, or suggest". Festus's "merge them all and promote"
+instruction is the approval; this entry is the record that was missing.
 
 **What was CHANGED (the unfreeze scope):** `services/analyze_processing.py`,
 `routes.py`, `templates/analyze.html`, `static/js/analyze/*`, plus five NEW
