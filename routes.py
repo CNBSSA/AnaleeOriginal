@@ -34,6 +34,7 @@ from services.analyze_processing import (
     get_file_for_user,
     get_paginated_transactions,
     process_transaction_batch,
+    provenance_summary,
     save_analyze_form_transactions,
     transaction_needs_processing,
 )
@@ -379,12 +380,16 @@ def analyze(file_id):
         # rows that still need an account/explanation after a whole-statement
         # pass — additive, default is the full list exactly as before.
         exceptions_view = request.args.get('view') == 'exceptions'
+        # ?view=ai shows only what the machine wrote, so its output can be
+        # spot-checked without wading through rows a person already decided.
+        ai_view = request.args.get('view') == 'ai'
         transactions, total_count, total_pages = get_paginated_transactions(
             file_id,
             current_user.id,
             page,
             ANALYZE_PAGE_SIZE,
             only_unprocessed=exceptions_view,
+            only_ai_written=ai_view,
         )
         page = min(max(1, page), total_pages)
 
@@ -414,6 +419,8 @@ def analyze(file_id):
             per_page=ANALYZE_PAGE_SIZE,
             ai_available=True,
             exceptions_view=exceptions_view,
+            ai_view=ai_view,
+            provenance=provenance_summary(file_id, current_user.id),
         )
 
     except Exception as e:
