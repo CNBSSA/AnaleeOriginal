@@ -174,9 +174,26 @@ def upload():
 
                 if success:
                     logger.info(f"Successfully processed upload for user {current_user.id}")
+                    # Start categorising/explaining immediately, off-request —
+                    # the upload returns now and the work continues on a
+                    # background thread (services/auto_process.py).
+                    started = False
+                    if response.get('file_id'):
+                        try:
+                            from services.auto_process import schedule_file_autoprocess
+                            started = schedule_file_autoprocess(
+                                current_app._get_current_object(),
+                                response['file_id'], current_user.id)
+                        except Exception:
+                            logger.exception("Could not schedule auto-process")
+                    response['autoprocess_started'] = started
                     if is_ajax:
                         return jsonify(response)
                     flash('Bank statement uploaded and processed successfully!', 'success')
+                    if started:
+                        flash('Analee is categorising and explaining the rows now — '
+                              'open Analyze Data in a minute to review what needs '
+                              'your eye.', 'info')
                 else:
                     logger.error(f"Upload processing failed: {response.get('error')}")
                     if is_ajax:
