@@ -313,6 +313,14 @@ document.addEventListener('DOMContentLoaded', function() {
                             accountSelect.value = match.value;
                         }
                     }
+                } else {
+                    // No confident match: say so and leave the dropdown alone.
+                    // Pre-selecting a guessed account steers the accountant
+                    // into posting to the wrong one.
+                    suggestedAccountsList.innerHTML =
+                        `<li class="text-muted">${data.suggestion_message
+                            || 'No account could be matched with confidence — please choose the account yourself.'}</li>`;
+                    suggestedAccountsContainer.classList.remove('d-none');
                 }
             })
             .catch((error) => {

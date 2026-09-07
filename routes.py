@@ -1057,14 +1057,21 @@ def expense_forecast():
     """Handle expense forecastview with proper error handling and data structure"""
     try:
         # Initialize the forecast structure with required attributes
+        # 'overall_confidence': 0.85 and 'reliability_score': 0.80 used to sit
+        # here as hardcoded literals. Nothing ever recomputed them, yet they
+        # were rendered as "85.0%" and "80.0%" on the page AND in
+        # pdf_templates/forecast_pdf.html — a confidence figure with no
+        # relationship to the data, on a document an accountant can hand to a
+        # client. They are replaced by months_observed, which is counted from
+        # the actual transactions below; the template states the basis instead
+        # of asserting a precision this forecast does not have.
         forecast = {
             'confidence_metrics': {
-                'overall_confidence': 0.85,
+                'months_observed': 0,
                 'variance_range': {
                     'min': 0.0,
                     'max': 0.0
                 },
-                'reliability_score': 0.80
             },
             'forecast_factors': {
                 'key_drivers': []
@@ -1099,7 +1106,9 @@ def expense_forecast():
         confidence_upper = [amount + std_dev for amount in monthly_amounts]
         confidence_lower = [amount - std_dev for amount in monthly_amounts]
 
-        # Update variance range in forecast
+        # Update the measured facts in forecast: how many months of history
+        # this is based on, and the observed range. Both come from the data.
+        forecast['confidence_metrics']['months_observed'] = len(monthly_amounts)
         if monthly_amounts:
             forecast['confidence_metrics']['variance_range'] = {
                 'min': min(monthly_amounts),
@@ -1265,20 +1274,34 @@ def icountant_transaction_insights(transaction_id):
                 'reason': insights['category_suggestion']['explanation'],
             } for acc in matching_accounts[:3]]
 
-        if not suggested_accounts and accounts:
-            suggested_accounts = [{
-                'account_id': acc.id,
-                'account_name': acc.name,
-                'account_category': acc.category,
-                'confidence': 0.5,
-                'reason': 'Alternative suggestion based on available accounts',
-            } for acc in accounts[:3]]
+        # NO fabricated fallback. This used to hand back the first three
+        # accounts in the chart with an invented confidence of 0.5 and the
+        # reason "Alternative suggestion based on available accounts" whenever
+        # the category did not map to anything.
+        #
+        # It fired almost always: the category vocabulary is nlp_utils'
+        # personal-finance list (groceries, dining, personal_care, ...) while
+        # Account.category only ever holds Assets / Liabilities / Equity /
+        # Income / Expenses, so only "income" can ever match. The first three
+        # accounts in a seeded chart are Bank Cheque Account 1/2/3 — and
+        # icountant.html AUTO-SELECTS suggestion[0] into the account dropdown,
+        # so an accountant clicking through was being steered into posting
+        # transactions to a bank account.
+        #
+        # Same rule as the ASF guard (57ee9a9): decline rather than guess.
+        suggestion_message = ''
+        if not suggested_accounts:
+            suggestion_message = (
+                'No account could be matched with confidence — please choose '
+                'the account yourself.'
+            )
 
         return jsonify({
             'success': True,
             'transaction_id': transaction.id,
             'ai_insights': insights.get('insights', ''),
             'suggested_accounts': suggested_accounts,
+            'suggestion_message': suggestion_message,
             'category': category,
             'confidence': insights['category_suggestion'].get('confidence', 0),
         })
