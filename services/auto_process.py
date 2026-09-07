@@ -23,8 +23,8 @@ Safety properties
   Auto-process button) with no double-writing.
 * **Bounded.** Stops at ``MAX_BATCHES`` so a pathological file cannot occupy a
   thread indefinitely.
-* **Switchable.** ``ANALEE_AUTOPROCESS_ON_IMPORT=0`` turns it off without a
-  code change, for when someone wants to import without spending API credit.
+* **Off by default.** ``ANALEE_AUTOPROCESS_ON_IMPORT=1`` turns it ON. It is
+  dark unless asked for, so importing never spends API credit by surprise.
 """
 from __future__ import annotations
 
@@ -41,8 +41,14 @@ _FLAG = 'ANALEE_AUTOPROCESS_ON_IMPORT'
 
 
 def autoprocess_enabled() -> bool:
-    """On unless explicitly switched off."""
-    return (os.environ.get(_FLAG, '1') or '1').strip().lower() not in ('0', 'false', 'no')
+    """OFF unless explicitly switched on (Festus, 2026-09-07).
+
+    It shipped defaulting ON, which meant importing a statement silently started
+    AI work and spent Anthropic credit without anyone asking for it. Every other
+    Analee capability is dark by default; this one now matches. Set
+    ``ANALEE_AUTOPROCESS_ON_IMPORT=1`` to enable it.
+    """
+    return (os.environ.get(_FLAG, '0') or '0').strip().lower() in ('1', 'true', 'yes')
 
 
 def run_file_autoprocess(app, file_id: int, user_id: int) -> dict:

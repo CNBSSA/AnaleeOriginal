@@ -390,9 +390,10 @@ services — `bulk_suggestions.py`, `history_matching.py`, `auto_process.py`,
 recent Analee change, most of this has no feature flag:
 - `history_matching`, `bulk_suggestions`, `accountant_fanout` are called
   unconditionally — they change how Analee analyses the moment `main` deploys.
-- `ANALEE_AUTOPROCESS_ON_IMPORT` DOES exist but **defaults to `'1'` (ON)**, so
-  importing a statement now auto-starts AI processing without the user pressing
-  anything, and spends Anthropic tokens per import. Set it to `0` to stop that.
+- `ANALEE_AUTOPROCESS_ON_IMPORT` shipped defaulting to `'1'` (ON) — importing a
+  statement auto-started AI processing and spent Anthropic tokens without anyone
+  asking. **Festus ruled it OFF on 2026-09-07 and the default is now `'0'`**, so
+  it is dark like every other Analee capability. Set it to `1` to enable.
 
 **On "Auto-process next 10" (checked, and it is HONEST):** the button label is
 correct. `batchProcessor.js` still sends `batch_size: 10` and the route honours
