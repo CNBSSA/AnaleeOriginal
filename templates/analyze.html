@@ -188,6 +188,41 @@
                     {{ unprocessed_count }} still need account or explanation
                 </div>
             </div>
+
+            {% if provenance is defined and provenance.explained %}
+            <div class="alert alert-light border mt-3 mb-0 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+                <div class="small">
+                    <strong>Who explained what:</strong>
+                    {% if provenance.ai %}
+                        <span class="badge bg-secondary">{{ provenance.ai }} by Analee</span>
+                    {% endif %}
+                    {% if provenance.accountant %}
+                        <span class="badge bg-primary">{{ provenance.accountant }} by you</span>
+                    {% endif %}
+                    {% if provenance.client %}
+                        <span class="badge bg-info text-dark">{{ provenance.client }} by the client</span>
+                    {% endif %}
+                    {% if provenance.unattributed %}
+                        <span class="badge bg-light text-dark border">{{ provenance.unattributed }} earlier</span>
+                    {% endif %}
+                    <span class="text-muted">of {{ provenance.total }} row(s).</span>
+                </div>
+                {% if provenance.ai %}
+                <a class="btn btn-outline-secondary btn-sm text-nowrap"
+                   href="{{ url_for('main.analyze', file_id=file.id, view='ai') }}">
+                    Review what Analee wrote
+                </a>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if ai_view is defined and ai_view %}
+            <div class="alert alert-secondary mt-3 mb-0">
+                Showing only the rows <strong>Analee</strong> explained. Edit any that are
+                wrong — your correction is kept and teaches next month's matching.
+                <a href="{{ url_for('main.analyze', file_id=file.id) }}">Show all transactions</a>
+            </div>
+            {% endif %}
             <div class="alert alert-primary mt-3 mb-0 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
                 <div>
                     <strong>Ask your client to explain transactions</strong>
@@ -295,6 +330,13 @@
                                 ${{ "%.2f"|format(transaction.amount) }}
                             </td>
                             <td>
+                                {% set src = transaction.explanation_source or '' %}
+                                {% if transaction.explanation and src %}
+                                    <span class="badge {{ 'bg-secondary' if src == 'ai' else ('bg-info text-dark' if src in ('client', 'client_erf') else 'bg-primary') }} mb-1"
+                                          title="Who wrote this explanation">
+                                        {{ 'Analee' if src == 'ai' else ('Client' if src in ('client', 'client_erf') else 'You') }}
+                                    </span>
+                                {% endif %}
                                 <div class="explanation-container">
                                     <textarea 
                                         class="form-control explanation-input{% if transaction.explanation %} has-content{% endif %}" 

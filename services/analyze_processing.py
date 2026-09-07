@@ -55,12 +55,52 @@ def count_unprocessed_transactions(file_id: int, user_id: int) -> int:
     ).count()
 
 
+def provenance_summary(file_id: int, user_id: int) -> Dict[str, int]:
+    """Who decided each row on this statement.
+
+    Automation now writes explanations at scale, and every write is tagged
+    (``SOURCE_AI`` for machine, accountant/client for people). Until this the
+    tag was recorded and never shown, so an accountant had no way to tell a
+    machine-written line from their own — unacceptable in a professional
+    ledger, and the reason review was impossible to target.
+    """
+    from services.client_explanation import (
+        SOURCE_AI, SOURCE_ACCOUNTANT, SOURCE_CLIENT, SOURCE_CLIENT_ERF)
+
+    rows = db.session.query(
+        Transaction.explanation_source, func.count(Transaction.id)
+    ).filter(
+        Transaction.file_id == file_id,
+        Transaction.user_id == user_id,
+        Transaction.explanation.isnot(None),
+        Transaction.explanation != '',
+    ).group_by(Transaction.explanation_source).all()
+
+    counts = {'ai': 0, 'accountant': 0, 'client': 0, 'unattributed': 0}
+    for source, count in rows:
+        source = (source or '').strip()
+        if source == SOURCE_AI:
+            counts['ai'] += count
+        elif source == SOURCE_ACCOUNTANT:
+            counts['accountant'] += count
+        elif source in (SOURCE_CLIENT, SOURCE_CLIENT_ERF):
+            counts['client'] += count
+        else:
+            # Explained before provenance was tracked.
+            counts['unattributed'] += count
+    counts['explained'] = sum(
+        counts[k] for k in ('ai', 'accountant', 'client', 'unattributed'))
+    counts['total'] = count_file_transactions(file_id, user_id)
+    return counts
+
+
 def get_paginated_transactions(
     file_id: int,
     user_id: int,
     page: int,
     per_page: int = ANALYZE_PAGE_SIZE,
     only_unprocessed: bool = False,
+    only_ai_written: bool = False,
 ) -> Tuple[List[Transaction], int, int]:
     """Return (rows, total_count, total_pages) for the requested page.
 
@@ -77,6 +117,12 @@ def get_paginated_transactions(
     )
     if only_unprocessed:
         base_query = base_query.filter(_needs_processing_clause())
+    if only_ai_written:
+        # Spot-check what the machine decided. Automation writes at scale, so
+        # the accountant needs a way to review exactly its output — not the
+        # whole statement, and not rows a person already signed off.
+        from services.client_explanation import SOURCE_AI
+        base_query = base_query.filter(Transaction.explanation_source == SOURCE_AI)
     base_query = base_query.order_by(Transaction.date, Transaction.id)
 
     total_count = base_query.count()
