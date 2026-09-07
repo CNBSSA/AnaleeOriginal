@@ -169,6 +169,7 @@ def process_transaction_batch(
     """
     from services.bulk_suggestions import BULK_SUGGESTION_BATCH, suggest_for_rows
     from services.client_explanation import SOURCE_AI, save_explanation
+    from services.history_matching import build_history_index, match_rows
 
     batch_size = max(1, min(batch_size, BULK_SUGGESTION_BATCH))
     offset = max(0, offset)
@@ -192,15 +193,23 @@ def process_transaction_batch(
 
     accounts = Account.query.filter_by(user_id=user_id, is_active=True).all()
 
-    suggestions = suggest_for_rows(
-        [{
-            'index': index,
-            'date': txn.date.strftime('%Y-%m-%d') if txn.date else '',
-            'description': txn.description or '',
-            'amount': txn.amount,
-        } for index, txn in enumerate(transactions)],
-        accounts,
-    )
+    row_payloads = [{
+        'index': index,
+        'date': txn.date.strftime('%Y-%m-%d') if txn.date else '',
+        'description': txn.description or '',
+        'amount': txn.amount,
+    } for index, txn in enumerate(transactions)]
+
+    # History first. What this practice already decided about a payee beats a
+    # fresh guess: it is free, instant, and consistent month to month. Only the
+    # rows with no precedent are sent to the model.
+    history_index = build_history_index(user_id, exclude_file_id=file_id)
+    suggestions = match_rows(row_payloads, history_index)
+    from_history = set(suggestions)
+
+    unknown_rows = [row for row in row_payloads if row['index'] not in suggestions]
+    if unknown_rows:
+        suggestions.update(suggest_for_rows(unknown_rows, accounts))
 
     results: List[Dict[str, Any]] = []
     for index, transaction in enumerate(transactions):
@@ -233,6 +242,10 @@ def process_transaction_batch(
                 'account': suggestion.account_name if suggestion else None,
                 'confidence': suggestion.confidence if suggestion else 0,
                 'explanation': suggestion.explanation if suggestion else '',
+                # Shown on the review screen so the accountant can see WHY a
+                # row was filled: their own past treatment, or the model.
+                'source': ('history' if index in from_history
+                           else ('ai' if suggestion else None)),
             },
             'applied_account_id': applied_account_id,
             'applied_account_name': applied_account_name,
@@ -244,6 +257,8 @@ def process_transaction_batch(
     processed_count = len(results)
     applied_count = sum(1 for r in results if r['applied_account_id'] is not None)
     explained_count = sum(1 for r in results if r['explained'])
+    from_history_count = sum(
+        1 for r in results if r['suggestion'].get('source') == 'history')
 
     # A row leaves the result set only when BOTH halves are now present, so the
     # window must advance past exactly those rows that still need work.
@@ -261,6 +276,7 @@ def process_transaction_batch(
         'next_offset': next_offset,
         'applied': applied_count,
         'explained': explained_count,
+        'from_history': from_history_count,
         'total_unprocessed': total_unprocessed,
         'remaining': remaining,
         'has_more': remaining > 0,

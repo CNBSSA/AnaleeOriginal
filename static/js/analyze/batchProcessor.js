@@ -91,9 +91,12 @@ export class BatchProcessor {
         if (result.processed > 0) {
             const applied = result.applied || 0;
             const explained = result.explained || 0;
+            const fromHistory = result.from_history || 0;
+            const historyNote = fromHistory
+                ? ` ${fromHistory} matched from your own past treatment.` : '';
             this.updateStatus(
                 `Processed ${result.processed} transaction(s) — `
-                + `${applied} account(s) assigned, ${explained} explained. `
+                + `${applied} account(s) assigned, ${explained} explained.${historyNote} `
                 + `${result.remaining} remaining.`);
         } else if (result.total_unprocessed === 0) {
             this.updateStatus('Every transaction now has both an account and an explanation.');

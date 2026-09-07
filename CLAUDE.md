@@ -273,14 +273,30 @@ slot; write an explanation only into an empty slot, tagged with the new
 `SOURCE_AI` so the books always show a machine wrote it, and
 `save_explanation` refuses to let it overwrite anything a person wrote.
 
+**Tier 2 — history first (this scope).** `services/history_matching.py` makes
+the practice's own past treatment the FIRST signal, ahead of any AI call: what
+this firm filed a payee under last month is free, instant, deterministic, and
+consistent month to month. `normalize_description()` reduces an SA narration to
+its payee by dropping every token containing a digit (references, dates, card
+fragments), so "Magtape Credit Medihelp Smh0363383 20210204" and next month's
+equivalent share one key; matching is an O(1) dict lookup against an index
+built once per batch, replacing the old Recall's O(n) SequenceMatcher scan per
+keystroke. Only rows with no precedent are sent to the model, so a recurring
+payee costs nothing and the system gets more automatic the more the accountant
+works. Ambiguity is refused rather than averaged: a payee historically split
+across accounts returns a confidence below any auto-apply gate so a human
+decides, and only rows carrying BOTH an account and an explanation count as
+settled practice. A statement never teaches itself (`exclude_file_id`), so one
+early mistake cannot propagate through the rest of the file.
+
 **The repo is RE-FROZEN with the automation work inside the freeze.** The
-frozen rules apply to `services/bulk_suggestions.py` and the batch path exactly
-as to everything else. The remaining tiers (auto-categorise at import,
-history-first matching, wiring the dormant rule engine, a real background job
-runner, bank feeds) each require Festus's explicit, scoped re-open — or belong
-in the embedded `analee/` module in `booksxpert`, which has real double-entry
-GL posting and so does not carry standalone Analee's single-`account_id`
-limitation.
+frozen rules apply to `services/bulk_suggestions.py`,
+`services/history_matching.py` and the batch path exactly as to everything
+else. The remaining tiers (auto-categorise at import, wiring the dormant rule
+engine, a real background job runner, bank feeds) each require Festus's
+explicit, scoped re-open — or belong in the embedded `analee/` module in
+`booksxpert`, which has real double-entry GL posting and so does not carry
+standalone Analee's single-`account_id` limitation.
 
 ---
 
