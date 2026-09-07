@@ -347,12 +347,14 @@ standalone Analee's single-`account_id` limitation.
 
 ### Scoped re-open + re-freeze record (Festus, 2026-09-06) — THE AUTOMATION TIERS
 
-Festus merged six PRs himself on 2026-09-06 at 21:04 (#106–#111): Tier 0
+Festus merged SEVEN PRs himself on 2026-09-06 (#106–#111 at 21:04, and #113
+at 21:11): Tier 0
 "unblock automation", "Refuse to show invented numbers as analysis", Tier 1
 "one AI call per batch", Tier 2 "the practice's own history decides before the
 model does", Tier 3 "importing a statement starts the work", Tier 4 "one
-accountant decision, applied to the whole family". Reviewed and verified
-2026-09-07.
+accountant decision, applied to the whole family", and Tier 5 "show who
+decided each row, and let the machine's work be reviewed". Reviewed and
+verified 2026-09-07.
 
 **This work is inside the CAPABILITY freeze** — `services/analyze_processing.py`
 IS the Analyze Data pipeline, `history_matching.py` is learn-from-the-past, and
@@ -380,7 +382,9 @@ services — `bulk_suggestions.py`, `history_matching.py`, `auto_process.py`,
 - A real crash was fixed: `data.get('account_id', type=int)` — `dict.get()`
   takes no `type=` kwarg, so edits were not saving. That is Tier 0.
 - Nothing removed: no route, no view function, no nav item, no menu.
-- Full suite 326 passed / 0 failed (was 252 before the tiers).
+- Full suite 331 passed / 0 failed (was 252 before the tiers).
+- Tier 5 (#113) is PURE ADDITION: +218 lines, zero deletions, its own tests;
+  protected_assets --check re-verified clean after it landed.
 
 **⚠️ OPERATIVE WARNING — THESE TIERS ARE LIVE, NOT DARK.** Unlike every other
 recent Analee change, most of this has no feature flag:
