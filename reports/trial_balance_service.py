@@ -41,18 +41,49 @@ def _quantize(amount: Decimal) -> Decimal:
     return amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 
-def _account_balance(account: Account) -> Decimal:
-    total = sum((t.amount for t in account.transactions), 0.0)
+def _account_balance(account: Account, end_date: datetime) -> Decimal:
+    """Cumulative balance up to and including ``end_date``.
+
+    Until 2026-09-07 this summed EVERY transaction on the account, so only the
+    choice of accounts was scoped to the financial year — the amounts were
+    all-time. Invisible while a company held a single year of data; with two
+    years, a balance "as at 28 Feb 2026" included April 2026's receipts. The
+    ``<= end_date`` rule is the same one the financial-position report in this
+    module already applies: cumulative to the period end, exactly as before for
+    the current year (whose end lies in the future), honest for a closed one.
+    """
+    total = sum((t.amount for t in account.transactions if t.date <= end_date), 0.0)
     return _quantize(Decimal(str(total)))
 
 
-def load_trial_balance(user_id: int) -> TrialBalanceContext:
-    """Load FY-scoped trial balance for ``user_id`` (same logic as the HTML report)."""
+def load_trial_balance(
+    user_id: int,
+    *,
+    as_at: datetime | None = None,
+    year: int | None = None,
+) -> TrialBalanceContext:
+    """Load FY-scoped trial balance for ``user_id`` (same logic as the HTML report).
+
+    By default the balance is the client's CURRENT financial year — the one
+    containing today. That is right for the accountant looking at the books,
+    and wrong for the accountant compiling the year just closed: during AFS
+    season the share link and the export carried the next year's year-to-date
+    position, and nothing could ask for the year that had ended (QA register
+    #6, 2026-09-07). Either keyword selects a different year and is passed
+    straight through to ``CompanySettings.get_financial_year``:
+
+    - ``as_at`` — any date inside the wanted year (a consumer that knows the
+      year-end passes exactly that date, and the balance comes back as at it);
+    - ``year`` — the year the financial year STARTS in, matching the
+      ``financial_year`` selector the Analee reports already use.
+
+    Both omitted → identical to the original behaviour.
+    """
     company_settings = CompanySettings.query.filter_by(user_id=user_id).first()
     if company_settings is None:
         raise ValueError('Company settings are not configured.')
 
-    fy_dates = company_settings.get_financial_year()
+    fy_dates = company_settings.get_financial_year(date=as_at, year=year)
     accounts = (
         Account.query.filter_by(user_id=user_id)
         .outerjoin(Account.transactions)
@@ -71,7 +102,7 @@ def load_trial_balance(user_id: int) -> TrialBalanceContext:
     export_rows: list[TrialBalanceRow] = []
 
     for account in accounts:
-        balance = _account_balance(account)
+        balance = _account_balance(account, fy_dates['end_date'])
         if balance > 0:
             total_debits += balance
         elif balance < 0:
