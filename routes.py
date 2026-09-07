@@ -471,9 +471,17 @@ def analyze_process_batch(file_id):
 def save_transaction(transaction_id):
     """Save transaction details with enhanced error handling"""
     try:
-        data = request.get_json()
-        account_id = data.get('account_id', type=int)
-        explanation = data.get('explanation', '').strip()
+        data = request.get_json() or {}
+        # request.get_json() returns a plain dict, and dict.get() takes no
+        # keyword arguments — `data.get('account_id', type=int)` raised
+        # TypeError on EVERY call, so this endpoint 500'd every time an
+        # accountant changed the account dropdown. The JS catch only logged to
+        # the console, so the edit was lost with no visible error.
+        try:
+            account_id = int(data.get('account_id'))
+        except (TypeError, ValueError):
+            account_id = None
+        explanation = (data.get('explanation') or '').strip()
 
         if not account_id:
             return jsonify({'error': 'Account is required'}), 400
@@ -499,6 +507,59 @@ def save_transaction(transaction_id):
         logger.error(f"Error saving transaction: {str(e)}")
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+@main.route('/analyze/<int:file_id>/similar-rows/<int:transaction_id>', methods=['GET'])
+@login_required
+def fanout_preview(file_id, transaction_id):
+    """Rows on this statement that share a payee with the given row.
+
+    Preview only — nothing is written. Rows a person already decided are
+    excluded, so the accountant is never offered the chance to overwrite
+    someone's considered judgement.
+    """
+    try:
+        from services.accountant_fanout import find_matching_rows, serialize_rows
+
+        found = find_matching_rows(file_id, current_user.id, transaction_id)
+        if found['source'] is None:
+            return jsonify({'success': False, 'error': 'Transaction not found'}), 404
+
+        return jsonify({
+            'success': True,
+            'key': found['key'],
+            'count': len(found['rows']),
+            'rows': serialize_rows(found['rows']),
+        })
+    except Exception as e:
+        logger.error(f"Error finding rows to fan out to: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main.route('/analyze/<int:file_id>/apply-to-similar', methods=['POST'])
+@login_required
+def fanout_apply(file_id):
+    """Apply one decision (account and/or explanation) to the chosen rows."""
+    try:
+        from services.accountant_fanout import apply_to_rows
+
+        data = request.get_json() or {}
+        ids = data.get('transaction_ids') or []
+        if not isinstance(ids, list) or not ids:
+            return jsonify({'success': False, 'error': 'No rows selected'}), 400
+
+        result = apply_to_rows(
+            file_id=file_id,
+            user_id=current_user.id,
+            transaction_ids=ids,
+            account_id=data.get('account_id'),
+            explanation=data.get('explanation') or '',
+        )
+        return jsonify({'success': True, **result})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error applying to similar rows: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @main.route('/analyze/similar-transactions', methods=['POST'])
 @login_required
@@ -643,9 +704,18 @@ def suggest_account():
 def replicate_explanation_api():
     """ERF: Copy an explanation from a similar transaction."""
     try:
-        data = request.get_json()
-        transaction_id = data.get('transaction_id', type=int)
-        similar_transaction_id = data.get('similar_transaction_id', type=int)
+        data = request.get_json() or {}
+        # Same dict.get(type=int) TypeError as save_transaction — Recall
+        # ("copy the explanation from a similar past transaction") 500'd on
+        # every use.
+        def _as_int(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        transaction_id = _as_int(data.get('transaction_id'))
+        similar_transaction_id = _as_int(data.get('similar_transaction_id'))
 
         if not transaction_id or not similar_transaction_id:
             return jsonify({'error': 'transaction_id and similar_transaction_id are required'}), 400
@@ -1040,14 +1110,21 @@ def expense_forecast():
     """Handle expense forecastview with proper error handling and data structure"""
     try:
         # Initialize the forecast structure with required attributes
+        # 'overall_confidence': 0.85 and 'reliability_score': 0.80 used to sit
+        # here as hardcoded literals. Nothing ever recomputed them, yet they
+        # were rendered as "85.0%" and "80.0%" on the page AND in
+        # pdf_templates/forecast_pdf.html — a confidence figure with no
+        # relationship to the data, on a document an accountant can hand to a
+        # client. They are replaced by months_observed, which is counted from
+        # the actual transactions below; the template states the basis instead
+        # of asserting a precision this forecast does not have.
         forecast = {
             'confidence_metrics': {
-                'overall_confidence': 0.85,
+                'months_observed': 0,
                 'variance_range': {
                     'min': 0.0,
                     'max': 0.0
                 },
-                'reliability_score': 0.80
             },
             'forecast_factors': {
                 'key_drivers': []
@@ -1082,7 +1159,9 @@ def expense_forecast():
         confidence_upper = [amount + std_dev for amount in monthly_amounts]
         confidence_lower = [amount - std_dev for amount in monthly_amounts]
 
-        # Update variance range in forecast
+        # Update the measured facts in forecast: how many months of history
+        # this is based on, and the observed range. Both come from the data.
+        forecast['confidence_metrics']['months_observed'] = len(monthly_amounts)
         if monthly_amounts:
             forecast['confidence_metrics']['variance_range'] = {
                 'min': min(monthly_amounts),
@@ -1248,20 +1327,34 @@ def icountant_transaction_insights(transaction_id):
                 'reason': insights['category_suggestion']['explanation'],
             } for acc in matching_accounts[:3]]
 
-        if not suggested_accounts and accounts:
-            suggested_accounts = [{
-                'account_id': acc.id,
-                'account_name': acc.name,
-                'account_category': acc.category,
-                'confidence': 0.5,
-                'reason': 'Alternative suggestion based on available accounts',
-            } for acc in accounts[:3]]
+        # NO fabricated fallback. This used to hand back the first three
+        # accounts in the chart with an invented confidence of 0.5 and the
+        # reason "Alternative suggestion based on available accounts" whenever
+        # the category did not map to anything.
+        #
+        # It fired almost always: the category vocabulary is nlp_utils'
+        # personal-finance list (groceries, dining, personal_care, ...) while
+        # Account.category only ever holds Assets / Liabilities / Equity /
+        # Income / Expenses, so only "income" can ever match. The first three
+        # accounts in a seeded chart are Bank Cheque Account 1/2/3 — and
+        # icountant.html AUTO-SELECTS suggestion[0] into the account dropdown,
+        # so an accountant clicking through was being steered into posting
+        # transactions to a bank account.
+        #
+        # Same rule as the ASF guard (57ee9a9): decline rather than guess.
+        suggestion_message = ''
+        if not suggested_accounts:
+            suggestion_message = (
+                'No account could be matched with confidence — please choose '
+                'the account yourself.'
+            )
 
         return jsonify({
             'success': True,
             'transaction_id': transaction.id,
             'ai_insights': insights.get('insights', ''),
             'suggested_accounts': suggested_accounts,
+            'suggestion_message': suggestion_message,
             'category': category,
             'confidence': insights['category_suggestion'].get('confidence', 0),
         })

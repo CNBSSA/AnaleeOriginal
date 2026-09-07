@@ -226,6 +226,114 @@ same way — future chart-sync ideas for that repo land there, not here.
 *(2026-07-18: chart-sync machinery touches the chart seed — it REMAINS inside
 the capability freeze, per frozen item #2.)*
 
+### Scoped re-open + re-freeze record (Festus, 2026-09-06)
+
+Festus re-opened this repo for **ONE scope only**: **advancing automation** —
+"more automation and more automation until nothing to automate". A review of
+the whole Import → Categorize → Explain → Reconcile → Report pipeline found the
+ceiling was not the AI but four defects plus a per-row call design. Delivered
+in three stages, each through the full workflow:
+
+**Tier 0 — unblock (maintenance, no re-open needed).** A row counted as
+finished if it had EITHER an account OR an explanation, and both import paths
+stamp the chosen bank account onto every row — so a statement was reported
+"All processed" the instant it landed and its rows were invisible to
+auto-processing (465 live transactions on Festus's own account). A row is now
+done only with **both** halves. Also: the batch omitted `user_id`, sending every
+tenant's chart to the model; auto-applied rows leaving the result set made the
+offset window skip unassigned rows permanently; `save-transaction` and
+`replicate-explanation` raised `TypeError` on every call
+(`dict.get(key, type=int)` on a plain dict) so dropdown edits were lost
+silently; and reconciliation reported "removed N duplicates, fixed N invalid
+dates" while deleting and rewriting nothing. Removal stays un-automated by
+design — the duplicate rule groups on date+amount+description, so two genuine
+identical charges in a day are indistinguishable from a double capture.
+
+**Honesty pass (maintenance).** Two places presented invented figures as
+analysis, the rule already set by `57ee9a9`: `/api/icountant/<id>/insights`
+returned the first three accounts in the chart at a fabricated `confidence: 0.5`
+whenever the AI category did not map — which is nearly always, since the
+category vocabulary is `nlp_utils`' personal-finance list while
+`Account.category` only holds Assets/Liabilities/Equity/Income/Expenses — and
+`icountant.html` auto-selected suggestion[0] into the dropdown, steering the
+accountant into posting to Bank Cheque Account 1. The expense forecast carried
+`overall_confidence: 0.85` / `reliability_score: 0.80` as literals nothing ever
+computed, rendered as percentages on the page and in the client-facing PDF.
+
+**Tier 1 — batched processing (this scope).** `services/bulk_suggestions.py`
+replaces one Claude call per transaction (each carrying the user's entire
+~1 000-account chart) with **one call per batch of 25** that returns the account
+**and** the explanation, so a processed row comes back complete instead of
+categorised but blank. Rules held: never invent an account (names are matched
+against the real chart, never fuzzy-matched); never guess when the AI is offline
+(returns nothing, so nothing is applied — the batch path previously consumed
+`PredictiveFeatures`' SequenceMatcher fallback, whose ratio could clear the 0.85
+gate); salvage a truncated reply row by row; write an account only into an empty
+slot; write an explanation only into an empty slot, tagged with the new
+`SOURCE_AI` so the books always show a machine wrote it, and
+`save_explanation` refuses to let it overwrite anything a person wrote.
+
+**Tier 2 — history first (this scope).** `services/history_matching.py` makes
+the practice's own past treatment the FIRST signal, ahead of any AI call: what
+this firm filed a payee under last month is free, instant, deterministic, and
+consistent month to month. `normalize_description()` reduces an SA narration to
+its payee by dropping every token containing a digit (references, dates, card
+fragments), so "Magtape Credit Medihelp Smh0363383 20210204" and next month's
+equivalent share one key; matching is an O(1) dict lookup against an index
+built once per batch, replacing the old Recall's O(n) SequenceMatcher scan per
+keystroke. Only rows with no precedent are sent to the model, so a recurring
+payee costs nothing and the system gets more automatic the more the accountant
+works. Ambiguity is refused rather than averaged: a payee historically split
+across accounts returns a confidence below any auto-apply gate so a human
+decides, and only rows carrying BOTH an account and an explanation count as
+settled practice. A statement never teaches itself (`exclude_file_id`), so one
+early mistake cannot propagate through the rest of the file.
+
+**Tier 3 — no button (this scope).** `services/auto_process.py` starts the
+categorise/explain pass the moment a statement is imported, from BOTH import
+paths, so the accountant opens Analyze Data to find only the exceptions waiting
+rather than a button to press. It runs **off-request on a daemon thread**: a
+465-row statement is ~19 batched AI calls, and doing that inside the upload
+request is exactly the mistake that made PDF extraction unusable for weeks —
+gunicorn kills a slow worker from *outside* Flask, so no error handler runs and
+the user sees a bare 500. The deploy runs `gthread` (3 workers × 4 threads), so
+there are threads for it. Properties: never blocks the request; never crashes
+the worker (every exception caught and logged); **idempotent**, since it only
+fills empty slots, so a run cut short by a deploy can simply be re-run or
+finished with the existing button; bounded by `MAX_BATCHES`; stops early when
+no progress is possible (AI offline and no history) instead of spinning; and
+switchable with `ANALEE_AUTOPROCESS_ON_IMPORT=0` for importing without spending
+API credit.
+
+**Tier 4 — leverage on what is left (this scope).**
+`services/accountant_fanout.py` + "Apply to similar" on each analyze row: one
+accountant decision is applied to every matching row on the statement.
+Exceptions arrive in *families* (forty card purchases at one supermarket,
+twelve identical debit orders), and deciding one then retyping it thirty-nine
+times was the largest remaining piece of manual work. The client wizard already
+had a fan-out (`services/client_erf.py`); the accountant — who does the
+professional bulk of the work — had none, and the client version carries only
+the explanation, never the account. Matching uses the same payee key as history
+matching, so what the accountant fans out today is exactly what the system
+recognises on its own next month. Refusals: a row **a person already decided**
+(accountant or client) is never offered and never written, even if its id is
+posted directly; ids are re-validated against file and user rather than
+trusted; a foreign account is ignored rather than guessed around; a description
+with no identifying payee fans out to nothing; bounded by `MAX_FANOUT`. It is
+preview-then-confirm — the count is shown before anything is written.
+
+**The repo is RE-FROZEN with the automation work inside the freeze.** The
+frozen rules apply to `services/bulk_suggestions.py`,
+`services/history_matching.py`, `services/auto_process.py`,
+`services/accountant_fanout.py` and the batch path exactly as to everything
+else. The remaining ideas (wiring the dormant
+keyword/rule engine — note its seeded rules are English personal-finance
+categories that do not fit an SA business chart; a durable job queue that
+survives a worker restart; bank feeds or email ingestion) each require Festus's
+explicit, scoped re-open — or belong in the embedded `analee/` module in
+`booksxpert`, which has real double-entry GL posting and so does not carry
+standalone Analee's single-`account_id` limitation.
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)

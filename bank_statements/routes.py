@@ -28,13 +28,26 @@ def reconcile():
 
         if success:
             stats = result['cleanup_stats']
-            flash(
-                f"Reconciliation completed successfully! "
-                f"Processed {stats['total_processed']} transactions, "
-                f"removed {stats['duplicates_removed']} duplicates, "
-                f"fixed {stats['invalid_dates_fixed']} invalid dates.",
-                'success'
-            )
+            # Report what was FOUND. This service only inspects — it deletes
+            # nothing and rewrites nothing — so it must not claim repairs.
+            duplicates = stats['duplicates_found']
+            invalid_dates = stats['invalid_dates_found']
+            if duplicates or invalid_dates:
+                flash(
+                    f"Reconciliation check complete: scanned "
+                    f"{stats['total_processed']} transactions and found "
+                    f"{duplicates} possible duplicate(s) and "
+                    f"{invalid_dates} future-dated row(s). "
+                    f"Nothing has been changed — review them before editing.",
+                    'warning'
+                )
+            else:
+                flash(
+                    f"Reconciliation check complete: scanned "
+                    f"{stats['total_processed']} transactions and found no "
+                    f"duplicates or future-dated rows.",
+                    'success'
+                )
 
             # If it's an AJAX request, return JSON response
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -161,9 +174,26 @@ def upload():
 
                 if success:
                     logger.info(f"Successfully processed upload for user {current_user.id}")
+                    # Start categorising/explaining immediately, off-request —
+                    # the upload returns now and the work continues on a
+                    # background thread (services/auto_process.py).
+                    started = False
+                    if response.get('file_id'):
+                        try:
+                            from services.auto_process import schedule_file_autoprocess
+                            started = schedule_file_autoprocess(
+                                current_app._get_current_object(),
+                                response['file_id'], current_user.id)
+                        except Exception:
+                            logger.exception("Could not schedule auto-process")
+                    response['autoprocess_started'] = started
                     if is_ajax:
                         return jsonify(response)
                     flash('Bank statement uploaded and processed successfully!', 'success')
+                    if started:
+                        flash('Analee is categorising and explaining the rows now — '
+                              'open Analyze Data in a minute to review what needs '
+                              'your eye.', 'info')
                 else:
                     logger.error(f"Upload processing failed: {response.get('error')}")
                     if is_ajax:

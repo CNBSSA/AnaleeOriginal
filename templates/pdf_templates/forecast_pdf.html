@@ -153,26 +153,22 @@
         <h2>Forecast Metrics</h2>
         <div class="metrics">
             <div class="metric-item">
-                <strong>Overall Confidence</strong>
+                <strong>Based on</strong>
                 <div class="metric-highlight">
-                    {{ "%.1f"|format(forecast.confidence_metrics.overall_confidence * 100) }}%
-                    {% if forecast.confidence_metrics.overall_confidence > 0.75 %}
-                        <span class="trend-indicator positive">↑ High</span>
-                    {% elif forecast.confidence_metrics.overall_confidence > 0.5 %}
-                        <span class="trend-indicator neutral">→ Moderate</span>
-                    {% else %}
-                        <span class="trend-indicator negative">↓ Low</span>
-                    {% endif %}
+                    {{ forecast.confidence_metrics.months_observed }} month(s) of transaction history
                 </div>
             </div>
             <div class="metric-item">
-                <strong>Variance Range:</strong>
-                ${{ "%.2f"|format(forecast.confidence_metrics.variance_range.min) }} - 
+                <strong>Observed monthly range:</strong>
+                ${{ "%.2f"|format(forecast.confidence_metrics.variance_range.min) }} -
                 ${{ "%.2f"|format(forecast.confidence_metrics.variance_range.max) }}
             </div>
             <div class="metric-item">
-                <strong>Reliability Score:</strong>
-                {{ "%.1f"|format(forecast.confidence_metrics.reliability_score * 100) }}%
+                <small>
+                    This projection is a straight reading of the months observed. It
+                    carries no statistical confidence rating; the range above is the
+                    observed spread, not a prediction interval.
+                </small>
             </div>
         </div>
     </div>

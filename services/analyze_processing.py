@@ -9,14 +9,25 @@ from models import Account, Transaction, UploadedFile, db
 logger = logging.getLogger(__name__)
 
 ANALYZE_PAGE_SIZE = 10
-ANALYZE_BATCH_SIZE = 10
+#: Rows per auto-process request. Raised from 10 now that a batch is ONE AI
+#: call rather than one call per row — see services/bulk_suggestions.py.
+ANALYZE_BATCH_SIZE = 25
 
 
 def transaction_needs_processing(transaction: Transaction) -> bool:
-    """True when a row still needs account assignment or explanation."""
-    return transaction.account_id is None and not (
-        transaction.explanation and transaction.explanation.strip()
-    )
+    """True when a row still needs an account assignment OR an explanation.
+
+    Previously this was an AND: a row counted as finished the moment it had
+    *either* one. That interacted badly with import — both import paths stamp
+    the chosen bank account onto every row (`bank_statements/services.py`, and
+    the "assign all rows to account" selector on the OCR review screen), so a
+    freshly imported statement was marked "All processed" before anything had
+    been categorised or explained, and its rows were invisible to the
+    exceptions view. A row is only done when both halves are present.
+    """
+    has_account = transaction.account_id is not None
+    has_explanation = bool(transaction.explanation and transaction.explanation.strip())
+    return not (has_account and has_explanation)
 
 
 def get_file_for_user(file_id: int, user_id: int) -> Optional[UploadedFile]:
@@ -27,12 +38,20 @@ def count_file_transactions(file_id: int, user_id: int) -> int:
     return Transaction.query.filter_by(file_id=file_id, user_id=user_id).count()
 
 
+def _needs_processing_clause():
+    """SQL twin of :func:`transaction_needs_processing` — missing EITHER half."""
+    return or_(
+        Transaction.account_id.is_(None),
+        Transaction.explanation.is_(None),
+        Transaction.explanation == '',
+    )
+
+
 def count_unprocessed_transactions(file_id: int, user_id: int) -> int:
     return Transaction.query.filter(
         Transaction.file_id == file_id,
         Transaction.user_id == user_id,
-        Transaction.account_id.is_(None),
-        or_(Transaction.explanation.is_(None), Transaction.explanation == ''),
+        _needs_processing_clause(),
     ).count()
 
 
@@ -57,10 +76,7 @@ def get_paginated_transactions(
         user_id=user_id,
     )
     if only_unprocessed:
-        base_query = base_query.filter(
-            Transaction.account_id.is_(None),
-            or_(Transaction.explanation.is_(None), Transaction.explanation == ''),
-        )
+        base_query = base_query.filter(_needs_processing_clause())
     base_query = base_query.order_by(Transaction.date, Transaction.id)
 
     total_count = base_query.count()
@@ -134,64 +150,133 @@ def process_transaction_batch(
     batch_size: int = ANALYZE_BATCH_SIZE,
     auto_apply_threshold: float = 0.85,
 ) -> Dict[str, Any]:
-    """Process up to batch_size unprocessed transactions with account suggestions."""
-    batch_size = max(1, min(batch_size, ANALYZE_BATCH_SIZE))
+    """Fill in both halves of up to batch_size rows in ONE AI call.
+
+    Previously this made one Claude call per transaction, each carrying the
+    user's entire chart of accounts (~1 000 accounts) — a 160-row statement
+    therefore sent ~160 copies of that chart — and it only ever wrote the
+    account, leaving every row it "processed" without an explanation. It now
+    asks for both in a single batched call.
+
+    Two rules that must not be relaxed:
+
+    * An account is written ONLY where there is none. Both import paths stamp
+      the chosen bank account onto every row, and that assignment must never be
+      silently replaced by a suggestion.
+    * An explanation is written ONLY where there is none, and always tagged
+      ``SOURCE_AI`` so the books show a machine wrote it. ``save_explanation``
+      refuses to let it overwrite anything a person wrote.
+    """
+    from services.bulk_suggestions import BULK_SUGGESTION_BATCH, suggest_for_rows
+    from services.client_explanation import SOURCE_AI, save_explanation
+    from services.history_matching import build_history_index, match_rows
+
+    batch_size = max(1, min(batch_size, BULK_SUGGESTION_BATCH))
     offset = max(0, offset)
 
+    # A row still needs work if it is missing EITHER half.
     unprocessed_query = Transaction.query.filter(
         Transaction.file_id == file_id,
         Transaction.user_id == user_id,
-        Transaction.account_id.is_(None),
-        or_(Transaction.explanation.is_(None), Transaction.explanation == ''),
+        _needs_processing_clause(),
     ).order_by(Transaction.date, Transaction.id)
 
     total_unprocessed = unprocessed_query.count()
     transactions = unprocessed_query.offset(offset).limit(batch_size).all()
+    if not transactions:
+        return {
+            'success': True, 'processed': 0, 'offset': offset,
+            'next_offset': offset, 'applied': 0, 'explained': 0,
+            'total_unprocessed': total_unprocessed, 'remaining': 0,
+            'has_more': False, 'results': [],
+        }
 
     accounts = Account.query.filter_by(user_id=user_id, is_active=True).all()
-    account_by_name = {account.name.lower(): account for account in accounts}
 
-    from predictive_features import PredictiveFeatures
-    predictor = PredictiveFeatures()
+    row_payloads = [{
+        'index': index,
+        'date': txn.date.strftime('%Y-%m-%d') if txn.date else '',
+        'description': txn.description or '',
+        'amount': txn.amount,
+    } for index, txn in enumerate(transactions)]
+
+    # History first. What this practice already decided about a payee beats a
+    # fresh guess: it is free, instant, and consistent month to month. Only the
+    # rows with no precedent are sent to the model.
+    history_index = build_history_index(user_id, exclude_file_id=file_id)
+    suggestions = match_rows(row_payloads, history_index)
+    from_history = set(suggestions)
+
+    unknown_rows = [row for row in row_payloads if row['index'] not in suggestions]
+    if unknown_rows:
+        suggestions.update(suggest_for_rows(unknown_rows, accounts))
 
     results: List[Dict[str, Any]] = []
-    for transaction in transactions:
-        suggestion = predictor.suggest_account(
-            transaction.description,
-            transaction.explanation or '',
-        )
+    for index, transaction in enumerate(transactions):
+        suggestion = suggestions.get(index)
 
         applied_account_id = None
         applied_account_name = None
-        confidence = suggestion.get('confidence', 0) if suggestion else 0
+        explained = False
 
-        if suggestion.get('success') and suggestion.get('account'):
-            account_name = suggestion['account']
-            matched = account_by_name.get(str(account_name).lower())
-            if matched and confidence >= auto_apply_threshold:
-                transaction.account_id = matched.id
-                applied_account_id = matched.id
-                applied_account_name = matched.name
+        if suggestion is not None:
+            # Account: only into an empty slot, only above the gate.
+            if (transaction.account_id is None
+                    and suggestion.account_id is not None
+                    and suggestion.confidence >= auto_apply_threshold):
+                transaction.account_id = suggestion.account_id
+                applied_account_id = suggestion.account_id
+                applied_account_name = suggestion.account_name
+
+            # Explanation: only into an empty slot, always attributed.
+            if suggestion.explanation and not (transaction.explanation or '').strip():
+                saved, _reason = save_explanation(
+                    transaction, suggestion.explanation, SOURCE_AI)
+                explained = saved
 
         results.append({
             'transaction_id': transaction.id,
             'description': transaction.description,
-            'suggestion': suggestion,
+            'suggestion': {
+                'success': suggestion is not None,
+                'account': suggestion.account_name if suggestion else None,
+                'confidence': suggestion.confidence if suggestion else 0,
+                'explanation': suggestion.explanation if suggestion else '',
+                # Shown on the review screen so the accountant can see WHY a
+                # row was filled: their own past treatment, or the model.
+                'source': ('history' if index in from_history
+                           else ('ai' if suggestion else None)),
+            },
             'applied_account_id': applied_account_id,
             'applied_account_name': applied_account_name,
+            'explained': explained,
         })
 
-    if results:
-        db.session.commit()
+    db.session.commit()
 
     processed_count = len(results)
-    remaining = max(0, total_unprocessed - offset - processed_count)
+    applied_count = sum(1 for r in results if r['applied_account_id'] is not None)
+    explained_count = sum(1 for r in results if r['explained'])
+    from_history_count = sum(
+        1 for r in results if r['suggestion'].get('source') == 'history')
+
+    # A row leaves the result set only when BOTH halves are now present, so the
+    # window must advance past exactly those rows that still need work.
+    completed = sum(
+        1 for index, txn in enumerate(transactions)
+        if txn.account_id is not None and (txn.explanation or '').strip()
+    )
+    next_offset = offset + (processed_count - completed)
+    remaining = max(0, total_unprocessed - completed - next_offset)
 
     return {
         'success': True,
         'processed': processed_count,
         'offset': offset,
-        'next_offset': offset + processed_count,
+        'next_offset': next_offset,
+        'applied': applied_count,
+        'explained': explained_count,
+        'from_history': from_history_count,
         'total_unprocessed': total_unprocessed,
         'remaining': remaining,
         'has_more': remaining > 0,

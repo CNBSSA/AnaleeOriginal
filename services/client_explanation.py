@@ -8,7 +8,12 @@ from models import Transaction, UploadedFile, db
 SOURCE_ACCOUNTANT = 'accountant'
 SOURCE_CLIENT = 'client'
 SOURCE_CLIENT_ERF = 'client_erf'
+#: Written by automated bulk processing, not by a person. Kept distinct so the
+#: books can always show who said what, and so a machine-written line never
+#: outranks a human one.
+SOURCE_AI = 'ai'
 CLIENT_SOURCES = frozenset({SOURCE_CLIENT, SOURCE_CLIENT_ERF})
+HUMAN_SOURCES = frozenset({SOURCE_ACCOUNTANT, SOURCE_CLIENT, SOURCE_CLIENT_ERF})
 
 
 def get_file_for_owner(file_id: int, user_id: int) -> UploadedFile | None:
@@ -39,6 +44,12 @@ def save_explanation(transaction: Transaction, text: str, source: str) -> tuple[
     current = getattr(transaction, 'explanation_source', None) or ''
     if source == SOURCE_ACCOUNTANT and current in CLIENT_SOURCES:
         return False, 'client_locked'
+    # A machine-written explanation never overwrites one a person wrote —
+    # neither the client's nor the accountant's. Bulk AI processing is
+    # therefore safe to re-run over a file that has been partly worked.
+    if source == SOURCE_AI and (current in HUMAN_SOURCES or
+                                (current == '' and (transaction.explanation or '').strip())):
+        return False, 'human_authored'
     transaction.explanation = cleaned
     transaction.explanation_source = source
     return True, 'ok'

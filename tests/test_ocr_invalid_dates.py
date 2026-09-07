@@ -135,8 +135,15 @@ def test_every_date_unreadable_imports_nothing_and_says_so():
     assert '1, 2' in messages
 
 
-def test_a_clean_import_is_unchanged():
-    """The working path must behave exactly as before."""
+def test_a_clean_import_is_unchanged(monkeypatch):
+    """The working path still reports a clean import as clean.
+
+    Auto-process-on-import adds a separate informational message, so this
+    asserts the substance — a clean success and no partial-import warning —
+    rather than the exact contents of the whole flash queue. It is switched
+    off here so the test exercises the import alone.
+    """
+    monkeypatch.setenv('ANALEE_AUTOPROCESS_ON_IMPORT', '0')
     app = _make_app()
     uid = _seed_user(app)
     client = app.test_client()

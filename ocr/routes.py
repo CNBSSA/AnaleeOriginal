@@ -32,6 +32,18 @@ def _user_accounts():
         return []
 
 
+def _start_autoprocess(file_id, user_id) -> bool:
+    """Kick off post-import categorisation. Never fails the import."""
+    try:
+        from flask import current_app
+        from services.auto_process import schedule_file_autoprocess
+        return schedule_file_autoprocess(
+            current_app._get_current_object(), file_id, user_id)
+    except Exception:
+        logger.exception("Could not schedule auto-process for file %s", file_id)
+        return False
+
+
 def _flag_duplicate_rows(rows):
     """Flag extracted rows that likely match the current user's existing
     transactions, so the review screen can pre-exclude them. Best-effort: any
@@ -207,6 +219,11 @@ def confirm_receipt():
         flash('Could not import the transactions. Please try again.', 'error')
         return redirect(url_for('ocr.upload_statement'))
 
+    # Start categorising/explaining immediately, off-request. The upload
+    # returns now; the work continues on a background thread (see
+    # services/auto_process.py for why it must not run inside the request).
+    started = _start_autoprocess(uploaded_file.id, current_user.id)
+
     if unreadable_dates:
         # Never report a partial import as a clean one.
         flash(
@@ -218,4 +235,7 @@ def confirm_receipt():
         )
     else:
         flash(f'Imported {len(parsed_rows)} transaction(s).', 'success')
+    if started:
+        flash('Analee is categorising and explaining them now — open Analyze '
+              'Data in a minute to review what needs your eye.', 'info')
     return redirect(url_for('main.upload'))
