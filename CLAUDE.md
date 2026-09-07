@@ -226,6 +226,62 @@ same way — future chart-sync ideas for that repo land there, not here.
 *(2026-07-18: chart-sync machinery touches the chart seed — it REMAINS inside
 the capability freeze, per frozen item #2.)*
 
+### Scoped re-open + re-freeze record (Festus, 2026-09-06)
+
+Festus re-opened this repo for **ONE scope only**: **advancing automation** —
+"more automation and more automation until nothing to automate". A review of
+the whole Import → Categorize → Explain → Reconcile → Report pipeline found the
+ceiling was not the AI but four defects plus a per-row call design. Delivered
+in three stages, each through the full workflow:
+
+**Tier 0 — unblock (maintenance, no re-open needed).** A row counted as
+finished if it had EITHER an account OR an explanation, and both import paths
+stamp the chosen bank account onto every row — so a statement was reported
+"All processed" the instant it landed and its rows were invisible to
+auto-processing (465 live transactions on Festus's own account). A row is now
+done only with **both** halves. Also: the batch omitted `user_id`, sending every
+tenant's chart to the model; auto-applied rows leaving the result set made the
+offset window skip unassigned rows permanently; `save-transaction` and
+`replicate-explanation` raised `TypeError` on every call
+(`dict.get(key, type=int)` on a plain dict) so dropdown edits were lost
+silently; and reconciliation reported "removed N duplicates, fixed N invalid
+dates" while deleting and rewriting nothing. Removal stays un-automated by
+design — the duplicate rule groups on date+amount+description, so two genuine
+identical charges in a day are indistinguishable from a double capture.
+
+**Honesty pass (maintenance).** Two places presented invented figures as
+analysis, the rule already set by `57ee9a9`: `/api/icountant/<id>/insights`
+returned the first three accounts in the chart at a fabricated `confidence: 0.5`
+whenever the AI category did not map — which is nearly always, since the
+category vocabulary is `nlp_utils`' personal-finance list while
+`Account.category` only holds Assets/Liabilities/Equity/Income/Expenses — and
+`icountant.html` auto-selected suggestion[0] into the dropdown, steering the
+accountant into posting to Bank Cheque Account 1. The expense forecast carried
+`overall_confidence: 0.85` / `reliability_score: 0.80` as literals nothing ever
+computed, rendered as percentages on the page and in the client-facing PDF.
+
+**Tier 1 — batched processing (this scope).** `services/bulk_suggestions.py`
+replaces one Claude call per transaction (each carrying the user's entire
+~1 000-account chart) with **one call per batch of 25** that returns the account
+**and** the explanation, so a processed row comes back complete instead of
+categorised but blank. Rules held: never invent an account (names are matched
+against the real chart, never fuzzy-matched); never guess when the AI is offline
+(returns nothing, so nothing is applied — the batch path previously consumed
+`PredictiveFeatures`' SequenceMatcher fallback, whose ratio could clear the 0.85
+gate); salvage a truncated reply row by row; write an account only into an empty
+slot; write an explanation only into an empty slot, tagged with the new
+`SOURCE_AI` so the books always show a machine wrote it, and
+`save_explanation` refuses to let it overwrite anything a person wrote.
+
+**The repo is RE-FROZEN with the automation work inside the freeze.** The
+frozen rules apply to `services/bulk_suggestions.py` and the batch path exactly
+as to everything else. The remaining tiers (auto-categorise at import,
+history-first matching, wiring the dormant rule engine, a real background job
+runner, bank feeds) each require Festus's explicit, scoped re-open — or belong
+in the embedded `analee/` module in `booksxpert`, which has real double-entry
+GL posting and so does not carry standalone Analee's single-`account_id`
+limitation.
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)

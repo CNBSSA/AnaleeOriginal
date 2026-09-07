@@ -89,9 +89,14 @@ export class BatchProcessor {
         this.updateProgress(result);
 
         if (result.processed > 0) {
-            this.updateStatus(`Processed ${result.processed} transaction(s). ${result.remaining} remaining.`);
+            const applied = result.applied || 0;
+            const explained = result.explained || 0;
+            this.updateStatus(
+                `Processed ${result.processed} transaction(s) — `
+                + `${applied} account(s) assigned, ${explained} explained. `
+                + `${result.remaining} remaining.`);
         } else if (result.total_unprocessed === 0) {
-            this.updateStatus('All transactions already have accounts or explanations.');
+            this.updateStatus('Every transaction now has both an account and an explanation.');
         }
 
         return result;
