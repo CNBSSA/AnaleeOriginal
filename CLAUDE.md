@@ -345,6 +345,68 @@ explicit, scoped re-open — or belong in the embedded `analee/` module in
 `booksxpert`, which has real double-entry GL posting and so does not carry
 standalone Analee's single-`account_id` limitation.
 
+### Scoped re-open + re-freeze record (Festus, 2026-09-06) — THE AUTOMATION TIERS
+
+Festus merged SEVEN PRs himself on 2026-09-06 (#106–#111 at 21:04, and #113
+at 21:11): Tier 0
+"unblock automation", "Refuse to show invented numbers as analysis", Tier 1
+"one AI call per batch", Tier 2 "the practice's own history decides before the
+model does", Tier 3 "importing a statement starts the work", Tier 4 "one
+accountant decision, applied to the whole family", and Tier 5 "show who
+decided each row, and let the machine's work be reviewed". Reviewed and
+verified 2026-09-07.
+
+**This work is inside the CAPABILITY freeze** — `services/analyze_processing.py`
+IS the Analyze Data pipeline, `history_matching.py` is learn-from-the-past, and
+`bulk_suggestions.py` is suggestion logic; the freeze covers "any module whose
+job is to analyze, learn, or suggest". Festus merging the PRs is the approval;
+this entry is the record that was missing.
+
+**What was CHANGED (the unfreeze scope):** `services/analyze_processing.py`,
+`routes.py`, `templates/analyze.html`, `static/js/analyze/*`, plus five NEW
+services — `bulk_suggestions.py`, `history_matching.py`, `auto_process.py`,
+`accountant_fanout.py`, `client_explanation.py`.
+
+**What stayed FROZEN and is untouched — machine-verified:**
+`predictive_features.py`, `ai_utils.py`, `services/chart_of_accounts.py`,
+`chart_seed_data.py`, `entity_chart_rules.py`, `entity_chart_schema.py`,
+`utils/chart_of_accounts.py`, `reports/trial_balance_service.py`.
+`protected_assets.py --check` passes; nothing in the lock drifted.
+
+**Verified good (the reason this is worth having):**
+- Two sources of FABRICATED CONFIDENCE were deleted — a hardcoded
+  `overall_confidence: 0.85 / reliability_score: 0.80`, and a fallback that
+  padded the suggestion list with arbitrary accounts at an invented
+  `confidence: 0.5`. Same disease as the 2026-09-03 "Bank charges → Patents and
+  Trademarks 0.42" report: never show an invented number as analysis.
+- A real crash was fixed: `data.get('account_id', type=int)` — `dict.get()`
+  takes no `type=` kwarg, so edits were not saving. That is Tier 0.
+- Nothing removed: no route, no view function, no nav item, no menu.
+- Full suite 331 passed / 0 failed (was 252 before the tiers).
+- Tier 5 (#113) is PURE ADDITION: +218 lines, zero deletions, its own tests;
+  protected_assets --check re-verified clean after it landed.
+
+**⚠️ OPERATIVE WARNING — THESE TIERS ARE LIVE, NOT DARK.** Unlike every other
+recent Analee change, most of this has no feature flag:
+- `history_matching`, `bulk_suggestions`, `accountant_fanout` are called
+  unconditionally — they change how Analee analyses the moment `main` deploys.
+- `ANALEE_AUTOPROCESS_ON_IMPORT` shipped defaulting to `'1'` (ON) — importing a
+  statement auto-started AI processing and spent Anthropic tokens without anyone
+  asking. **Festus ruled it OFF on 2026-09-07 and the default is now `'0'`**, so
+  it is dark like every other Analee capability. Set it to `1` to enable.
+
+**On "Auto-process next 10" (checked, and it is HONEST):** the button label is
+correct. `batchProcessor.js` still sends `batch_size: 10` and the route honours
+it. `ANALYZE_BATCH_SIZE = 25` is only the server-side default for callers that
+pass no size — in practice the auto-process-on-import path
+(`auto_process.py` calls `process_transaction_batch` without a size), matching
+`BULK_SUGGESTION_BATCH = 25`, one AI call per 25 rows. The frozen "10 at a time"
+work loop is preserved as `ANALYZE_PAGE_SIZE = 10`.
+
+**THE ENGINE IS RE-FROZEN** with these tiers inside the freeze. Any further
+change to the analysis/learning/suggestion capability needs Festus's explicit,
+scoped re-open, recorded here as this entry is.
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)

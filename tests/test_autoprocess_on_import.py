@@ -25,8 +25,16 @@ from services.auto_process import (
 
 # --- the switch ------------------------------------------------------------
 
-def test_enabled_by_default(monkeypatch):
+def test_disabled_by_default(monkeypatch):
+    """Dark by default (Festus, 2026-09-07) — an import must not spend API
+    credit unless someone asked for it."""
     monkeypatch.delenv('ANALEE_AUTOPROCESS_ON_IMPORT', raising=False)
+    assert autoprocess_enabled() is False
+
+
+@pytest.mark.parametrize('value', ['1', 'true', 'yes', 'TRUE'])
+def test_can_be_switched_on(monkeypatch, value):
+    monkeypatch.setenv('ANALEE_AUTOPROCESS_ON_IMPORT', value)
     assert autoprocess_enabled() is True
 
 
