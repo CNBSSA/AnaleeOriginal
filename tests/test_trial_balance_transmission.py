@@ -175,6 +175,67 @@ def test_shared_trial_balance_via_token(transmission_client, app, sample_user):
     assert len(data['rows']) == 2
 
 
+def _seed_prior_year_tb(app, user_id: int):
+    """One balanced pair dated inside the PREVIOUS financial year (Mar 2025 –
+    Feb 2026 for the Feb year-end that ``_seed_balanced_tb`` configures), with
+    a different amount so the two years cannot be confused."""
+    with app.app_context():
+        bank = Account.query.filter_by(user_id=user_id, link='ca.810.001').first()
+        sales = Account.query.filter_by(user_id=user_id, link='i.100.000').first()
+        db.session.add_all([
+            Transaction(date=datetime(2025, 6, 1), description='Old receipt',
+                        amount=40.0, user_id=user_id, account_id=bank.id),
+            Transaction(date=datetime(2025, 6, 2), description='Old sale',
+                        amount=-40.0, user_id=user_id, account_id=sales.id),
+        ])
+        db.session.commit()
+
+
+def test_shared_trial_balance_serves_the_closed_year_when_asked(transmission_client, app, sample_user):
+    """QA #6: the share link could only ever serve the client's CURRENT year,
+    so during AFS season THE ACCOUNTANTS received next year's year-to-date
+    balance. ``as_at`` — the consumer's own year-end — now selects the year
+    that closed; ``financial_year`` (start year) resolves to the same year."""
+    _seed_balanced_tb(app, sample_user)
+    _seed_prior_year_tb(app, sample_user)
+    token = create_share_token(sample_user, secret_key=app.config['SECRET_KEY'])
+
+    closed = transmission_client.get(f'/api/trial-balance/shared/{token}?as_at=2026-02-28')
+    assert closed.status_code == 200
+    data = closed.get_json()
+    assert data['as_at'] == '2026-02-28'
+    assert data['period_start'] == '2025-03-01'
+    assert {r['link']: r['amount'] for r in data['rows']} == {'ca.810.001': 40.0, 'i.100.000': -40.0}
+
+    by_year = transmission_client.get(f'/api/trial-balance/shared/{token}?financial_year=2025').get_json()
+    assert by_year['as_at'] == '2026-02-28'
+    assert len(by_year['rows']) == 2
+
+    # Nothing asked → the current year, exactly as before.
+    default = transmission_client.get(f'/api/trial-balance/shared/{token}').get_json()
+    assert default['as_at'] != '2026-02-28'
+
+
+def test_shared_trial_balance_rejects_a_malformed_as_at(transmission_client, app, sample_user):
+    _seed_balanced_tb(app, sample_user)
+    token = create_share_token(sample_user, secret_key=app.config['SECRET_KEY'])
+    response = transmission_client.get(f'/api/trial-balance/shared/{token}?as_at=28/02/2026')
+    assert response.status_code == 400
+    assert 'YYYY-MM-DD' in response.get_json()['error']
+
+
+def test_load_trial_balance_keywords_select_the_year_and_default_is_unchanged(app, sample_user):
+    _seed_balanced_tb(app, sample_user)
+    _seed_prior_year_tb(app, sample_user)
+    with app.app_context():
+        default = load_trial_balance(sample_user)
+        chosen = load_trial_balance(sample_user, as_at=datetime(2026, 2, 28))
+        assert chosen.end_date == datetime(2026, 2, 28)
+        assert default.end_date != chosen.end_date
+        assert {r.link: float(r.amount) for r in chosen.rows} == {'ca.810.001': 40.0, 'i.100.000': -40.0}
+        assert load_trial_balance(sample_user, year=2025).end_date == chosen.end_date
+
+
 def test_share_link_endpoint(transmission_client, app, sample_user):
     _seed_balanced_tb(app, sample_user)
     with app.app_context():

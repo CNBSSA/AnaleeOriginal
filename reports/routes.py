@@ -156,12 +156,44 @@ def general_ledger():
         flash('Error generating general ledger')
         return redirect(url_for('main.dashboard'))
 
+class BadPeriodError(ValueError):
+    """A period selector on a trial-balance request could not be read."""
+
+
+def _requested_period() -> dict:
+    """Optional period selectors shared by the trial-balance page, the export
+    and the share endpoint, passed straight through to ``load_trial_balance``:
+
+    - ``as_at=YYYY-MM-DD`` — any date inside the wanted financial year. A
+      consumer that knows its own year-end (THE ACCOUNTANTS) passes exactly
+      that date and receives that year's balance.
+    - ``financial_year=YYYY`` — the year the financial year STARTS in, the
+      same selector the other Analee reports use.
+
+    Nothing given → the client's current financial year, exactly as before.
+    """
+    period: dict = {}
+    raw_as_at = (request.args.get('as_at') or '').strip()
+    raw_year = (request.args.get('financial_year') or '').strip()
+    if raw_as_at:
+        try:
+            period['as_at'] = datetime.strptime(raw_as_at, '%Y-%m-%d')
+        except ValueError:
+            raise BadPeriodError('as_at must be a date in the form YYYY-MM-DD.')
+    if raw_year:
+        try:
+            period['year'] = int(raw_year)
+        except ValueError:
+            raise BadPeriodError('financial_year must be a four-digit year.')
+    return period
+
+
 @reports.route('/trial-balance')
 @login_required
 def trial_balance():
     """Display trial balance report"""
     try:
-        ctx = load_trial_balance(current_user.id)
+        ctx = load_trial_balance(current_user.id, **_requested_period())
         return render_template(
             'reports/trial_balance.html',
             accounts=ctx.accounts,
@@ -171,6 +203,9 @@ def trial_balance():
             total_credits=ctx.total_credits,
             tb_balanced=ctx.total_debits == ctx.total_credits,
         )
+    except BadPeriodError as exc:
+        flash(str(exc))
+        return redirect(url_for('reports.trial_balance'))
     except ValueError:
         flash('Please configure company settings first.')
         return redirect(url_for('main.company_settings'))
@@ -190,7 +225,7 @@ def trial_balance_export():
             flash('Please configure company settings first.')
             return redirect(url_for('main.company_settings'))
 
-        ctx = load_trial_balance(current_user.id)
+        ctx = load_trial_balance(current_user.id, **_requested_period())
         if not ctx.rows:
             flash('No trial balance amounts to export for this period.')
             return redirect(url_for('reports.trial_balance'))
@@ -206,17 +241,20 @@ def trial_balance_export():
             as_attachment=True,
             download_name=export_filename(ctx.end_date),
         )
+    except BadPeriodError as exc:
+        flash(str(exc))
+        return redirect(url_for('reports.trial_balance'))
     except Exception as e:
         logger.error(f"Error exporting trial balance: {str(e)}, Stack trace: {str(e.__traceback__)}")
         flash('Could not export trial balance. Please try again.')
         return redirect(url_for('reports.trial_balance'))
 
 
-def _trial_balance_payload_for_user(user_id: int) -> tuple[dict, CompanySettings]:
+def _trial_balance_payload_for_user(user_id: int, **period) -> tuple[dict, CompanySettings]:
     company_settings = CompanySettings.query.filter_by(user_id=user_id).first()
     if not company_settings:
         raise ValueError('Company settings are not configured.')
-    ctx = load_trial_balance(user_id)
+    ctx = load_trial_balance(user_id, **period)
     if not ctx.rows:
         raise ValueError('No trial balance amounts for this period.')
     payload = build_trial_balance_payload(
@@ -269,7 +307,9 @@ def trial_balance_shared(token):
 
     try:
         user_id = verify_share_token(token, secret_key=current_app.config['SECRET_KEY'])
-        payload, _ = _trial_balance_payload_for_user(user_id)
+        # The token names the company; the consumer names the year (or gets the
+        # current one). A BadPeriodError is a ValueError → 400 below.
+        payload, _ = _trial_balance_payload_for_user(user_id, **_requested_period())
         response = jsonify(payload)
         response.headers['Cache-Control'] = 'no-store'
         return response
