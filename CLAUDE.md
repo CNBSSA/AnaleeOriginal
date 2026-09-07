@@ -407,6 +407,67 @@ work loop is preserved as `ANALYZE_PAGE_SIZE = 10`.
 change to the analysis/learning/suggestion capability needs Festus's explicit,
 scoped re-open, recorded here as this entry is.
 
+### Scoped re-open + re-freeze record (Festus, 2026-09-07) — THE CLOSED-YEAR TRIAL BALANCE
+
+Festus ("go ahead", 2026-09-07) re-opened `reports/trial_balance_service.py` —
+a machine-locked chart/TB-core asset — for **ONE scope**: let the share link
+and the xlsx export serve a financial year other than the current one (QA
+register #6).
+
+**Why.** `load_trial_balance` called `get_financial_year()` with no date, so
+it always resolved to the year containing today. During AFS season (Mar–Aug
+for a Feb year-end) THE ACCOUNTANTS received the *next* year's year-to-date
+balance; before its wrong-year guard (Cursor #177 + its correction #178) that
+balance was staged silently into the closed year's workspace. There was no
+path at all for the year just closed.
+
+**What changed in the frozen file — two things, both under the unfreeze:**
+1. `load_trial_balance(user_id, *, as_at=None, year=None)`, a pass-through to
+   `CompanySettings.get_financial_year(date=as_at, year=year)`. Both omitted →
+   identical to before (locked by test).
+2. **A latent defect, found by the first two-year test this loader ever had:**
+   `_account_balance` summed EVERY transaction on the account, so only the
+   *choice* of accounts was FY-scoped — the amounts were all-time. A balance
+   "as at 28 Feb 2026" included April 2026. Now cumulative **up to and
+   including the period end** (`t.date <= end_date`), the rule the
+   financial-position report in the same module already applied. For the
+   current year the end lies in the future, so the default output is
+   byte-identical; for a closed year it is now honest.
+
+**What changed outside the freeze (normal surface):** `reports/routes.py` — a
+shared `_requested_period()` parser (`as_at=YYYY-MM-DD`, any date inside the
+wanted year; or `financial_year=YYYY`, the start year, the selector the other
+reports use) applied to the trial-balance page, the export and the share
+endpoint; a malformed value is a 400 on the API and a flash on the page, never
+the misleading "configure company settings" message. THE ACCOUNTANTS now
+passes its workspace's own year-end as `as_at` on every fetch
+(`fetch_analee_trial_balance(..., as_at=)`), so the two products agree on the
+year without having to agree on how to label it.
+
+**Untouched:** the analysis engine (`analyze_processing`, `bulk_suggestions`,
+`history_matching`, `auto_process`, `accountant_fanout`,
+`predictive_features`, `ai_utils`), the chart seed and rules,
+`utils/chart_of_accounts.py`, `build_booksxperts_trial_balance_xlsx`,
+`build_trial_balance_payload`, the share tokens.
+
+**Open, deliberately, for Festus:** the balance is cumulative across ALL
+earlier years for every account, income and expense included — the
+pre-existing semantics, now merely bounded by the period end. Whether P&L
+accounts should instead carry the year's *movement* only (true trial-balance
+semantics; avoids double-counting prior years' income in THE ACCOUNTANTS' AFS
+for a multi-year Analee client) is a money-semantics decision inside this
+frozen file, not an agent's call. Single-year clients — the common case —
+are unaffected either way.
+
+Tests: `tests/test_trial_balance_transmission.py` (+3: closed year via `as_at`
+and via `financial_year`; malformed `as_at` → 400; keyword selection with the
+default unchanged). Full suite 337 passed; `protected_assets.py --check` clean
+after re-lock. Re-locked with `protected_assets.py --authorized-by "Festus:
+2026-09-07 …"` — the lock file carries the reason.
+
+**THE FILE IS RE-FROZEN.** Any further change to it needs Festus's explicit,
+scoped re-open, recorded here as this entry is.
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)
