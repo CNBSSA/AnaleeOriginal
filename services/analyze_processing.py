@@ -13,10 +13,19 @@ ANALYZE_BATCH_SIZE = 10
 
 
 def transaction_needs_processing(transaction: Transaction) -> bool:
-    """True when a row still needs account assignment or explanation."""
-    return transaction.account_id is None and not (
-        transaction.explanation and transaction.explanation.strip()
-    )
+    """True when a row still needs an account assignment OR an explanation.
+
+    Previously this was an AND: a row counted as finished the moment it had
+    *either* one. That interacted badly with import — both import paths stamp
+    the chosen bank account onto every row (`bank_statements/services.py`, and
+    the "assign all rows to account" selector on the OCR review screen), so a
+    freshly imported statement was marked "All processed" before anything had
+    been categorised or explained, and its rows were invisible to the
+    exceptions view. A row is only done when both halves are present.
+    """
+    has_account = transaction.account_id is not None
+    has_explanation = bool(transaction.explanation and transaction.explanation.strip())
+    return not (has_account and has_explanation)
 
 
 def get_file_for_user(file_id: int, user_id: int) -> Optional[UploadedFile]:
@@ -27,12 +36,20 @@ def count_file_transactions(file_id: int, user_id: int) -> int:
     return Transaction.query.filter_by(file_id=file_id, user_id=user_id).count()
 
 
+def _needs_processing_clause():
+    """SQL twin of :func:`transaction_needs_processing` — missing EITHER half."""
+    return or_(
+        Transaction.account_id.is_(None),
+        Transaction.explanation.is_(None),
+        Transaction.explanation == '',
+    )
+
+
 def count_unprocessed_transactions(file_id: int, user_id: int) -> int:
     return Transaction.query.filter(
         Transaction.file_id == file_id,
         Transaction.user_id == user_id,
-        Transaction.account_id.is_(None),
-        or_(Transaction.explanation.is_(None), Transaction.explanation == ''),
+        _needs_processing_clause(),
     ).count()
 
 
@@ -57,10 +74,7 @@ def get_paginated_transactions(
         user_id=user_id,
     )
     if only_unprocessed:
-        base_query = base_query.filter(
-            Transaction.account_id.is_(None),
-            or_(Transaction.explanation.is_(None), Transaction.explanation == ''),
-        )
+        base_query = base_query.filter(_needs_processing_clause())
     base_query = base_query.order_by(Transaction.date, Transaction.id)
 
     total_count = base_query.count()
@@ -134,7 +148,14 @@ def process_transaction_batch(
     batch_size: int = ANALYZE_BATCH_SIZE,
     auto_apply_threshold: float = 0.85,
 ) -> Dict[str, Any]:
-    """Process up to batch_size unprocessed transactions with account suggestions."""
+    """Auto-assign accounts to up to batch_size rows that have none.
+
+    Deliberately scoped to ``account_id IS NULL`` — NOT the wider
+    "needs processing" predicate. A row that already carries an account (both
+    import paths stamp the bank account onto every row) must never have that
+    assignment silently overwritten by a suggestion; those rows are surfaced
+    for review instead.
+    """
     batch_size = max(1, min(batch_size, ANALYZE_BATCH_SIZE))
     offset = max(0, offset)
 
@@ -142,7 +163,6 @@ def process_transaction_batch(
         Transaction.file_id == file_id,
         Transaction.user_id == user_id,
         Transaction.account_id.is_(None),
-        or_(Transaction.explanation.is_(None), Transaction.explanation == ''),
     ).order_by(Transaction.date, Transaction.id)
 
     total_unprocessed = unprocessed_query.count()
@@ -156,9 +176,14 @@ def process_transaction_batch(
 
     results: List[Dict[str, Any]] = []
     for transaction in transactions:
+        # user_id is REQUIRED: without it suggest_account() falls back to
+        # Account.query.filter_by(is_active=True) across every tenant, putting
+        # other customers' charts of accounts into the prompt and degrading the
+        # suggestion by drowning this user's real accounts in foreign ones.
         suggestion = predictor.suggest_account(
             transaction.description,
             transaction.explanation or '',
+            user_id=user_id,
         )
 
         applied_account_id = None
@@ -185,13 +210,21 @@ def process_transaction_batch(
         db.session.commit()
 
     processed_count = len(results)
-    remaining = max(0, total_unprocessed - offset - processed_count)
+    applied_count = sum(1 for r in results if r['applied_account_id'] is not None)
+
+    # Auto-applied rows now have an account, so they DROP OUT of this query's
+    # result set. Advancing the window by the full batch size would therefore
+    # step over that many still-unassigned rows and never show them again.
+    # Advance only past the rows that remain (the ones we could not apply).
+    next_offset = offset + (processed_count - applied_count)
+    remaining = max(0, total_unprocessed - applied_count - next_offset)
 
     return {
         'success': True,
         'processed': processed_count,
         'offset': offset,
-        'next_offset': offset + processed_count,
+        'next_offset': next_offset,
+        'applied': applied_count,
         'total_unprocessed': total_unprocessed,
         'remaining': remaining,
         'has_more': remaining > 0,

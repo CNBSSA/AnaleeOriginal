@@ -15,10 +15,18 @@ class ReconciliationService:
     
     def __init__(self, user_id: int):
         self.user_id = user_id
+        # These are DETECTION counts, not repair counts. This service reads;
+        # it never writes — there is no delete, no date rewrite and no commit
+        # anywhere in it. The keys used to be named *_removed / *_fixed and the
+        # UI reported them as completed repairs, so an accountant was told
+        # duplicates had been removed from the books when nothing had changed.
+        # Removal is deliberately NOT automated: the duplicate rule groups on
+        # date+amount+description, so two genuine identical charges on one day
+        # (two R50 parking fees) look identical to a real double-capture, and a
+        # one-click button must never silently delete accounting records.
         self.cleanup_stats = {
-            'duplicates_removed': 0,
-            'invalid_dates_fixed': 0,
-            'amount_mismatches_fixed': 0,
+            'duplicates_found': 0,
+            'invalid_dates_found': 0,
             'total_processed': 0
         }
 
@@ -127,13 +135,13 @@ class ReconciliationService:
     def perform_cleanup(self) -> Tuple[bool, Dict]:
         """Perform data cleanup and reconciliation"""
         try:
-            # Find and remove duplicates
+            # Detect (do not delete) likely duplicates
             duplicates = self.find_duplicate_transactions()
-            self.cleanup_stats['duplicates_removed'] = len(duplicates)
-            
-            # Validate dates
+            self.cleanup_stats['duplicates_found'] = len(duplicates)
+
+            # Detect future-dated rows
             invalid_dates = self.validate_transaction_dates()
-            self.cleanup_stats['invalid_dates_fixed'] = len(invalid_dates)
+            self.cleanup_stats['invalid_dates_found'] = len(invalid_dates)
             
             # Reconcile accounts
             reconciliation_report = self.reconcile_accounts()

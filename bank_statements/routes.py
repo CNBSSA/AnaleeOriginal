@@ -28,13 +28,26 @@ def reconcile():
 
         if success:
             stats = result['cleanup_stats']
-            flash(
-                f"Reconciliation completed successfully! "
-                f"Processed {stats['total_processed']} transactions, "
-                f"removed {stats['duplicates_removed']} duplicates, "
-                f"fixed {stats['invalid_dates_fixed']} invalid dates.",
-                'success'
-            )
+            # Report what was FOUND. This service only inspects — it deletes
+            # nothing and rewrites nothing — so it must not claim repairs.
+            duplicates = stats['duplicates_found']
+            invalid_dates = stats['invalid_dates_found']
+            if duplicates or invalid_dates:
+                flash(
+                    f"Reconciliation check complete: scanned "
+                    f"{stats['total_processed']} transactions and found "
+                    f"{duplicates} possible duplicate(s) and "
+                    f"{invalid_dates} future-dated row(s). "
+                    f"Nothing has been changed — review them before editing.",
+                    'warning'
+                )
+            else:
+                flash(
+                    f"Reconciliation check complete: scanned "
+                    f"{stats['total_processed']} transactions and found no "
+                    f"duplicates or future-dated rows.",
+                    'success'
+                )
 
             # If it's an AJAX request, return JSON response
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':

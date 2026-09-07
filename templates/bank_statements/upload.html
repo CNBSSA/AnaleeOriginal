@@ -237,13 +237,14 @@ document.addEventListener('DOMContentLoaded', function() {
             if (result.success) {
                 // Update modal content with results
                 const stats = result.stats;
+                const flagged = (stats.duplicates_found || 0) + (stats.invalid_dates_found || 0);
                 document.getElementById('reconciliationStats').innerHTML = `
-                    <div class="alert alert-success">
-                        <h6>Reconciliation Summary:</h6>
+                    <div class="alert alert-${flagged ? 'warning' : 'success'}">
+                        <h6>Reconciliation check &mdash; nothing was changed:</h6>
                         <ul class="mb-0">
-                            <li>Total Transactions Processed: ${stats.total_processed}</li>
-                            <li>Duplicates Removed: ${stats.duplicates_removed}</li>
-                            <li>Invalid Dates Fixed: ${stats.invalid_dates_fixed}</li>
+                            <li>Transactions scanned: ${stats.total_processed}</li>
+                            <li>Possible duplicates found: ${stats.duplicates_found}</li>
+                            <li>Future-dated rows found: ${stats.invalid_dates_found}</li>
                         </ul>
                     </div>
                 `;
