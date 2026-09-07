@@ -508,6 +508,59 @@ def save_transaction(transaction_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+@main.route('/analyze/<int:file_id>/similar-rows/<int:transaction_id>', methods=['GET'])
+@login_required
+def fanout_preview(file_id, transaction_id):
+    """Rows on this statement that share a payee with the given row.
+
+    Preview only — nothing is written. Rows a person already decided are
+    excluded, so the accountant is never offered the chance to overwrite
+    someone's considered judgement.
+    """
+    try:
+        from services.accountant_fanout import find_matching_rows, serialize_rows
+
+        found = find_matching_rows(file_id, current_user.id, transaction_id)
+        if found['source'] is None:
+            return jsonify({'success': False, 'error': 'Transaction not found'}), 404
+
+        return jsonify({
+            'success': True,
+            'key': found['key'],
+            'count': len(found['rows']),
+            'rows': serialize_rows(found['rows']),
+        })
+    except Exception as e:
+        logger.error(f"Error finding rows to fan out to: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main.route('/analyze/<int:file_id>/apply-to-similar', methods=['POST'])
+@login_required
+def fanout_apply(file_id):
+    """Apply one decision (account and/or explanation) to the chosen rows."""
+    try:
+        from services.accountant_fanout import apply_to_rows
+
+        data = request.get_json() or {}
+        ids = data.get('transaction_ids') or []
+        if not isinstance(ids, list) or not ids:
+            return jsonify({'success': False, 'error': 'No rows selected'}), 400
+
+        result = apply_to_rows(
+            file_id=file_id,
+            user_id=current_user.id,
+            transaction_ids=ids,
+            account_id=data.get('account_id'),
+            explanation=data.get('explanation') or '',
+        )
+        return jsonify({'success': True, **result})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error applying to similar rows: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @main.route('/analyze/similar-transactions', methods=['POST'])
 @login_required
 def find_similar_transactions_api():

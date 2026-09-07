@@ -305,10 +305,28 @@ no progress is possible (AI offline and no history) instead of spinning; and
 switchable with `ANALEE_AUTOPROCESS_ON_IMPORT=0` for importing without spending
 API credit.
 
+**Tier 4 — leverage on what is left (this scope).**
+`services/accountant_fanout.py` + "Apply to similar" on each analyze row: one
+accountant decision is applied to every matching row on the statement.
+Exceptions arrive in *families* (forty card purchases at one supermarket,
+twelve identical debit orders), and deciding one then retyping it thirty-nine
+times was the largest remaining piece of manual work. The client wizard already
+had a fan-out (`services/client_erf.py`); the accountant — who does the
+professional bulk of the work — had none, and the client version carries only
+the explanation, never the account. Matching uses the same payee key as history
+matching, so what the accountant fans out today is exactly what the system
+recognises on its own next month. Refusals: a row **a person already decided**
+(accountant or client) is never offered and never written, even if its id is
+posted directly; ids are re-validated against file and user rather than
+trusted; a foreign account is ignored rather than guessed around; a description
+with no identifying payee fans out to nothing; bounded by `MAX_FANOUT`. It is
+preview-then-confirm — the count is shown before anything is written.
+
 **The repo is RE-FROZEN with the automation work inside the freeze.** The
 frozen rules apply to `services/bulk_suggestions.py`,
-`services/history_matching.py`, `services/auto_process.py` and the batch path
-exactly as to everything else. The remaining ideas (wiring the dormant
+`services/history_matching.py`, `services/auto_process.py`,
+`services/accountant_fanout.py` and the batch path exactly as to everything
+else. The remaining ideas (wiring the dormant
 keyword/rule engine — note its seeded rules are English personal-finance
 categories that do not fit an SA business chart; a durable job queue that
 survives a worker restart; bank feeds or email ingestion) each require Festus's

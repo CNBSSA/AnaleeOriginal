@@ -339,8 +339,16 @@
                                             {% if not ai_available %}disabled{% endif %}>
                                         <i class="fas fa-lightbulb"></i> ESF
                                     </button>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-success fanout-btn"
+                                            data-transaction-id="{{ transaction.id }}"
+                                            data-file-id="{{ file.id }}"
+                                            title="Apply this row's account and explanation to every matching row on this statement">
+                                        <i class="fas fa-clone"></i> Apply to similar
+                                    </button>
                                 </div>
                                 <div id="suggestions-{{ transaction.id }}" class="suggestions mt-2" style="display: none;"></div>
+                                <div id="fanout-{{ transaction.id }}" class="small mt-1"></div>
                                 <small class="text-muted d-block mt-1">ERF: type explanation to find similar rows</small>
                             </td>
                         </tr>
@@ -456,11 +464,13 @@
     import AnalyzeApplication from "{{ url_for('static', filename='js/analyze/main.js') }}";
     import enhanceAccountSelects from "{{ url_for('static', filename='js/analyze/accountSearch.js') }}";
     import BatchProcessor from "{{ url_for('static', filename='js/analyze/batchProcessor.js') }}";
+    import FanoutHandler from "{{ url_for('static', filename='js/analyze/fanout.js') }}";
 
     document.addEventListener('DOMContentLoaded', async () => {
         const app = new AnalyzeApplication();
         await app.initialize();
         enhanceAccountSelects();  // type-to-search on account pickers (presentation only)
+        new FanoutHandler().bindUI();  // "apply to similar" on each row
 
         {% if file is defined and file %}
         const batchProcessor = new BatchProcessor({{ file.id }});
