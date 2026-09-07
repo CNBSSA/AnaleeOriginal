@@ -322,6 +322,17 @@ trusted; a foreign account is ignored rather than guessed around; a description
 with no identifying payee fans out to nothing; bounded by `MAX_FANOUT`. It is
 preview-then-confirm — the count is shown before anything is written.
 
+**Tier 5 — the machine's work is visible (this scope).** Automation now writes
+explanations at scale and every write was already tagged (`SOURCE_AI` for the
+machine, accountant/client for people) — but the tag was **recorded and
+displayed nowhere**, so an accountant had no way to tell a machine-written line
+from their own. In a professional ledger that is not acceptable, and it makes
+review impossible to target. Each row now carries an author badge (Analee / You
+/ Client), the page summarises who explained what, and `?view=ai` shows **only**
+what the machine wrote so its output can be spot-checked without re-reading the
+statement. Corrections made there are kept and become next month's precedent
+via history matching.
+
 **The repo is RE-FROZEN with the automation work inside the freeze.** The
 frozen rules apply to `services/bulk_suggestions.py`,
 `services/history_matching.py`, `services/auto_process.py`,
