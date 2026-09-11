@@ -473,6 +473,79 @@ after re-lock. Re-locked with `protected_assets.py --authorized-by "Festus:
 **THE FILE IS RE-FROZEN.** Any further change to it needs Festus's explicit,
 scoped re-open, recorded here as this entry is.
 
+### Scoped re-open + re-freeze record (Festus, 2026-09-11) — WHAT A YEAR'S TRIAL BALANCE MEANS
+
+Festus ("Go ahead to fix these", 2026-09-11) re-opened
+`reports/trial_balance_service.py` — a machine-locked chart/TB-core asset — for
+**ONE scope**: the financial-year semantics left open by the 2026-09-07 entry
+(QA register #13) and the account-selection defect that depends on them (#12).
+
+**The question 09-07 left for Festus, and why it was answerable.** That entry
+asked whether P&L accounts should carry the year's *movement* rather than a
+cumulative total, and called it a money-semantics decision. Investigating it
+properly this time removed the obstacle that had made it look risky: Analee's
+transactions are **single-legged** — `bank_statements/services.py` and `routes.py`
+each create ONE `Transaction` row per bank line, with one `account_id` — so there
+is no contra entry, nothing balances debits against credits, and no
+retained-earnings roll-forward is implied. (The page has always said so: *"a
+cash-basis summary from categorised bank activity — not an accrual GL"*, and it
+carries a "debits and credits do not match" warning.) The fear that movement-only
+P&L would unbalance the trial balance was unfounded.
+
+Two further facts settled it rather than leaving it to taste:
+- the **income statement already scopes P&L by period** —
+  `reports/routes.py` uses `Transaction.date.between(from_date, to_date)`. The
+  trial balance was the report out of step, so this makes two reports agree;
+- for a client whose data lies inside ONE financial year both rules give the
+  **same number**, so the common case is arithmetically untouched (locked by
+  `TestASingleYearClientIsUnaffected`).
+
+**What changed in the frozen file — two things, both under the re-open:**
+1. `_account_balance(account, start_date, end_date)` — **Income / Expenses** carry
+   the movement inside the financial year; **Assets / Liabilities / Equity** stay
+   cumulative to the period end, exactly as before. The discriminator is the
+   chart's own five-value `category` vocabulary
+   (`services/chart_seed_data.py`); anything unrecognised — a blank category, an
+   older chart's value — falls to **cumulative**, so an account we cannot classify
+   can never silently lose its prior years.
+2. **Account selection (#12).** The query filtered the JOINED transactions table
+   on `date >= start AND date <= end`, which turns an outer join into an effective
+   INNER one: an account appeared only if it had activity *inside* the year, so a
+   balance-sheet account carrying a prior-year balance with no current-year
+   movement **disappeared from the trial balance while its balance was not
+   zero** — a motor vehicle bought last year simply stopped existing. Selection is
+   now by id through a distinct sub-select (so the row set cannot depend on how
+   many transactions an account has), and a row is shown when it traded in the
+   period **or** carries a balance into it.
+
+**The row set only grows.** An account trading in the period still appears even
+when it nets to zero (as `0.00`, as before); an account with no transactions at
+all is still excluded, so the page does not render the whole ~1 000-line chart.
+A dormant **P&L** account correctly stops appearing — under the new rule it has no
+movement to report, which is the point.
+
+**Untouched:** the analysis engine (`analyze_processing`, `bulk_suggestions`,
+`history_matching`, `auto_process`, `accountant_fanout`, `predictive_features`,
+`ai_utils`), the chart seed and rules, `utils/chart_of_accounts.py`,
+`build_booksxperts_trial_balance_xlsx`, `build_trial_balance_payload`, the share
+tokens, and `models.CompanySettings.get_financial_year` (its long-standing
+December `start_year` convention is relied on by every other report — the
+trial-balance selector now resolves through its date path instead, QA #11).
+
+**Consequence Festus should know:** for a MULTI-YEAR client the trial balance
+numbers change — that is the correction. THE ACCOUNTANTS will stop receiving prior
+years' income and expenses in a closed-year pull. Single-year clients see no
+change at all.
+
+Tests: `tests/test_trial_balance_year_semantics.py` (16). Proven toothed —
+restoring the cumulative rule and the inner-join selection fails 4 of them, while
+the 12 safety twins keep passing. Full suite 371 → 387, 0 failures.
+Re-locked with `protected_assets.py --authorized-by "Festus: 2026-09-11 …"`; the
+lock file carries the reason.
+
+**THE FILE IS RE-FROZEN.** Any further change to it needs Festus's explicit,
+scoped re-open, recorded here as this entry is.
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)
