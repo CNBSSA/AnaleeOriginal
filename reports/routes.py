@@ -22,11 +22,75 @@ logger = logging.getLogger(__name__)
 # Import the blueprint instance from __init__.py
 from . import reports
 from .trial_balance_service import (
+    PROFIT_AND_LOSS_CATEGORIES,
     build_booksxperts_trial_balance_xlsx,
     build_trial_balance_payload,
     export_filename,
     load_trial_balance,
 )
+
+# ---------------------------------------------------------------------------
+# The chart's own category vocabulary — QA #15.
+#
+# ``services/chart_seed_data.py`` gives every account one of exactly five
+# categories: Assets, Liabilities, Equity, Income, Expenses. The income
+# statement and the statement of financial position below classified accounts
+# with strings that DO NOT EXIST in that vocabulary — 'Expense' and 'Revenue'
+# (singular), plus 'Cost of Sales', 'Current Asset', 'Fixed Asset', 'Liability',
+# 'Current Liability' and 'Long Term Liability', which are *sub_category*
+# values, not categories. No account could ever match, so the expense side of
+# the income statement was ALWAYS empty — profit was reported equal to
+# revenue — and BOTH sides of the financial position were always empty.
+#
+# 'Cost of Sales' accounts (5000-5070) carry category 'Expenses', so they are
+# included by the category test and need no special case.
+# ---------------------------------------------------------------------------
+INCOME_CATEGORY = 'Income'
+EXPENSE_CATEGORY = 'Expenses'
+ASSET_CATEGORY = 'Assets'
+LIABILITY_CATEGORY = 'Liabilities'
+
+# Cross-check against the chart/TB core, which owns the same vocabulary. Read
+# only — the frozen service is called, never changed.
+assert {INCOME_CATEGORY, EXPENSE_CATEGORY} == set(PROFIT_AND_LOSS_CATEGORIES), (
+    'the income-statement categories have drifted from the trial balance\'s'
+)
+
+
+def _account_category(account):
+    """The account's category, tolerant of blanks and stray whitespace."""
+    return (getattr(account, 'category', '') or '').strip()
+
+
+def _account_totals(account_ids, end_date, start_date=None):
+    """``{account_id: (signed_total, entry_count)}`` in ONE query.
+
+    Both reports previously ran a separate ``SUM`` per account — about a
+    thousand queries per page view on a seeded chart. Same arithmetic, one
+    round trip.
+
+    ``start_date`` omitted means cumulative to ``end_date`` (balance-sheet
+    behaviour); supplied means movement within the period (income-statement
+    behaviour). That mirrors ``trial_balance_service._account_balance``.
+
+    The count is returned so a caller can tell "no activity" from "nets to
+    zero" without a second query.
+    """
+    if not account_ids:
+        return {}
+    query = db.session.query(
+        Transaction.account_id,
+        func.sum(Transaction.amount),
+        func.count(Transaction.id),
+    ).filter(Transaction.account_id.in_(account_ids))
+    if start_date is not None:
+        query = query.filter(Transaction.date.between(start_date, end_date))
+    else:
+        query = query.filter(Transaction.date <= end_date)
+    return {
+        account_id: (total or 0, count)
+        for account_id, total, count in query.group_by(Transaction.account_id).all()
+    }
 from .tb_share_tokens import create_share_token, verify_share_token, DEFAULT_MAX_AGE_SECONDS
 
 def get_last_day_of_month(year: int, month: int) -> int:
@@ -502,25 +566,32 @@ def financial_position():
         total_assets = 0
         total_liabilities = 0
 
+        # Cumulative to the period end — a bank balance carries forward.
+        movements = _account_totals([a.id for a in accounts], to_date)
+
         for account in accounts:
-            # Calculate account balance for the period
-            balance = db.session.query(func.sum(Transaction.amount)).filter(
-                Transaction.account_id == account.id,
-                Transaction.date <= to_date
-            ).scalar() or 0
+            balance, entries = movements.get(account.id, (0, 0))
+            if not entries:
+                # Nothing has ever happened on this account, so it has no
+                # balance to state. Listing every untouched line of a ~1 000
+                # account chart would bury the figures that do exist.
+                continue
 
-            account_data = {
-                'name': account.name,
-                'balance': abs(balance)  # Always show positive numbers in report
-            }
-
-            # Categorize accounts
-            if account.category in ['Asset', 'Current Asset', 'Fixed Asset']:
-                asset_accounts.append(account_data)
-                total_assets += balance if balance > 0 else 0
-            elif account.category in ['Liability', 'Current Liability', 'Long Term Liability']:
-                liability_accounts.append(account_data)
-                total_liabilities += abs(balance) if balance < 0 else 0
+            # Single-legged rows carry the bank's own sign (money in positive),
+            # so an asset balance is positive and a liability balance negative.
+            # Each total is the sum of the rows actually DISPLAYED: the old code
+            # showed abs(balance) but added only the conventionally-signed ones,
+            # so a row could appear on the page and be missing from its total.
+            if _account_category(account) == ASSET_CATEGORY:
+                asset_accounts.append({'name': account.name, 'balance': balance})
+                total_assets += balance
+            elif _account_category(account) == LIABILITY_CATEGORY:
+                # Show what is owed as a positive figure.
+                liability_accounts.append({'name': account.name, 'balance': -balance})
+                total_liabilities += -balance
+            # Equity accounts are deliberately NOT listed: this template states
+            # assets, liabilities and net assets, and has no equity section.
+            # Adding one is a new feature, not part of the #15 correction.
 
         return render_template('reports/financial_position.html',
                              start_date=from_date,
@@ -622,25 +693,31 @@ def income_statement():
         total_income = 0
         total_expenses = 0
 
+        # Movement inside the period only — an income statement reports a
+        # period's trading, never a carried-forward total.
+        movements = _account_totals([a.id for a in accounts], to_date,
+                                    start_date=from_date)
+
         for account in accounts:
-            # Calculate account balance for the period
-            balance = db.session.query(func.sum(Transaction.amount)).filter(
-                Transaction.account_id == account.id,
-                Transaction.date.between(from_date, to_date)
-            ).scalar() or 0
+            balance, entries = movements.get(account.id, (0, 0))
+            if not entries:
+                # Did not trade in this period, so it has nothing to report.
+                continue
 
-            account_data = {
-                'name': account.name,
-                'balance': abs(balance)  # Always show positive numbers in report
-            }
-
-            # Categorize accounts
-            if account.category in ['Income', 'Revenue']:
-                income_accounts.append(account_data)
-                total_income += balance if balance > 0 else 0
-            elif account.category in ['Expense', 'Cost of Sales']:
-                expense_accounts.append(account_data)
-                total_expenses += abs(balance) if balance < 0 else 0
+            # Single-legged rows carry the bank's own sign: a receipt is
+            # positive, a payment negative. Each total is the sum of the rows
+            # actually DISPLAYED — the old code displayed abs(balance) but added
+            # only same-signed accounts, so a refund-heavy income account or a
+            # supplier credit could show on the page yet be absent from the
+            # total. Netting it is also the correct answer: a credit note
+            # reduces income, it does not vanish.
+            if _account_category(account) == INCOME_CATEGORY:
+                income_accounts.append({'name': account.name, 'balance': balance})
+                total_income += balance
+            elif _account_category(account) == EXPENSE_CATEGORY:
+                # Show spend as a positive figure.
+                expense_accounts.append({'name': account.name, 'balance': -balance})
+                total_expenses += -balance
 
         return render_template('reports/income_statement.html',
                             start_date=from_date,
