@@ -9,10 +9,12 @@
                 <p class="text-muted mb-0">{{ start_date.strftime('%Y-%m-%d') }} to {{ end_date.strftime('%Y-%m-%d') }}</p>
             </div>
             <div class="d-flex flex-wrap gap-2">
-                <a href="{{ url_for('reports.trial_balance_export') }}" class="btn btn-primary btn-sm">
+                {# #10: **period_query carries as_at / financial_year through, so
+                   acting on a closed year no longer silently serves the current one. #}
+                <a href="{{ url_for('reports.trial_balance_export', **period_query) }}" class="btn btn-primary btn-sm">
                     Download Excel
                 </a>
-                <a href="{{ url_for('reports.trial_balance_api') }}" class="btn btn-outline-primary btn-sm" target="_blank" rel="noopener">
+                <a href="{{ url_for('reports.trial_balance_api', **period_query) }}" class="btn btn-outline-primary btn-sm" target="_blank" rel="noopener">
                     View JSON API
                 </a>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="tbShareLinkBtn">
@@ -21,6 +23,31 @@
             </div>
         </div>
         <div class="card-body">
+            {% if period_options %}
+            <form method="get" class="row g-2 align-items-end mb-3">
+                <div class="col-auto">
+                    <label for="financial_year" class="form-label mb-1 small text-muted">
+                        Financial year
+                    </label>
+                    <select class="form-select form-select-sm" id="financial_year" name="financial_year">
+                        {% for option in period_options %}
+                        <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>
+                            {{ option.label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">Show</button>
+                </div>
+                <div class="col-auto">
+                    <span class="small text-muted">
+                        Compiling the year just closed? Pick it here — the Excel, JSON
+                        and share link all follow this choice.
+                    </span>
+                </div>
+            </form>
+            {% endif %}
             {% if not tb_balanced %}
             <div class="alert alert-warning py-2">
                 Debits and credits do not match on this report. You can still export, but review
@@ -51,8 +78,13 @@
                         </tr>
                     </thead>
                     <tbody>
+                        {# #9: these figures come from load_trial_balance (amounts_by_link),
+                           NOT from summing account.transactions. That relationship is the
+                           whole history with no period bound, so once the service was
+                           bounded to the period end the rows stopped agreeing with the
+                           totals below. An account with no entry here has a zero balance. #}
                         {% for account in accounts %}
-                        {% set balance = account.transactions|rejectattr('amount', 'none')|sum(attribute='amount')|default(0) %}
+                        {% set balance = amounts_by_link.get(account.link, 0) %}
                         <tr>
                             <td>{{ account.name }}</td>
                             <td>{{ account.link }}</td>
@@ -88,7 +120,7 @@ document.addEventListener('DOMContentLoaded', function () {
         status.className = 'small mt-2 text-muted';
         status.textContent = 'Generating share link…';
         try {
-            const response = await fetch('{{ url_for("reports.trial_balance_share_link") }}');
+            const response = await fetch('{{ url_for("reports.trial_balance_share_link", **period_query) }}');
             const data = await response.json();
             if (!response.ok) {
                 throw new Error(data.error || 'Could not create share link');

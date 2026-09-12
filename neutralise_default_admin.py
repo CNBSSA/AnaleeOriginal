@@ -26,8 +26,8 @@ def main() -> int:
 
     from models import db
     from security.default_admin_guard import (
-        STATUS_ABSENT, STATUS_FORCED, STATUS_NOT_DEFAULT, STATUS_ROTATED,
-        neutralise_default_admin)
+        STATUS_ABSENT, STATUS_FORCED, STATUS_NOT_DEFAULT, STATUS_REFUSED,
+        STATUS_ROTATED, neutralise_default_admin)
 
     with app.app_context():
         try:
@@ -56,6 +56,15 @@ def main() -> int:
     elif status == STATUS_FORCED:
         print(f"default-admin guard: {result['email']} password reset to ADMIN_PASSWORD "
               "on request (ADMIN_PASSWORD_FORCE_RESET) — REMOVE the flag now")
+    elif status == STATUS_REFUSED:
+        # #14: exits NON-ZERO. The whole defect was a success report over a live
+        # credential, so this must be impossible to mistake for "done" — including
+        # by any automation that only checks the exit status.
+        print(f"default-admin guard: REFUSED — ADMIN_PASSWORD is itself a known "
+              f"default, so {result['email']} is STILL ON THE COMPROMISED PASSWORD. "
+              f"Choose a different ADMIN_PASSWORD and run this again.",
+              file=sys.stderr)
+        return 1
     return 0
 
 
