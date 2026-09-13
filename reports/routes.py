@@ -22,11 +22,75 @@ logger = logging.getLogger(__name__)
 # Import the blueprint instance from __init__.py
 from . import reports
 from .trial_balance_service import (
+    PROFIT_AND_LOSS_CATEGORIES,
     build_booksxperts_trial_balance_xlsx,
     build_trial_balance_payload,
     export_filename,
     load_trial_balance,
 )
+
+# ---------------------------------------------------------------------------
+# The chart's own category vocabulary — QA #15.
+#
+# ``services/chart_seed_data.py`` gives every account one of exactly five
+# categories: Assets, Liabilities, Equity, Income, Expenses. The income
+# statement and the statement of financial position below classified accounts
+# with strings that DO NOT EXIST in that vocabulary — 'Expense' and 'Revenue'
+# (singular), plus 'Cost of Sales', 'Current Asset', 'Fixed Asset', 'Liability',
+# 'Current Liability' and 'Long Term Liability', which are *sub_category*
+# values, not categories. No account could ever match, so the expense side of
+# the income statement was ALWAYS empty — profit was reported equal to
+# revenue — and BOTH sides of the financial position were always empty.
+#
+# 'Cost of Sales' accounts (5000-5070) carry category 'Expenses', so they are
+# included by the category test and need no special case.
+# ---------------------------------------------------------------------------
+INCOME_CATEGORY = 'Income'
+EXPENSE_CATEGORY = 'Expenses'
+ASSET_CATEGORY = 'Assets'
+LIABILITY_CATEGORY = 'Liabilities'
+
+# Cross-check against the chart/TB core, which owns the same vocabulary. Read
+# only — the frozen service is called, never changed.
+assert {INCOME_CATEGORY, EXPENSE_CATEGORY} == set(PROFIT_AND_LOSS_CATEGORIES), (
+    'the income-statement categories have drifted from the trial balance\'s'
+)
+
+
+def _account_category(account):
+    """The account's category, tolerant of blanks and stray whitespace."""
+    return (getattr(account, 'category', '') or '').strip()
+
+
+def _account_totals(account_ids, end_date, start_date=None):
+    """``{account_id: (signed_total, entry_count)}`` in ONE query.
+
+    Both reports previously ran a separate ``SUM`` per account — about a
+    thousand queries per page view on a seeded chart. Same arithmetic, one
+    round trip.
+
+    ``start_date`` omitted means cumulative to ``end_date`` (balance-sheet
+    behaviour); supplied means movement within the period (income-statement
+    behaviour). That mirrors ``trial_balance_service._account_balance``.
+
+    The count is returned so a caller can tell "no activity" from "nets to
+    zero" without a second query.
+    """
+    if not account_ids:
+        return {}
+    query = db.session.query(
+        Transaction.account_id,
+        func.sum(Transaction.amount),
+        func.count(Transaction.id),
+    ).filter(Transaction.account_id.in_(account_ids))
+    if start_date is not None:
+        query = query.filter(Transaction.date.between(start_date, end_date))
+    else:
+        query = query.filter(Transaction.date <= end_date)
+    return {
+        account_id: (total or 0, count)
+        for account_id, total, count in query.group_by(Transaction.account_id).all()
+    }
 from .tb_share_tokens import create_share_token, verify_share_token, DEFAULT_MAX_AGE_SECONDS
 
 def get_last_day_of_month(year: int, month: int) -> int:
@@ -160,15 +224,36 @@ class BadPeriodError(ValueError):
     """A period selector on a trial-balance request could not be read."""
 
 
-def _requested_period() -> dict:
-    """Optional period selectors shared by the trial-balance page, the export
-    and the share endpoint, passed straight through to ``load_trial_balance``:
+def _fy_probe_date(year: int, financial_year_end: int) -> datetime:
+    """A date guaranteed to fall INSIDE the financial year starting in ``year``.
+
+    QA register #11. ``CompanySettings.get_financial_year`` keeps ``start_year``
+    one LESS than the calendar year it represents when the year-end is December
+    (``start_date = datetime(start_year + 1, 1, 1)``). Its date-derived path
+    compensates for that; the ``year=`` keyword does not, so asking for
+    ``financial_year=2025`` on a calendar-year client returned calendar 2026.
+
+    Rather than change that long-standing convention — every other Analee report
+    depends on it, and it lives in a frozen module — this converts the request
+    into a probe date and lets the already-correct date-derived path resolve it.
+    """
+    if financial_year_end == 12:
+        return datetime(year, 6, 30)          # mid-calendar-year
+    return datetime(year, financial_year_end + 1, 15)   # just after the year-end
+
+
+def _requested_period(user_id: int | None = None) -> dict:
+    """Optional period selectors shared by the trial-balance page, the export, the
+    JSON API and the share endpoint, passed through to ``load_trial_balance``:
 
     - ``as_at=YYYY-MM-DD`` — any date inside the wanted financial year. A
       consumer that knows its own year-end (THE ACCOUNTANTS) passes exactly
       that date and receives that year's balance.
-    - ``financial_year=YYYY`` — the year the financial year STARTS in, the
-      same selector the other Analee reports use.
+    - ``financial_year=YYYY`` — the year the financial year STARTS in. For a
+      December year-end that is simply the calendar year.
+
+    Both are resolved to an ``as_at`` date, so one code path decides the year
+    (#11). ``financial_year`` still wins when both are supplied, as before.
 
     Nothing given → the client's current financial year, exactly as before.
     """
@@ -182,10 +267,63 @@ def _requested_period() -> dict:
             raise BadPeriodError('as_at must be a date in the form YYYY-MM-DD.')
     if raw_year:
         try:
-            period['year'] = int(raw_year)
+            year = int(raw_year)
         except ValueError:
             raise BadPeriodError('financial_year must be a four-digit year.')
+        if not 1900 <= year <= 2999:
+            raise BadPeriodError('financial_year must be a four-digit year.')
+        settings = CompanySettings.query.filter_by(user_id=user_id).first() \
+            if user_id is not None else None
+        if settings is None:
+            # No settings to read the year-end from: keep the old keyword so the
+            # caller still gets a period rather than a silently wrong one, and let
+            # load_trial_balance raise its own "configure company settings" error.
+            period.pop('as_at', None)
+            period['year'] = year
+        else:
+            period['as_at'] = _fy_probe_date(
+                year, int(settings.financial_year_end or 12))
     return period
+
+
+def _period_query_string() -> dict:
+    """The period selectors as the page received them, for re-attaching to the
+    page's own actions (#10). The Excel, JSON and share-link controls built their
+    URLs with no query string, so acting on a closed year silently served the
+    current one."""
+    out = {}
+    for key in ('as_at', 'financial_year'):
+        value = (request.args.get(key) or '').strip()
+        if value:
+            out[key] = value
+    return out
+
+
+def _period_options(user_id: int, selected_end: datetime, *, back: int = 5) -> list[dict]:
+    """Years offered by the page's period selector (#10).
+
+    The capability to ask for a closed year landed on 2026-09-07 but was reachable
+    only by hand-editing the URL, which is not a path an accountant should need.
+    Labels come from ``get_financial_year`` itself so they can never describe a
+    range the report would not actually return.
+    """
+    settings = CompanySettings.query.filter_by(user_id=user_id).first()
+    if settings is None:
+        return []
+    fy_end = int(settings.financial_year_end or 12)
+    current = settings.get_financial_year()
+    current_start_year = current['start_date'].year if fy_end == 12 \
+        else current['start_date'].year
+    options = []
+    for year in range(current_start_year, current_start_year - back - 1, -1):
+        dates = settings.get_financial_year(date=_fy_probe_date(year, fy_end))
+        options.append({
+            'value': year,
+            'label': (f"{dates['start_date'].strftime('%d %b %Y')} – "
+                      f"{dates['end_date'].strftime('%d %b %Y')}"),
+            'selected': dates['end_date'].date() == selected_end.date(),
+        })
+    return options
 
 
 @reports.route('/trial-balance')
@@ -193,15 +331,26 @@ def _requested_period() -> dict:
 def trial_balance():
     """Display trial balance report"""
     try:
-        ctx = load_trial_balance(current_user.id, **_requested_period())
+        ctx = load_trial_balance(current_user.id, **_requested_period(current_user.id))
+        # QA register #9: the template used to re-derive each row by summing
+        # `account.transactions` — the whole ORM relationship, with no period bound
+        # — while the totals came from the service. Once the service was correctly
+        # bounded to the period end (2026-09-07) the page contradicted itself.
+        # `ctx.rows` is the service's own answer, keyed by link, which is unique per
+        # user (ix_account_user_link). Accounts absent from it have a zero balance
+        # and still render as 0.00, so the row set is unchanged.
+        amounts_by_link = {row.link: row.amount for row in ctx.rows}
         return render_template(
             'reports/trial_balance.html',
             accounts=ctx.accounts,
+            amounts_by_link=amounts_by_link,
             start_date=ctx.start_date,
             end_date=ctx.end_date,
             total_debits=ctx.total_debits,
             total_credits=ctx.total_credits,
             tb_balanced=ctx.total_debits == ctx.total_credits,
+            period_options=_period_options(current_user.id, ctx.end_date),
+            period_query=_period_query_string(),
         )
     except BadPeriodError as exc:
         flash(str(exc))
@@ -225,7 +374,7 @@ def trial_balance_export():
             flash('Please configure company settings first.')
             return redirect(url_for('main.company_settings'))
 
-        ctx = load_trial_balance(current_user.id, **_requested_period())
+        ctx = load_trial_balance(current_user.id, **_requested_period(current_user.id))
         if not ctx.rows:
             flash('No trial balance amounts to export for this period.')
             return redirect(url_for('reports.trial_balance'))
@@ -271,7 +420,8 @@ def _trial_balance_payload_for_user(user_id: int, **period) -> tuple[dict, Compa
 def trial_balance_api():
     """Authenticated JSON trial balance for downstream import (BooksXperts / Accountants)."""
     try:
-        payload, _ = _trial_balance_payload_for_user(current_user.id)
+        payload, _ = _trial_balance_payload_for_user(
+            current_user.id, **_requested_period(current_user.id))
         return jsonify(payload)
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
@@ -285,9 +435,18 @@ def trial_balance_api():
 def trial_balance_share_link():
     """Create a time-limited signed URL for trial balance JSON (24h)."""
     try:
-        _trial_balance_payload_for_user(current_user.id)
+        period = _requested_period(current_user.id)
+        _trial_balance_payload_for_user(current_user.id, **period)
         token = create_share_token(current_user.id, secret_key=current_app.config['SECRET_KEY'])
-        share_url = url_for('reports.trial_balance_shared', token=token, _external=True)
+        # #10: the token names only the company, so without this the copied link
+        # always meant "current financial year" however the page was filtered.
+        share_kwargs = {}
+        if 'as_at' in period:
+            share_kwargs['as_at'] = period['as_at'].strftime('%Y-%m-%d')
+        elif 'year' in period:
+            share_kwargs['financial_year'] = period['year']
+        share_url = url_for('reports.trial_balance_shared', token=token,
+                            _external=True, **share_kwargs)
         return jsonify({
             'share_url': share_url,
             'expires_in_seconds': DEFAULT_MAX_AGE_SECONDS,
@@ -309,7 +468,7 @@ def trial_balance_shared(token):
         user_id = verify_share_token(token, secret_key=current_app.config['SECRET_KEY'])
         # The token names the company; the consumer names the year (or gets the
         # current one). A BadPeriodError is a ValueError → 400 below.
-        payload, _ = _trial_balance_payload_for_user(user_id, **_requested_period())
+        payload, _ = _trial_balance_payload_for_user(user_id, **_requested_period(user_id))
         response = jsonify(payload)
         response.headers['Cache-Control'] = 'no-store'
         return response
@@ -407,25 +566,32 @@ def financial_position():
         total_assets = 0
         total_liabilities = 0
 
+        # Cumulative to the period end — a bank balance carries forward.
+        movements = _account_totals([a.id for a in accounts], to_date)
+
         for account in accounts:
-            # Calculate account balance for the period
-            balance = db.session.query(func.sum(Transaction.amount)).filter(
-                Transaction.account_id == account.id,
-                Transaction.date <= to_date
-            ).scalar() or 0
+            balance, entries = movements.get(account.id, (0, 0))
+            if not entries:
+                # Nothing has ever happened on this account, so it has no
+                # balance to state. Listing every untouched line of a ~1 000
+                # account chart would bury the figures that do exist.
+                continue
 
-            account_data = {
-                'name': account.name,
-                'balance': abs(balance)  # Always show positive numbers in report
-            }
-
-            # Categorize accounts
-            if account.category in ['Asset', 'Current Asset', 'Fixed Asset']:
-                asset_accounts.append(account_data)
-                total_assets += balance if balance > 0 else 0
-            elif account.category in ['Liability', 'Current Liability', 'Long Term Liability']:
-                liability_accounts.append(account_data)
-                total_liabilities += abs(balance) if balance < 0 else 0
+            # Single-legged rows carry the bank's own sign (money in positive),
+            # so an asset balance is positive and a liability balance negative.
+            # Each total is the sum of the rows actually DISPLAYED: the old code
+            # showed abs(balance) but added only the conventionally-signed ones,
+            # so a row could appear on the page and be missing from its total.
+            if _account_category(account) == ASSET_CATEGORY:
+                asset_accounts.append({'name': account.name, 'balance': balance})
+                total_assets += balance
+            elif _account_category(account) == LIABILITY_CATEGORY:
+                # Show what is owed as a positive figure.
+                liability_accounts.append({'name': account.name, 'balance': -balance})
+                total_liabilities += -balance
+            # Equity accounts are deliberately NOT listed: this template states
+            # assets, liabilities and net assets, and has no equity section.
+            # Adding one is a new feature, not part of the #15 correction.
 
         return render_template('reports/financial_position.html',
                              start_date=from_date,
@@ -527,25 +693,31 @@ def income_statement():
         total_income = 0
         total_expenses = 0
 
+        # Movement inside the period only — an income statement reports a
+        # period's trading, never a carried-forward total.
+        movements = _account_totals([a.id for a in accounts], to_date,
+                                    start_date=from_date)
+
         for account in accounts:
-            # Calculate account balance for the period
-            balance = db.session.query(func.sum(Transaction.amount)).filter(
-                Transaction.account_id == account.id,
-                Transaction.date.between(from_date, to_date)
-            ).scalar() or 0
+            balance, entries = movements.get(account.id, (0, 0))
+            if not entries:
+                # Did not trade in this period, so it has nothing to report.
+                continue
 
-            account_data = {
-                'name': account.name,
-                'balance': abs(balance)  # Always show positive numbers in report
-            }
-
-            # Categorize accounts
-            if account.category in ['Income', 'Revenue']:
-                income_accounts.append(account_data)
-                total_income += balance if balance > 0 else 0
-            elif account.category in ['Expense', 'Cost of Sales']:
-                expense_accounts.append(account_data)
-                total_expenses += abs(balance) if balance < 0 else 0
+            # Single-legged rows carry the bank's own sign: a receipt is
+            # positive, a payment negative. Each total is the sum of the rows
+            # actually DISPLAYED — the old code displayed abs(balance) but added
+            # only same-signed accounts, so a refund-heavy income account or a
+            # supplier credit could show on the page yet be absent from the
+            # total. Netting it is also the correct answer: a credit note
+            # reduces income, it does not vanish.
+            if _account_category(account) == INCOME_CATEGORY:
+                income_accounts.append({'name': account.name, 'balance': balance})
+                total_income += balance
+            elif _account_category(account) == EXPENSE_CATEGORY:
+                # Show spend as a positive figure.
+                expense_accounts.append({'name': account.name, 'balance': -balance})
+                total_expenses += -balance
 
         return render_template('reports/income_statement.html',
                             start_date=from_date,
