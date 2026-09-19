@@ -5,7 +5,7 @@ import sys
 import tempfile
 from datetime import datetime
 from urllib.parse import urlparse
-from flask import Flask, current_app, redirect, url_for, request, flash, jsonify, session
+from flask import Flask, current_app, redirect, url_for, request, flash, jsonify, session, g
 from flask_migrate import Migrate
 from dotenv import load_dotenv
 from sqlalchemy import text
@@ -311,6 +311,12 @@ def create_app(env=None):
                 return None
             return User.query.get(int(user_id))
 
+        @app.context_processor
+        def _analee_read_only_flag():
+            """Expose read-only mode to templates so a lapsed member is TOLD,
+            rather than clicking a button that silently refuses."""
+            return {"analee_read_only": bool(getattr(g, "analee_read_only", False))}
+
         @app.before_request
         def _analee_entitlement_gate():
             """Restrict Analee to Practice Club members OR Accountants/Analee
@@ -318,10 +324,13 @@ def create_app(env=None):
 
             Dark by default (``ANALEE_ENTITLEMENT_ENFORCED`` off) — no behaviour
             change. When enforced, an authenticated non-admin user who is neither
-            a Club member (SSO session) nor a subscriber is redirected to a
-            friendly notice; anonymous users are left to the login gate; admins
-            are always allowed. Auth / static / error routes and the notice page
-            itself are exempt so a blocked user can read it and log out.
+            a Club member (SSO session) nor a subscriber gets **read-only**
+            access: they may still see and export the books they produced, but
+            every write is redirected to a friendly notice (Festus 2026-09-19 —
+            a gate may stop you writing, never reading your own work). Anonymous
+            users are left to the login gate; admins are always allowed. Auth /
+            static / error routes and the notice page itself are exempt so a
+            blocked user can read it and log out.
             """
             import entitlement
             if not entitlement.enforcement_enabled():
@@ -336,6 +345,13 @@ def create_app(env=None):
                     or endpoint.startswith("errors.")):
                 return
             if not entitlement.analee_entitled(current_user):
+                # Festus 2026-09-19: a gate may stop you WRITING new data; it
+                # must never stop you READING your own. A lapsed member can
+                # still see and export the books they produced -- they simply
+                # cannot do any more work. See entitlement.read_only_allowed.
+                if entitlement.read_only_allowed(request.method, endpoint):
+                    g.analee_read_only = True
+                    return
                 return redirect(url_for("main.entitlement_required"))
 
         # Import and register blueprints within app context
