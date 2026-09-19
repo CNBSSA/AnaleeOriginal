@@ -60,3 +60,48 @@ def analee_entitled(user):
     if user is None or not getattr(user, "is_authenticated", False):
         return False
     return is_subscriber(user)
+
+
+# --- Read-only access for a non-entitled user (Festus, 2026-09-19) -----------
+#
+# The rule Festus set after TrustEasyGo hid a firm's own bank statements behind
+# a setup gate: "A normal application doesn't behave that way. Who will buy an
+# application like [that]?"
+#
+#     A gate may stop you WRITING new data. It must never stop you READING
+#     your own.
+#
+# Before this, the gate redirected EVERY route for a non-entitled user. It is
+# dark, so nobody has been hurt -- but the day it is switched on, a member whose
+# Club membership or subscription lapses would lose sight of statements and
+# trial balances they produced and paid for. That is the landmine this closes.
+#
+# The commercial rule still bites, and that is deliberate: a lapsed user can
+# LOOK at their books and take their data with them, but cannot do any more
+# work -- no uploads, no analysis, no categorising, no posting. Everything that
+# creates or changes anything is a POST/PUT/PATCH/DELETE and stays blocked.
+#
+# HTTP method is the discriminator rather than endpoint names, because a name
+# heuristic guesses and a method does not. The two GET endpoints that are not
+# really reads are named explicitly below rather than left to the rule.
+
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+#: GET endpoints that are NOT reads -- they mint access or spend real money.
+NON_READ_GET_ENDPOINTS = frozenset({
+    # Mints a signed URL that lets a THIRD PARTY into this file without a
+    # login. Handing out access is not reading your own work.
+    "main.analyze_client_link",
+    # Calls the AI on every request, so it costs money per click.
+    "main.icountant_transaction_insights",
+})
+
+
+def read_only_allowed(method, endpoint):
+    """May a NON-entitled user still be served this request?
+
+    True for a genuine read; False for anything that writes, spends or grants.
+    """
+    if (method or "").upper() not in SAFE_METHODS:
+        return False
+    return (endpoint or "") not in NON_READ_GET_ENDPOINTS

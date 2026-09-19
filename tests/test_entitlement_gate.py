@@ -125,16 +125,22 @@ def test_gate_on_allows_subscriber(canary_app, monkeypatch):
     assert resp.status_code == 200
 
 
-def test_gate_on_blocks_non_entitled(canary_app, monkeypatch):
-    """When the helper says not-entitled, the gate redirects to the notice."""
+def test_gate_on_serves_reads_to_a_non_entitled_user(canary_app, monkeypatch):
+    """CHANGED 2026-09-19 (Festus). This test used to assert that a GET was
+    redirected to the notice — i.e. that a lapsed member could not see the
+    books they had produced. That is the TrustEasyGo defect, and Festus ruled
+    against it: "A normal application doesn't behave that way." A gate may stop
+    you writing new data; it must never stop you reading your own.
+
+    The commercial rule still bites — see the write test below."""
     import entitlement
     monkeypatch.setenv("ANALEE_ENTITLEMENT_ENFORCED", "True")
     monkeypatch.setattr(entitlement, "analee_entitled", lambda _user: False)
     client = canary_app.test_client()
     _register_and_login(client)
     resp = client.get("/dashboard")
-    assert resp.status_code == 302
-    assert "/entitlement-required" in resp.headers.get("Location", "")
+    assert resp.status_code == 200, (
+        "a non-entitled user was denied sight of their own dashboard")
 
 
 def test_gate_on_admin_bypasses_helper(canary_app, monkeypatch):
