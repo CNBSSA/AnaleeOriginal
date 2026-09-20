@@ -569,3 +569,32 @@ def delete_subscriber(user_id):
         flash(f'Error deleting user: {error_msg}', 'error')
 
     return redirect(url_for('admin.deactivated_subscribers'))
+
+@admin.route('/date-swap-audit', methods=['GET'])
+@login_required
+@admin_required
+def date_swap_audit():
+    """Read-only: uploads whose dates carry the day/month transposition
+    fingerprint (2026-09-20).
+
+    Until the shared parser landed, the bank-statement importer read every cell
+    with dayfirst=True while excel_reader handed it every cell as a string, so
+    an ISO date — '2025-04-03', or an Excel date cell stringified to
+    '2025-04-03 00:00:00' — was read as YYYY-DD-MM and stored as 4 March. The
+    parser is fixed; the stored rows cannot be, because the uploaded file is
+    deleted after import and only its filename is kept. So the useful thing is
+    to name the statements worth re-uploading.
+
+    Reports a suspicion with its evidence, never a verdict. Writes nothing.
+    """
+    from services.date_swap_audit import (
+        MIN_DISTINCT_MONTHS, MIN_SHARE_ON_ONE_DAY, suspect_uploads,
+    )
+    rows = suspect_uploads()
+    return render_template(
+        'admin/date_swap_audit.html',
+        rows=rows,
+        total_files=UploadedFile.query.count(),
+        min_months=MIN_DISTINCT_MONTHS,
+        min_share=int(MIN_SHARE_ON_ONE_DAY * 100),
+    )

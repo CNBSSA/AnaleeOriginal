@@ -4,6 +4,7 @@ Handles specific validation rules for bank statements
 """
 import logging
 import pandas as pd
+from utils.date_parsing import parse_statement_date
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import List, Dict, Tuple
@@ -153,8 +154,12 @@ class BankStatementValidator:
                     self.errors.append(f"Row {row_num}: Missing date")
                     return None
 
-                date_value = pd.to_datetime(row['Date'])
-                if date_value > datetime.now():
+                date_value = parse_statement_date(row['Date'])
+                if date_value is None:
+                    logger.warning(f"Row {row_num}: Unreadable date")
+                    self.errors.append(f"Row {row_num}: Invalid date format")
+                    return None
+                if date_value > pd.Timestamp(datetime.now()):
                     logger.warning(f"Row {row_num}: Future date detected")
                     self.errors.append(f"Row {row_num}: Date cannot be in the future")
                     return None
