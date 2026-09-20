@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 import pandas as pd
+from utils.date_parsing import parse_statement_date
 
 _DATE_PATTERNS = {'date', 'transaction date', 'posting date', 'value date'}
 _DESC_PATTERNS = {
@@ -139,8 +140,11 @@ def normalize_bank_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         if amount is None:
             continue
 
-        parsed_date = pd.to_datetime(date_val, errors='coerce', dayfirst=True)
-        if pd.isna(parsed_date):
+        # Day-first for DD/MM, as written for ISO. dayfirst=True alone read
+        # '2025-04-03' as 4 March, and excel_reader hands every cell over as
+        # a string (dtype=str), so real Excel date cells came through here.
+        parsed_date = parse_statement_date(date_val)
+        if parsed_date is None:
             continue
 
         if not description:

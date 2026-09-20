@@ -4,6 +4,7 @@ Provides comprehensive validation and error reporting for bank statement uploads
 """
 import logging
 import pandas as pd
+from utils.date_parsing import parse_statement_date
 from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Tuple, Any
 from datetime import datetime
@@ -121,8 +122,10 @@ class UploadDiagnostics:
                 if pd.isna(row['Date']):
                     row_errors.append('Missing date')
                 else:
-                    date_value = pd.to_datetime(row['Date'])
-                    if date_value > datetime.now():
+                    date_value = parse_statement_date(row['Date'])
+                    if date_value is None:
+                        raise ValueError(f"unreadable date {row['Date']!r}")
+                    if date_value > pd.Timestamp(datetime.now()):
                         row_errors.append('Date cannot be in the future')
                     cleaned_data['date'] = date_value.date()
             except Exception as e:

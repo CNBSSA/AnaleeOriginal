@@ -13,6 +13,7 @@ from .models import BankStatementUpload, Transaction, UploadedFile
 from .excel_reader import BankStatementExcelReader
 from models import db
 import pandas as pd
+from utils.date_parsing import parse_statement_date_or_raise
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ class BankStatementService:
         transactions = []
         for _, row in df.iterrows():
             try:
-                txn_date = pd.to_datetime(row['Date']).to_pydatetime()
+                txn_date = parse_statement_date_or_raise(row['Date']).to_pydatetime()
                 transaction = Transaction(
                     date=txn_date,
                     description=str(row['Description'])[:200],

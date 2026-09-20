@@ -1,0 +1,77 @@
+{% extends "admin/layout.html" %}
+{% block title %}Date transposition audit{% endblock %}
+{% block content %}
+<div class="container my-4" style="max-width: 1000px;">
+  <h2>Statements to check for transposed dates</h2>
+
+  <p class="text-muted">
+    Until 20 September 2026 the bank-statement importer read every cell with
+    day-first parsing, while the file reader handed it every cell as text. A date
+    written <code>2025-04-03</code> — or an Excel date cell, which arrives as
+    <code>2025-04-03 00:00:00</code> — was therefore read as year-day-month and
+    stored as <strong>4 March</strong> instead of 3 April. Statements written
+    <code>03/04/2025</code> were unaffected. The parser is fixed.
+  </p>
+
+  <div class="alert alert-secondary">
+    <strong>What this page can and cannot do.</strong> It cannot repair anything:
+    an uploaded statement is deleted once imported and only its filename is kept,
+    so there is nothing left to re-read. An affected statement has to be uploaded
+    again. What this does is tell you which ones are worth opening.
+    <br><br>
+    <strong>How a statement gets on this list.</strong> Transposing a date moves
+    the statement's month into the day, so every affected row lands on the same
+    day number while its month runs 1&ndash;12. Rows dated the 13th or later are
+    never affected, because month 13 does not exist and the parser fell back and
+    read them correctly. A statement is listed when its rows span
+    <strong>{{ min_months }} or more calendar months</strong> <em>and</em>
+    <strong>{{ min_share }}% or more of them share one day of the month</strong> —
+    a shape real trading does not produce.
+    <br><br>
+    This is a suspicion with its evidence attached, not a verdict. Open the
+    original and compare before re-uploading anything.
+  </div>
+
+  {% if not rows %}
+    <div class="alert alert-success">
+      No upload carries the fingerprint. {{ total_files }} uploaded
+      file{{ '' if total_files == 1 else 's' }} checked.
+    </div>
+  {% else %}
+    <div class="alert alert-warning">
+      <strong>{{ rows|length }}</strong> of {{ total_files }} uploaded
+      file{{ '' if total_files == 1 else 's' }} carry the fingerprint.
+    </div>
+
+    <table class="table table-sm table-bordered align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>File</th><th>Uploaded</th><th class="text-end">Rows</th>
+          <th class="text-end">Months<br>spanned</th>
+          <th>Shared day</th><th>Date range</th><th>Likely real month</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.filename }}<br><small class="text-muted">file #{{ r.file_id }} &middot; user {{ r.user_id }}</small></td>
+          <td>{{ r.upload_date.strftime('%Y-%m-%d') if r.upload_date else '&mdash;' }}</td>
+          <td class="text-end">{{ r.rows }}</td>
+          <td class="text-end">{{ r.distinct_months }}</td>
+          <td>{{ r.rows_on_shared_day }} rows on day {{ r.shared_day }}
+              <small class="text-muted">({{ r.share_on_shared_day }}%)</small></td>
+          <td>{{ r.first }} &rarr; {{ r.last }}</td>
+          <td>
+            {% if r.likely_real_month %}
+              month {{ r.likely_real_month }}
+            {% else %}
+              <span class="text-muted">&mdash;</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+{% endblock %}

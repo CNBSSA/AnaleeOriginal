@@ -14,6 +14,7 @@ from datetime import datetime
 from sqlalchemy import func
 from models import Transaction
 from bank_statements.services import BankStatementService
+from utils.date_parsing import parse_statement_date_or_raise
 from predictive_features import PredictiveFeatures
 from config import CLAUDE_MODEL
 from ai_utils import predict_account as ai_predict_account
@@ -1432,7 +1433,7 @@ def process_transaction_rows(df, uploaded_file, user):
         for index, row in df.iterrows():
             try:
                 transaction = Transaction(
-                    date=pd.to_datetime(row['Date']).date(),
+                    date=parse_statement_date_or_raise(row['Date']).date(),
                     description=str(row['Description']),
                     amount=float(row['Amount']),
                     file_id=uploaded_file.id,
