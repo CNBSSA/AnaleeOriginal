@@ -1,5 +1,5 @@
 ---
-description: CNBSSA non-negotiable guardrails for every agent working in this repo (branch policy, no feature removal, minimal scope, no invented facts). Always applies.
+description: CNBSSA non-negotiable guardrails for every agent working in this repo (SA products are FIX-ONLY until Festus lifts it, branch policy, no feature removal, minimal scope, no invented facts). Always applies.
 alwaysApply: true
 ---
 
@@ -10,6 +10,26 @@ non-negotiable and apply to EVERY task, no matter how small. The full
 workflow lives in `CLAUDE.md`; this file restates the rules that must never
 be missed. If a task seems to require breaking one of these, STOP and ask
 the owner first — do not proceed.
+
+## 0. CURRENT SCOPE — SA products are FIX-ONLY (Festus, 2026-09-21, until changed)
+
+> *"For now, until I change it, no new development in all South African products.
+> We only fix existing features and functionalities. No removal of features and
+> menus, but fix all that are not working well."*
+
+This rule is numbered 0 because it decides whether a task should be done at all,
+before the rules below decide how.
+
+- **Allowed:** fixing an existing feature that does not work or does not work
+  well — defects, correctness, reliability, performance, usability. Finishing a
+  feature that shipped half-working IS a fix.
+- **Not allowed:** new features, new modules, new surfaces — however small.
+  Capture the idea in the PR description and go back to fixing.
+- **Remove nothing** — rule 2 below, restated by the owner in the same breath.
+- **Active mandate:** "fix all that are not working well" means go and find what
+  is broken; audit findings are to be fixed, not merely logged.
+- **If you cannot tell whether it is a fix or a new feature, it is a new
+  feature.** STOP and ask the owner.
 
 ## 1. Branch policy — develop only, NEVER main
 
