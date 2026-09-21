@@ -1,5 +1,42 @@
 # Project Working Agreement
 
+## ⛔ STANDING DIRECTIVE — SA PRODUCTS ARE IN FIX-ONLY MODE (Festus, 2026-09-21)
+
+Festus: *"For now, until I change it, no new development in all South African
+products. We only fix existing features and functionalities. No removal of
+features and menus, but fix all that are not working well."*
+
+**Open-ended** — it runs until Festus lifts it, not to a date. The corporation-wide
+authoritative copy is in `autonomusFV/CLAUDE.md`; this is its per-repo copy and
+never overrides it.
+
+**Allowed:** fixing an existing feature that does not work, or does not work well —
+defect repair, correctness, reliability, performance, and the usability of what is
+already there. **Finishing a feature that shipped half-working is a fix**, not a new
+feature.
+
+**Not allowed:** new features, new modules, new surfaces — however small, and
+however good the idea. Capture it to the backlog, say so plainly, and return to
+fixing. This includes ideas Festus himself raises mid-stream: surface the trade-off
+rather than silently building it. He has named his own pattern before — *"I am
+always new-features-triggered, I will try to avoid that"* — and asking us to hold
+this line is him steering against it.
+
+**Removal is still forbidden, and he said so again in the same breath.** The Iron
+Rule is unchanged: no route, menu item, nav entry, view, template, button or
+user-facing capability may disappear — not as a side effect, not as a
+"simplification", not by hiding it behind a flag or a permission. A fix that
+*implies* a removal still needs his explicit prior approval as its own decision.
+
+**The mandate is ACTIVE, not passive.** *"Fix all that are not working well"* is an
+instruction to go and find what is broken. The daily audits continue, and their
+findings are there to be **fixed**, not merely logged.
+
+**The grey edge, ruled in advance:** if you cannot tell whether something is a fix
+or a new feature, treat it as a new feature and ask.
+
+
+
 ## ⛔ STANDING RULE — MAIN-BRANCH PROMOTION WINDOW ONLY (Festus, 2026-08-06)
 
 We now have live paying clients on the SA products. **Promote `develop → main`
