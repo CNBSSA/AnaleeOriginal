@@ -58,6 +58,34 @@ def _accountants_api():
     return (os.environ.get("ACCOUNTANTS_PRACTICE_API_URL", "") or "").rstrip("/")
 
 
+def _refusal_message(response):
+    """Plain-language reason for a refusal from THE ACCOUNTANTS.
+
+    THE ACCOUNTANTS sends a ``message`` sentence for the refusals a person can
+    act on (no firm yet, client not set up — QA PC-3, 2026-09-27); anything
+    else is translated from the status code. The raw body is for the log only,
+    never the page."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    message = body.get("message") if isinstance(body, dict) else None
+    if (isinstance(message, str) and message.strip() and len(message) <= 400
+            and "<" not in message and "{" not in message):
+        return message.strip()
+    status = response.status_code
+    if status == 401:
+        return ("THE ACCOUNTANTS refused Analee's key. ANALEE_PROVISIONING_SECRET "
+                "must be identical on Analee and on THE ACCOUNTANTS; after "
+                "changing it, redeploy both services.")
+    if status == 404:
+        return ("THE ACCOUNTANTS does not have the Analee connection switched "
+                "on (ANALEE_PROVISIONING_ENABLED, ANALEE_PROVISIONING_URL and "
+                "ANALEE_PROVISIONING_SECRET must all be set there).")
+    return ("THE ACCOUNTANTS could not complete that right now. "
+            "Please try again.")
+
+
 def _accountants_post(path_suffix, payload):
     """S2S call to THE ACCOUNTANTS with the shared seam bearer.
 
@@ -66,8 +94,14 @@ def _accountants_post(path_suffix, payload):
 
     base = _accountants_api()
     if not base:
-        return None, ("This feature needs the connection to THE ACCOUNTANTS "
-                      "to be configured.")
+        return None, ("The connection to THE ACCOUNTANTS is not set up on this "
+                      "Analee yet — the administrator must set "
+                      "ACCOUNTANTS_PRACTICE_API_URL on the Analee service.")
+    if not _secret():
+        return None, ("The connection to THE ACCOUNTANTS is not set up on this "
+                      "Analee yet — the administrator must set "
+                      "ANALEE_PROVISIONING_SECRET on the Analee service (the "
+                      "same value THE ACCOUNTANTS holds).")
     try:
         response = requests.post(
             base + path_suffix, json=payload, timeout=_S2S_TIMEOUT,
@@ -78,10 +112,10 @@ def _accountants_post(path_suffix, payload):
         return None, ("Could not reach THE ACCOUNTANTS. Please try again in "
                       "a moment.")
     if response.status_code != 200:
-        logger.warning("practice S2S %s returned HTTP %s",
-                       path_suffix, response.status_code)
-        return None, ("THE ACCOUNTANTS could not complete that right now. "
-                      "Please try again.")
+        logger.warning("practice S2S %s returned HTTP %s: %s",
+                       path_suffix, response.status_code,
+                       (getattr(response, "text", "") or "")[:300])
+        return None, _refusal_message(response)
     try:
         return response.json(), None
     except ValueError:
@@ -223,13 +257,23 @@ def send_tb():
     from reports.tb_share_tokens import create_share_token
     token = create_share_token(
         current_user.id, secret_key=current_app.config["SECRET_KEY"])
+    # THE ACCOUNTANTS accepts HTTPS share links only. Behind Railway's TLS
+    # proxy the request reaches gunicorn as plain http, so a scheme taken
+    # from the request would hand over an http:// link it must refuse.
     share_url = url_for("reports.trial_balance_shared", token=token,
-                        _external=True)
+                        _external=True, _scheme="https")
 
     local = current_user.email[:-(len(WORKSPACE_EMAIL_DOMAIN) + 1)]
     client_ref = local[len("client+"):]
-    body, err = _accountants_post("/tb-drop", {
-        "client_ref": client_ref, "share_url": share_url})
+    payload = {"client_ref": client_ref, "share_url": share_url}
+    # A workspace the Practice Club provisioned (``club-<member>-<client>``)
+    # is matched in THE ACCOUNTANTS by the member's firm and the client's
+    # name — the same key the Club's Set up uses there (QA PC-3).
+    from models import CompanySettings
+    company = CompanySettings.query.filter_by(user_id=current_user.id).first()
+    if company is not None and company.company_name:
+        payload["client_name"] = company.company_name
+    body, err = _accountants_post("/tb-drop", payload)
     if err:
         flash(err, "error")
         return redirect(url_for("main.dashboard"))
