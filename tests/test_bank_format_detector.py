@@ -51,3 +51,28 @@ def test_empty_after_parse_raises():
     ])
     with pytest.raises(ValueError, match='No valid transaction rows'):
         normalize_bank_statement_dataframe(raw)
+
+
+def test_headings_with_a_currency_qualifier_are_recognised():
+    """QA re-test 2026-09-28: a statement headed 'Debit (R)' / 'Credit (R)'
+    imported 0 rows because the heading matched no pattern."""
+    import pandas as pd
+    from bank_statements.format_detector import normalize_bank_statement_dataframe
+    df = pd.DataFrame([
+        ['Date', 'Description', 'Debit (R)', 'Credit (R)', 'Balance (R)'],
+        ['2026-03-01', 'Sales', '', '15 000.00', '15000.00'],
+        ['2026-03-02', 'Rent', '5 000.00', '', '10000.00'],
+    ])
+    out = normalize_bank_statement_dataframe(df)
+    assert list(out['Amount']) == [15000.0, -5000.0]
+
+
+def test_amount_heading_with_a_currency_qualifier_is_recognised():
+    import pandas as pd
+    from bank_statements.format_detector import normalize_bank_statement_dataframe
+    df = pd.DataFrame([
+        ['Transaction Date', 'Details', 'Amount (ZAR)'],
+        ['2026-03-01', 'Sales', '150,00'],
+    ])
+    out = normalize_bank_statement_dataframe(df)
+    assert list(out['Amount']) == [150.0]

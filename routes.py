@@ -24,7 +24,8 @@ from models import (
     db, User, CompanySettings, Account, Transaction,
     UploadedFile, Entity,
     AlertHistory, AlertConfiguration, FinancialGoal,
-    FinancialRecommendation, RiskAssessment
+    FinancialRecommendation, RiskAssessment,
+    BankStatementUpload, HistoricalData,
 )
 from forms.company import CompanySettingsForm
 from services.analyze_processing import (
@@ -863,7 +864,29 @@ def delete_account(account_id):
         flash('Access denied')
         return redirect(url_for('main.settings'))
 
+    # Deleting an account used to cascade to every transaction and statement
+    # upload posted to it (Account.transactions is delete-orphan), so one
+    # click erased bank lines from the books without a word (2026-09-28).
+    # An account in use is refused, with the count, and the lines stay.
+    posted = Transaction.query.filter_by(account_id=account.id).count()
+    uploads = BankStatementUpload.query.filter_by(account_id=account.id).count()
+    if posted or uploads:
+        parts = []
+        if posted:
+            parts.append(f'{posted} transaction{"s" if posted != 1 else ""}')
+        if uploads:
+            parts.append(f'{uploads} bank statement{"s" if uploads != 1 else ""}')
+        flash(f'"{account.name}" cannot be deleted while it holds '
+              f'{" and ".join(parts)}. Move them to another account first, '
+              'then delete it.', 'error')
+        return redirect(url_for('main.settings'))
+
     try:
+        # Historical Data rows only remember an account; they are not the
+        # books, so the reference is cleared rather than blocking the delete
+        # (PostgreSQL refused it with a foreign-key error).
+        HistoricalData.query.filter_by(account_id=account.id).update(
+            {'account_id': None}, synchronize_session=False)
         db.session.delete(account)
         db.session.commit()
         flash('Account deleted successfully')
@@ -1044,7 +1067,11 @@ def generate_insights():
 
         # Generate insights using AI
         insights_generator = FinancialInsightsGenerator()
-        insights = insights_generator.generate_transaction_insights(transaction_data)
+        # generate_insights reads the whole year. generate_transaction_insights
+        # (called here before 2026-09-28) analyses transaction_data[0] only, so
+        # the narrative described one line out of ten and flagged the rest as
+        # an inconsistency with its own cash-flow figures.
+        insights = insights_generator.generate_insights(transaction_data)
 
         if insights.get('success'):
             # Parse AI response and structure it

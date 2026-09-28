@@ -179,7 +179,10 @@ class FinancialInsightsGenerator:
                 response = self.client.messages.create(
                     model=CLAUDE_MODEL,
                     max_tokens=max_tokens,
-                    system="You are a financial analyst providing insights on transaction data.",
+                    system=("You are a financial analyst providing insights on transaction data. "
+                            "Amounts are South African rand (R) from the company's own bank "
+                            "statements; the summary covers every transaction in the period. "
+                            "Base each point on the figures given."),
                     messages=[{"role": "user", "content": f"Analyze these financial transactions and provide key insights: {transaction_summary}"}]
                 )
 
@@ -237,22 +240,22 @@ class FinancialInsightsGenerator:
 
         summary = (
             f"Financial Summary:\n"
-            f"Total Income: ${total_income:,.2f}\n"
-            f"Total Expenses: ${total_expenses:,.2f}\n"
+            f"Total Income: R{total_income:,.2f}\n"
+            f"Total Expenses: R{total_expenses:,.2f}\n"
             f"Transaction Count: {transaction_count}\n\n"
             f"Category Breakdown:\n"
         )
 
         for category, data in categories.items():
-            summary += f"- {category}: ${data['total']:,.2f} ({data['count']} transactions)\n"
+            summary += f"- {category}: R{data['total']:,.2f} ({data['count']} transactions)\n"
 
         # Add latest transaction details for better context
         if transactions:
             latest = transactions[0]
             summary += f"\nLatest Transaction:\n"
             summary += f"Description: {latest.get('description', 'N/A')}\n"
-            summary += f"Amount: ${abs(latest.get('amount', 0)):,.2f} "
-            summary += "credit" if latest.get('amount', 0) < 0 else "debit"
+            summary += f"Amount: R{abs(latest.get('amount', 0)):,.2f} "
+            summary += "money out" if latest.get('amount', 0) < 0 else "money in"
 
         return summary
 
@@ -290,9 +293,9 @@ class FinancialInsightsGenerator:
 
                 insights = (
                     f"Basic Financial Analysis:\n"
-                    f"- Total Income: ${total_income:,.2f}\n"
-                    f"- Total Expenses: ${total_expenses:,.2f}\n"
-                    f"- Net Change: ${net_change:,.2f}\n\n"
+                    f"- Total Income: R{total_income:,.2f}\n"
+                    f"- Total Expenses: R{total_expenses:,.2f}\n"
+                    f"- Net Change: R{net_change:,.2f}\n\n"
                     f"Transaction appears to be an {category_guess}.\n"
                     f"This is a basic analysis generated without AI assistance."
                 )

@@ -37,8 +37,20 @@ _AMOUNT_PATTERNS = {'amount', 'transaction amount', 'value', 'rand amount'}
 _DESC2_PATTERNS = {'description 2', 'description 3', 'additional information'}
 
 
+_HEADER_QUALIFIER = re.compile(r'\s*[\(\[][^\)\]]*[\)\]]\s*$')
+
+
 def _norm(value: Any) -> str:
-    return str(value).strip().lower() if value is not None else ''
+    """A heading as the patterns spell it: lower case, and without a trailing
+    qualifier in brackets, so ``Debit (R)``, ``Credit [ZAR]`` and
+    ``Amount (R)`` read as debit / credit / amount. Before 2026-09-28 a
+    statement headed ``Debit (R)`` / ``Credit (R)`` matched nothing and
+    imported 0 rows."""
+    if value is None:
+        return ''
+    text = ' '.join(str(value).replace('\u00a0', ' ').split()).lower()
+    text = _HEADER_QUALIFIER.sub('', text).rstrip(':*').strip()
+    return text
 
 
 def _find_index(headers_lower: list[str], patterns: set[str]) -> int | None:
@@ -166,7 +178,7 @@ def normalize_bank_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         working = pd.DataFrame(data_rows, columns=headers)
 
     working.columns = [str(col).strip() for col in working.columns]
-    headers_lower = [col.lower() for col in working.columns]
+    headers_lower = [_norm(col) for col in working.columns]
 
     date_col = _find_index(headers_lower, _DATE_PATTERNS)
     desc_col = _find_index(headers_lower, _DESC_PATTERNS)
