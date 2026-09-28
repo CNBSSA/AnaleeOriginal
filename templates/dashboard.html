@@ -12,7 +12,7 @@
                         <select class="form-select" id="financialYear" style="width: auto;">
                             {% for year in financial_years %}
                             <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>
-                                FY {{ year }}/{{ year + 1 }}
+                                {{ financial_year_labels[year] if financial_year_labels else 'FY %s/%s' % (year, year + 1) }}
                             </option>
                             {% endfor %}
                         </select>
@@ -26,7 +26,7 @@
                                 <h5 class="card-title">Total Income</h5>
                                 <h2 class="text-success">${{ "%.2f"|format(total_income) }}</h2>
                                 <p class="card-text">
-                                    <small class="text-muted">For current financial year</small>
+                                    <small class="text-muted">{% if fy_start %}{{ fy_start.strftime('%d %b %Y') }} &ndash; {{ fy_end_date.strftime('%d %b %Y') }}{% else %}For current financial year{% endif %}</small>
                                 </p>
                             </div>
                         </div>
@@ -37,7 +37,7 @@
                                 <h5 class="card-title">Total Expenses</h5>
                                 <h2 class="text-danger">${{ "%.2f"|format(total_expenses) }}</h2>
                                 <p class="card-text">
-                                    <small class="text-muted">For current financial year</small>
+                                    <small class="text-muted">{% if fy_start %}{{ fy_start.strftime('%d %b %Y') }} &ndash; {{ fy_end_date.strftime('%d %b %Y') }}{% else %}For current financial year{% endif %}</small>
                                 </p>
                             </div>
                         </div>
@@ -61,7 +61,7 @@
                                 <h5 class="card-title">Transaction Count</h5>
                                 <h2>{{ transaction_count }}</h2>
                                 <p class="card-text">
-                                    <small class="text-muted">Total transactions</small>
+                                    <small class="text-muted">In the selected financial year</small>
                                 </p>
                             </div>
                         </div>
@@ -125,6 +125,15 @@
 
 {% block scripts %}
 <script>
-   
+    // Choosing a year reloads the dashboard for that financial year.
+    (function () {
+        var select = document.getElementById('financialYear');
+        if (!select) { return; }
+        select.addEventListener('change', function () {
+            var params = new URLSearchParams(window.location.search);
+            params.set('financial_year', select.value);
+            window.location.search = params.toString();
+        });
+    })();
 </script>
 {% endblock %}

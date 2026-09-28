@@ -122,22 +122,69 @@ def entitlement_required():
     return render_template('entitlement_required.html')
 
 
+def _dashboard_financial_years(user_id, company_settings):
+    """The financial years this user's transactions fall in, as start years.
+
+    Same convention as the reports' ``financial_year=`` selector (cashbook,
+    income statement): for a December year-end the year IS the calendar year;
+    otherwise it is the year the financial year starts in. Without company
+    settings the dashboard falls back to calendar years. The year containing
+    today is always offered, so a new user still sees a selected year.
+    """
+    fy_end = company_settings.financial_year_end if company_settings else 12
+
+    def start_year(d):
+        if fy_end == 12:
+            return d.year
+        return d.year if d.month > fy_end else d.year - 1
+
+    years = {start_year(row[0]) for row in db.session.query(Transaction.date)
+             .filter(Transaction.user_id == user_id).distinct() if row[0]}
+    years.add(start_year(datetime.now()))
+    return sorted(years), fy_end, start_year
+
+
+def _dashboard_fy_range(start, fy_end):
+    """First and last day of the financial year that starts in ``start``."""
+    if fy_end == 12:
+        return datetime(start, 1, 1), datetime(start, 12, 31, 23, 59, 59)
+    from calendar import monthrange
+    last_day = monthrange(start + 1, fy_end)[1]
+    return (datetime(start, fy_end + 1, 1),
+            datetime(start + 1, fy_end, last_day, 23, 59, 59))
+
+
 @main.route('/dashboard')
 @login_required
 def dashboard():
     # Get current month's transactions
     current_month = datetime.now().month
     current_year = datetime.now().year
-    
-    # Calculate total income and expenses
-    monthly_transactions = Transaction.query.filter(
+
+    # The financial-year cards. Before 2026-09-28 the template asked for
+    # financial_years / current_year / transaction_count and the route passed
+    # none of them, so the year selector was empty and Transaction Count blank,
+    # while Income/Expenses (labelled "For current financial year") summed the
+    # current calendar MONTH only.
+    company_settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
+    financial_years, fy_end, start_year_of = _dashboard_financial_years(
+        current_user.id, company_settings)
+    selected_fy = request.args.get('financial_year', type=int)
+    if selected_fy not in financial_years:
+        selected_fy = start_year_of(datetime.now())
+    fy_start, fy_finish = _dashboard_fy_range(selected_fy, fy_end)
+
+    fy_transactions = Transaction.query.filter(
         Transaction.user_id == current_user.id,
-        func.extract('month', Transaction.date) == current_month,
-        func.extract('year', Transaction.date) == current_year
-    ).all()
-    
-    total_income = sum(t.amount for t in monthly_transactions if t.amount > 0)
-    total_expenses = sum(abs(t.amount) for t in monthly_transactions if t.amount < 0)
+        Transaction.date >= fy_start,
+        Transaction.date <= fy_finish,
+    ).order_by(Transaction.date.desc()).all()
+
+    total_income = sum(t.amount for t in fy_transactions if t.amount > 0)
+    total_expenses = sum(abs(t.amount) for t in fy_transactions if t.amount < 0)
+    financial_year_labels = {
+        y: (f'FY {y}' if fy_end == 12 else f'FY {y}/{y + 1}') for y in financial_years
+    }
     
     # Get last 6 months labels and data
     monthly_labels = []
@@ -167,7 +214,13 @@ def dashboard():
         monthly_labels=monthly_labels,
         monthly_income=monthly_income,
         monthly_expenses=monthly_expenses,
-        transactions=monthly_transactions
+        transactions=fy_transactions[:20],
+        transaction_count=len(fy_transactions),
+        financial_years=financial_years,
+        financial_year_labels=financial_year_labels,
+        current_year=selected_fy,
+        fy_start=fy_start,
+        fy_end_date=fy_finish,
     )
 
 @main.route('/settings', methods=['GET', 'POST'])
