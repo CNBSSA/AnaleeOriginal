@@ -627,6 +627,20 @@ test, and the existing TB suites re-expressed with real bank-signed lines
 
 **THE FILE IS RE-FROZEN.**
 
+### Admin approval before a trial balance goes to THE ACCOUNTANTS (Festus, 2026-09-28)
+
+Festus: *"Approve before a standalone trial balance goes to THE ACCOUNTANTS."*
+Every transmission path — the JSON API, the share link (minting AND fetching)
+and Send TB — refuses with a plain message until an Analee administrator has
+approved **these exact figures for this period** (`reports/tb_approval.py`,
+`TrialBalanceApproval`). The approval is pinned to a fingerprint of the rows;
+a recategorised line or a new statement makes it stale and the client must
+request again. The client requests on the Trial Balance page ("Request approval
+to send"); admins decide at `/admin/tb-approvals` (menu: TB Approvals). The
+Excel download is a manual export and is NOT gated. Switch:
+`ANALEE_TB_APPROVAL_REQUIRED` (default on). The frozen TB core is only called.
+Tests: `tests/test_tb_approval_gate.py` (6).
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)

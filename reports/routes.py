@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Import the blueprint instance from __init__.py
 from . import reports
+from . import tb_approval
 from .trial_balance_service import (
     PROFIT_AND_LOSS_CATEGORIES,
     build_booksxperts_trial_balance_xlsx,
@@ -340,8 +341,10 @@ def trial_balance():
         # user (ix_account_user_link). Accounts absent from it have a zero balance
         # and still render as 0.00, so the row set is unchanged.
         amounts_by_link = {row.link: row.amount for row in ctx.rows}
+        approval = tb_approval.status_for(current_user.id, ctx)
         return render_template(
             'reports/trial_balance.html',
+            approval=approval,
             accounts=ctx.accounts,
             amounts_by_link=amounts_by_link,
             start_date=ctx.start_date,
@@ -362,6 +365,25 @@ def trial_balance():
         logger.error(f"Error generating trial balance: {str(e)}, Stack trace: {str(e.__traceback__)}")
         flash('Error loading transaction data. Please try again.')
         return redirect(url_for('main.dashboard'))
+
+
+@reports.route('/trial-balance/request-approval', methods=['POST'])
+@login_required
+def trial_balance_request_approval():
+    """Ask an Analee administrator to approve this trial balance for sending
+    to THE ACCOUNTANTS (Festus, 2026-09-28). Records the exact figures shown."""
+    try:
+        period = _requested_period(current_user.id)
+        ctx = load_trial_balance(current_user.id, **period)
+        if not ctx.rows:
+            flash('There is nothing to approve yet: this period has no trial balance amounts.')
+            return redirect(url_for('reports.trial_balance', **_period_query_string()))
+        tb_approval.request_approval(current_user.id, ctx, requested_by=current_user.id)
+        flash('Approval requested. An Analee administrator will review this trial '
+              'balance; once approved, it can be sent to THE ACCOUNTANTS.', 'success')
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for('reports.trial_balance', **_period_query_string()))
 
 
 @reports.route('/trial-balance/export')
@@ -399,13 +421,20 @@ def trial_balance_export():
         return redirect(url_for('reports.trial_balance'))
 
 
-def _trial_balance_payload_for_user(user_id: int, **period) -> tuple[dict, CompanySettings]:
+def _trial_balance_payload_for_user(user_id: int, *, for_transmission: bool = True,
+                                    **period) -> tuple[dict, CompanySettings]:
+    """The JSON contract. With ``for_transmission`` (every path that hands the
+    figures to another product) an administrator's approval of these exact
+    figures is required — ``ApprovalRequired`` is a ValueError, so callers'
+    existing 400 handling applies."""
     company_settings = CompanySettings.query.filter_by(user_id=user_id).first()
     if not company_settings:
         raise ValueError('Company settings are not configured.')
     ctx = load_trial_balance(user_id, **period)
     if not ctx.rows:
         raise ValueError('No trial balance amounts for this period.')
+    if for_transmission:
+        tb_approval.require_approval(user_id, ctx)
     payload = build_trial_balance_payload(
         ctx,
         user_id=user_id,
@@ -423,6 +452,8 @@ def trial_balance_api():
         payload, _ = _trial_balance_payload_for_user(
             current_user.id, **_requested_period(current_user.id))
         return jsonify(payload)
+    except tb_approval.ApprovalRequired as exc:
+        return jsonify({'error': str(exc), 'approval_required': True}), 403
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
     except Exception as e:
@@ -452,6 +483,8 @@ def trial_balance_share_link():
             'expires_in_seconds': DEFAULT_MAX_AGE_SECONDS,
             'format': 'application/json',
         })
+    except tb_approval.ApprovalRequired as exc:
+        return jsonify({'error': str(exc), 'approval_required': True}), 403
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
     except Exception as e:
@@ -476,6 +509,10 @@ def trial_balance_shared(token):
         return jsonify({'error': 'Share link has expired. Generate a new link from Analee.'}), 410
     except BadSignature:
         return jsonify({'error': 'Invalid share link.'}), 403
+    except tb_approval.ApprovalRequired as exc:
+        # Checked at fetch time too, so a link minted earlier cannot hand over
+        # figures that were changed, or never approved, since.
+        return jsonify({'error': str(exc), 'approval_required': True}), 403
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
     except Exception as e:

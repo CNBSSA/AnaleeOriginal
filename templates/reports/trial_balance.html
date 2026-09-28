@@ -23,6 +23,33 @@
             </div>
         </div>
         <div class="card-body">
+            {% if approval and approval.required %}
+            {# Festus 2026-09-28: an administrator approves a trial balance before it goes to THE ACCOUNTANTS. #}
+            <div class="alert {% if approval.state == 'approved' %}alert-success{% elif approval.state == 'requested' %}alert-info{% elif approval.state == 'declined' %}alert-warning{% else %}alert-secondary{% endif %} d-flex flex-wrap justify-content-between align-items-center gap-2 py-2" id="tbApproval">
+                <div>
+                    {% if approval.state == 'approved' %}
+                        <strong>Approved for sending</strong> to THE ACCOUNTANTS
+                        {% if approval.record.decider %}by {{ approval.record.decider.email }}{% endif %}
+                        {% if approval.record.decided_at %}on {{ approval.record.decided_at.strftime('%Y-%m-%d') }}{% endif %}.
+                    {% elif approval.state == 'requested' %}
+                        <strong>Waiting for an administrator's approval</strong>
+                        (requested {{ approval.record.requested_at.strftime('%Y-%m-%d %H:%M') if approval.record.requested_at else '' }}). It can be sent once approved.
+                    {% elif approval.state == 'stale' %}
+                        <strong>Changed since it was approved.</strong> The figures moved after the last request; request approval again.
+                    {% elif approval.state == 'declined' %}
+                        <strong>Declined</strong>{% if approval.record.note %}: {{ approval.record.note }}{% endif %}. Fix what was raised, then request again.
+                    {% else %}
+                        <strong>Not yet approved for sending.</strong> An administrator approves a trial balance before it goes to THE ACCOUNTANTS. Download Excel works either way.
+                    {% endif %}
+                </div>
+                {% if approval.state in ('none', 'stale', 'declined') %}
+                <form method="post" action="{{ url_for('reports.trial_balance_request_approval', **period_query) }}" class="d-inline">
+                    {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+                    <button type="submit" class="btn btn-sm btn-primary">Request approval to send</button>
+                </form>
+                {% endif %}
+            </div>
+            {% endif %}
             {% if period_options %}
             <form method="get" class="row g-2 align-items-end mb-3">
                 <div class="col-auto">

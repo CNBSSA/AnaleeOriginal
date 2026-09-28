@@ -254,6 +254,20 @@ def send_tb():
         flash("Open a client first, then send their trial balance.", "info")
         return redirect(url_for("main.dashboard"))
 
+    # Festus 2026-09-28: an administrator approves this exact trial balance
+    # before it goes to THE ACCOUNTANTS. The frozen TB core is only called.
+    from reports import tb_approval
+    from reports.trial_balance_service import load_trial_balance
+    try:
+        ctx = load_trial_balance(current_user.id)
+        tb_approval.require_approval(current_user.id, ctx)
+    except tb_approval.ApprovalRequired as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("reports.trial_balance"))
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("reports.trial_balance"))
+
     from reports.tb_share_tokens import create_share_token
     token = create_share_token(
         current_user.id, secret_key=current_app.config["SECRET_KEY"])

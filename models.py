@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime, Enum as SQLEnum, Index, LargeBinary, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, Date, DateTime, Enum as SQLEnum, Index, LargeBinary, UniqueConstraint
 from sqlalchemy.orm import relationship
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -565,6 +565,37 @@ class PracticeClientMeta(db.Model):
 
     def __repr__(self):
         return f'<PracticeClientMeta ws={self.workspace_user_id} no={self.client_number}>'
+
+
+class TrialBalanceApproval(db.Model):
+    """An administrator's approval of one trial balance (one company, one
+    period, one exact set of figures) before it may be sent to THE
+    ACCOUNTANTS (Festus, 2026-09-28). Additive table, created by the boot-time
+    ``db.create_all()``; nothing frozen is touched. See ``reports/tb_approval``."""
+    __tablename__ = 'trial_balance_approval'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'),
+                     nullable=False, index=True)
+    period_start = Column(Date)
+    period_end = Column(Date, nullable=False, index=True)
+    tb_fingerprint = Column(String(64), nullable=False)
+    row_count = Column(Integer, default=0)
+    total_debits = Column(Float, default=0.0)
+    total_credits = Column(Float, default=0.0)
+    status = Column(String(16), nullable=False, default='requested')
+    requested_by = Column(Integer, ForeignKey('user.id', ondelete='SET NULL'))
+    requested_at = Column(DateTime, default=datetime.utcnow)
+    decided_by = Column(Integer, ForeignKey('user.id', ondelete='SET NULL'))
+    decided_at = Column(DateTime)
+    note = Column(String(500))
+
+    company_user = relationship('User', foreign_keys=[user_id])
+    requester = relationship('User', foreign_keys=[requested_by])
+    decider = relationship('User', foreign_keys=[decided_by])
+
+    def __repr__(self):
+        return f'<TrialBalanceApproval user={self.user_id} {self.period_end} {self.status}>'
 
 
 class AdminChartOfAccounts(db.Model):

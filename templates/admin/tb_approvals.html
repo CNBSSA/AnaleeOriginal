@@ -1,0 +1,76 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <h2>Trial Balance Approvals</h2>
+    <p class="text-muted">A trial balance goes to THE ACCOUNTANTS only after an administrator approves it here. An approval covers the exact figures shown; if the books change afterwards, the client must request approval again.</p>
+
+    <div class="card mt-4">
+        <div class="card-header">Waiting for approval ({{ pending|length }})</div>
+        <div class="card-body">
+            {% if not pending %}
+            <p class="text-muted mb-0">Nothing is waiting.</p>
+            {% else %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Company</th>
+                        <th>Period</th>
+                        <th class="text-end">Debits</th>
+                        <th class="text-end">Credits</th>
+                        <th>Rows</th>
+                        <th>Requested</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in pending %}
+                    <tr>
+                        <td>{{ row.company_name }}<br><small class="text-muted">{{ row.record.company_user.email }}</small></td>
+                        <td>{{ row.record.period_start }} to {{ row.record.period_end }}</td>
+                        <td class="text-end">{{ '%.2f'|format(row.record.total_debits or 0) }}</td>
+                        <td class="text-end">{{ '%.2f'|format(row.record.total_credits or 0) }}
+                            {% if (row.record.total_debits or 0)|round(2) != (row.record.total_credits or 0)|round(2) %}<br><span class="badge bg-danger">does not balance</span>{% endif %}</td>
+                        <td>{{ row.record.row_count }}</td>
+                        <td>{{ row.record.requested_at.strftime('%Y-%m-%d %H:%M') if row.record.requested_at else '' }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('admin.decide_tb_approval', approval_id=row.record.id) }}" class="d-flex gap-1">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="text" name="note" class="form-control form-control-sm" placeholder="Note (optional)" maxlength="500">
+                                <button type="submit" name="decision" value="approve" class="btn btn-success btn-sm" onclick="return confirm('Approve this trial balance for sending to THE ACCOUNTANTS?')">Approve</button>
+                                <button type="submit" name="decision" value="decline" class="btn btn-outline-danger btn-sm">Decline</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header">Recent decisions</div>
+        <div class="card-body">
+            {% if not decided %}
+            <p class="text-muted mb-0">No decisions yet.</p>
+            {% else %}
+            <table class="table table-sm">
+                <thead><tr><th>Company</th><th>Period</th><th>Decision</th><th>By</th><th>When</th><th>Note</th></tr></thead>
+                <tbody>
+                    {% for row in decided %}
+                    <tr>
+                        <td>{{ row.company_name }}</td>
+                        <td>{{ row.record.period_end }}</td>
+                        <td>{% if row.record.status == 'approved' %}<span class="badge bg-success">Approved</span>{% else %}<span class="badge bg-secondary">Declined</span>{% endif %}</td>
+                        <td>{{ row.record.decider.email if row.record.decider else '' }}</td>
+                        <td>{{ row.record.decided_at.strftime('%Y-%m-%d %H:%M') if row.record.decided_at else '' }}</td>
+                        <td>{{ row.record.note or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

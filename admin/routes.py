@@ -598,3 +598,50 @@ def date_swap_audit():
         min_months=MIN_DISTINCT_MONTHS,
         min_share=int(MIN_SHARE_ON_ONE_DAY * 100),
     )
+
+
+# --- Trial balance approvals (Festus, 2026-09-28) ---------------------------
+# "Approve before a standalone trial balance goes to THE ACCOUNTANTS."
+
+@admin.route('/tb-approvals', methods=['GET'])
+@login_required
+@admin_required
+def tb_approvals():
+    from models import CompanySettings, TrialBalanceApproval
+    from reports import tb_approval
+
+    def _rows(records):
+        out = []
+        for record in records:
+            company = CompanySettings.query.filter_by(user_id=record.user_id).first()
+            out.append({'record': record,
+                        'company_name': company.company_name if company else '(no company settings)'})
+        return out
+
+    pending = (TrialBalanceApproval.query
+               .filter_by(status=tb_approval.STATUS_REQUESTED)
+               .order_by(TrialBalanceApproval.requested_at.asc()).all())
+    decided = (TrialBalanceApproval.query
+               .filter(TrialBalanceApproval.status != tb_approval.STATUS_REQUESTED)
+               .order_by(TrialBalanceApproval.decided_at.desc()).limit(50).all())
+    return render_template('admin/tb_approvals.html',
+                           pending=_rows(pending), decided=_rows(decided))
+
+
+@admin.route('/tb-approvals/<int:approval_id>/decide', methods=['POST'])
+@login_required
+@admin_required
+def decide_tb_approval(approval_id):
+    from models import TrialBalanceApproval
+    from reports import tb_approval
+
+    record = TrialBalanceApproval.query.get_or_404(approval_id)
+    if record.status != tb_approval.STATUS_REQUESTED:
+        flash('That request has already been decided.', 'warning')
+        return redirect(url_for('admin.tb_approvals'))
+    approve = request.form.get('decision') == 'approve'
+    tb_approval.decide(record, admin_id=current_user.id, approve=approve,
+                       note=request.form.get('note', ''))
+    flash(f"Trial balance to {record.period_end} {'approved' if approve else 'declined'}.",
+          'success' if approve else 'info')
+    return redirect(url_for('admin.tb_approvals'))

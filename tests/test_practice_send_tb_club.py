@@ -38,7 +38,7 @@ def _enable(monkeypatch, api=API, secret=SECRET):
 
 
 def _club_workspace_client(app, monkeypatch, ref="club-41-7",
-                           name="Mokoena Trading"):
+                           name="Mokoena Trading", approve=True):
     """A test client sitting in a Club-provisioned workspace session, entered
     through the real signed ``/workspace/enter`` door."""
     from provisioning import ensure_workspace
@@ -52,7 +52,40 @@ def _club_workspace_client(app, monkeypatch, ref="club-41-7",
                        headers={"Authorization": f"Bearer {SECRET}"}).get_json()
     assert link["found"]
     assert client.get(link["url_path"]).status_code == 302
+    if approve:
+        _approve_workspace_tb(app, ref)
     return client
+
+
+def _approve_workspace_tb(app, ref):
+    """Festus 2026-09-28: an administrator approves the trial balance before
+    Send TB may hand it over. These tests are about the hand-over itself."""
+    from models import Account, Transaction, UploadedFile, User, db
+    from provisioning import WORKSPACE_EMAIL_DOMAIN
+    from reports import tb_approval
+    from reports.trial_balance_service import load_trial_balance
+    from datetime import datetime
+    with app.app_context():
+        ws = User.query.filter_by(email=f"client+{ref}@{WORKSPACE_EMAIL_DOMAIN}").one()
+        if not Transaction.query.filter_by(user_id=ws.id).count():
+            bank = Account.query.filter_by(user_id=ws.id, link="ca.810.001").first()
+            sales = Account.query.filter_by(user_id=ws.id, link="i.100.000").first()
+            f = UploadedFile(filename="s.csv", user_id=ws.id, bank_account_id=bank.id)
+            db.session.add(f)
+            db.session.flush()
+            db.session.add(Transaction(date=datetime.now(), description="Sale", amount=100.0,
+                                       user_id=ws.id, account_id=sales.id, file_id=f.id))
+            db.session.commit()
+        admin = User.query.filter_by(username="tb-admin").first()
+        if admin is None:
+            admin = User(username="tb-admin", email="tb-admin@example.com",
+                         subscription_status="active", is_admin=True)
+            admin.set_password("password")
+            db.session.add(admin)
+            db.session.commit()
+        ctx = load_trial_balance(ws.id)
+        record = tb_approval.request_approval(ws.id, ctx, requested_by=ws.id)
+        tb_approval.decide(record, admin_id=admin.id, approve=True)
 
 
 def test_club_workspace_sends_name_and_https_link(canary_app, monkeypatch):
@@ -120,3 +153,14 @@ def test_missing_secret_names_the_variable(canary_app, monkeypatch):
         r = client.post("/practice/send-tb", follow_redirects=True)
     post.assert_not_called()
     assert b"ANALEE_PROVISIONING_SECRET" in r.data
+
+
+def test_an_unapproved_trial_balance_is_not_sent(canary_app, monkeypatch):
+    """Festus 2026-09-28: Send TB refuses until an administrator has approved
+    the trial balance, and says so; THE ACCOUNTANTS is never called."""
+    client = _club_workspace_client(canary_app, monkeypatch, approve=False)
+    _enable(monkeypatch)
+    with mock.patch("practice_layer.requests.post") as post:
+        r = client.post("/practice/send-tb", follow_redirects=True)
+    post.assert_not_called()
+    assert b"has not been approved for sending" in r.data

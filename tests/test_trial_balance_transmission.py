@@ -129,6 +129,23 @@ def test_load_trial_balance_payload_integration(app, sample_user):
         assert payload['balanced'] is True
 
 
+def _approve(app, user_id, **period):
+    """Festus 2026-09-28: an administrator approves a trial balance before it
+    is transmitted. These tests are about transmission, so approve first."""
+    from reports import tb_approval
+    with app.app_context():
+        admin = User.query.filter_by(username='tb-admin').first()
+        if admin is None:
+            admin = User(username='tb-admin', email='tb-admin@example.com',
+                         subscription_status='active', is_admin=True)
+            admin.set_password('password')
+            db.session.add(admin)
+            db.session.commit()
+        ctx = load_trial_balance(user_id, **period)
+        record = tb_approval.request_approval(user_id, ctx, requested_by=user_id)
+        tb_approval.decide(record, admin_id=admin.id, approve=True)
+
+
 @pytest.fixture
 def transmission_client(app):
     """Flask test client with reports routes and login."""
@@ -154,6 +171,7 @@ def test_api_trial_balance_requires_login(transmission_client):
 
 def test_api_trial_balance_json(transmission_client, app, sample_user):
     _seed_balanced_tb(app, sample_user)
+    _approve(app, sample_user)
     with app.app_context():
         user = User.query.get(sample_user)
         with transmission_client.session_transaction() as sess:
@@ -168,6 +186,7 @@ def test_api_trial_balance_json(transmission_client, app, sample_user):
 
 def test_shared_trial_balance_via_token(transmission_client, app, sample_user):
     _seed_balanced_tb(app, sample_user)
+    _approve(app, sample_user)
     token = create_share_token(sample_user, secret_key=app.config['SECRET_KEY'])
     response = transmission_client.get(f'/api/trial-balance/shared/{token}')
     assert response.status_code == 200
@@ -200,6 +219,8 @@ def test_shared_trial_balance_serves_the_closed_year_when_asked(transmission_cli
     that closed; ``financial_year`` (start year) resolves to the same year."""
     _seed_balanced_tb(app, sample_user)
     _seed_prior_year_tb(app, sample_user)
+    _approve(app, sample_user)                                   # current year
+    _approve(app, sample_user, as_at=datetime(2026, 2, 28))      # the closed year
     token = create_share_token(sample_user, secret_key=app.config['SECRET_KEY'])
 
     closed = transmission_client.get(f'/api/trial-balance/shared/{token}?as_at=2026-02-28')
@@ -240,6 +261,7 @@ def test_load_trial_balance_keywords_select_the_year_and_default_is_unchanged(ap
 
 def test_share_link_endpoint(transmission_client, app, sample_user):
     _seed_balanced_tb(app, sample_user)
+    _approve(app, sample_user)
     with app.app_context():
         with transmission_client.session_transaction() as sess:
             sess['_user_id'] = str(sample_user)

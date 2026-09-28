@@ -333,6 +333,9 @@ def test_send_tb_hands_share_url_to_accountants(canary_app, monkeypatch):
     _enable_api(monkeypatch)
     _mk_accountant(canary_app, firm_ref="acc-7")
     ws_id = _mk_workspace(canary_app, "acc-7-1", "Mokoena Trading")
+    # Festus 2026-09-28: an administrator approves the trial balance first.
+    from test_practice_send_tb_club import _approve_workspace_tb
+    _approve_workspace_tb(canary_app, "acc-7-1")
     client = canary_app.test_client()
     _login(client)
     assert client.post(f"/practice/open/{ws_id}").status_code == 302
