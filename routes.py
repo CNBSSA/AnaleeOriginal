@@ -869,7 +869,8 @@ def delete_account(account_id):
     # click erased bank lines from the books without a word (2026-09-28).
     # An account in use is refused, with the count, and the lines stay.
     posted = Transaction.query.filter_by(account_id=account.id).count()
-    uploads = BankStatementUpload.query.filter_by(account_id=account.id).count()
+    uploads = (BankStatementUpload.query.filter_by(account_id=account.id).count()
+               + UploadedFile.query.filter_by(bank_account_id=account.id).count())
     if posted or uploads:
         parts = []
         if posted:

@@ -583,6 +583,50 @@ lock file carries the reason.
 **THE FILE IS RE-FROZEN.** Any further change to it needs Festus's explicit,
 scoped re-open, recorded here as this entry is.
 
+### Scoped re-open + re-freeze record (Festus, 2026-09-28) — THE TRIAL BALANCE IS DOUBLE ENTRY
+
+Festus: *"the standalone trial balance decision (re-open the frozen file"* —
+for ONE scope: `reports/trial_balance_service.py`, to fix the defect QA found
+(income shown as Dr, expenses as Cr, no bank side, "DOES NOT BALANCE"; THE
+ACCOUNTANTS imported R15 000 sales − R5 000 rent as a profit of −10 000).
+
+**Why.** A Transaction is ONE bank-signed line (money in +) carrying the
+account it was categorised to. The service summed that straight onto the
+category, so every sign was the bank's, not the ledger's, and the bank leg
+never existed. The 2026-09-11 record assumed this was harmless ("nothing here
+balances debits against credits"); THE ACCOUNTANTS' import proved it was not.
+
+**What changed in the frozen file:** each line in the period is posted as the
+entry it is — bank **+amount**, categorised account **−amount** — so rows sum
+to zero by construction. An uncategorised line (still on its bank, or with no
+account) waits in the **Suspense Account** (`ca.900.000`). Earlier years'
+income and expenses roll into **Retained Earnings** (`q.200.000`, else
+`q.100.000`), so the #13 movement rule and the balance agree. Rows with no
+Account behind them are `_SyntheticAccount` objects the page reads the same way.
+
+**Where the bank comes from.** Categorising overwrites `Transaction.account_id`,
+so the statement now records its bank: **`UploadedFile.bank_account_id`**
+(additive nullable column; boot heal in `app.py` + migration `b7d2e9f4a1c3`),
+set by the CSV path (`bank_statements/services.py`) and the PDF path
+(`ocr/routes.py`). Older statements infer it — a line still stamped with a
+bank-type account (`ca.810`/`ca.820`/`cl.810`), else the client's only bank in
+use — and never guess between two banks: an unknowable bank goes to one named
+row, `ca.810.000` "Bank (statement account not recorded)". A statement naming
+another client's account is ignored (the account map is per user).
+
+**Untouched:** the analysis engine, `predictive_features.py`, `ai_utils.py`,
+the chart seed/rules/schema, `utils/chart_of_accounts.py`,
+`build_booksxperts_trial_balance_xlsx`, `build_trial_balance_payload`, the share
+tokens. Known limit: a transfer between two of the client's own banks that is
+categorised on BOTH statements is counted twice — categorise one side only.
+
+Tests: `tests/test_trial_balance_double_entry.py` (8), the OCR bank-recording
+test, and the existing TB suites re-expressed with real bank-signed lines
+(expected figures unchanged). Full suite 497 passed. Re-locked with
+`protected_assets.py --authorized-by "Festus: 2026-09-28 …"`.
+
+**THE FILE IS RE-FROZEN.**
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)

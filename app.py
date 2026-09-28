@@ -432,10 +432,13 @@ def create_app(env=None):
             # Idempotent; never blocks startup.
             try:
                 from models import (User as _User_heal, Account as _Account_heal,
-                                    Transaction as _Txn_heal)
+                                    Transaction as _Txn_heal,
+                                    UploadedFile as _File_heal)
+                # uploaded_file.bank_account_id (2026-09-28) is added here too.
                 _BOOT_REPORT['heal_added'] = [
                     f"{t}.{c}" for t, c in
-                    _heal_missing_columns(db.engine, [_User_heal, _Account_heal, _Txn_heal])
+                    _heal_missing_columns(db.engine, [_User_heal, _Account_heal, _Txn_heal,
+                                                      _File_heal])
                 ]
             except Exception as _e:
                 logger.error(f"schema heal guard skipped: {_e}")

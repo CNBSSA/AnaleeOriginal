@@ -6,7 +6,7 @@ from io import BytesIO
 import openpyxl
 import pytest
 
-from models import Account, CompanySettings, Transaction, db
+from models import UploadedFile, Account, CompanySettings, Transaction, db
 from reports.trial_balance_service import (
     BOOKSXPERTS_TB_COLUMNS,
     TrialBalanceRow,
@@ -73,22 +73,23 @@ def test_load_trial_balance_builds_signed_amounts(app, sample_user):
         )
         db.session.add_all([bank, sales])
         db.session.flush()
-        db.session.add_all([
+        # ONE bank line (money in, bank-signed) on a statement whose bank is
+        # recorded, categorised to Sales — what a real import produces. The
+        # trial balance posts both sides (2026-09-28 double entry).
+        statement = UploadedFile(filename='statement.csv', user_id=sample_user,
+                                 bank_account_id=bank.id)
+        db.session.add(statement)
+        db.session.flush()
+        db.session.add(
             Transaction(
                 date=datetime(2026, 4, 15),
-                description='Receipt',
+                description='Sale',
                 amount=100.0,
                 user_id=sample_user,
-                account_id=bank.id,
-            ),
-            Transaction(
-                date=datetime(2026, 4, 16),
-                description='Sale',
-                amount=-100.0,
-                user_id=sample_user,
                 account_id=sales.id,
+                file_id=statement.id,
             ),
-        ])
+        )
         db.session.commit()
 
         ctx = load_trial_balance(sample_user)

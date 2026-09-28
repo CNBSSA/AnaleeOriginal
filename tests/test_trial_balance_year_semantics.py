@@ -24,7 +24,8 @@ from decimal import Decimal
 import pytest
 
 from models import Account, CompanySettings, Transaction, User, db
-from reports.trial_balance_service import load_trial_balance
+from reports.trial_balance_service import (
+    BANK_LINK_PREFIXES, SUSPENSE_LINK, load_trial_balance)
 
 # February year-end: FY2025 runs 1 Mar 2025 → 28 Feb 2026.
 FY2025 = datetime(2025, 6, 30)      # a date inside FY2025
@@ -58,7 +59,19 @@ def _account(user_id: int, link: str, name: str, category: str) -> Account:
 
 
 def _txn(user_id: int, account: Account, when: datetime, amount: float):
-    db.session.add(Transaction(date=when, description='line', amount=amount,
+    """Post ``amount`` to ``account`` the way the ledger reads it (debit +).
+
+    A real Analee row is a BANK line — money in positive — and the trial
+    balance posts its category side as the negative of that (2026-09-28
+    double-entry fix). So the bank line that produces a ledger amount of
+    ``amount`` on the category carries ``-amount``. Expected figures in these
+    tests are therefore unchanged from the single-legged era.
+
+    A line still sitting on a bank account is that bank's own movement, and a
+    bank line's sign already IS the bank's ledger sign, so it is not negated.
+    """
+    bank_signed = amount if account.link.startswith(BANK_LINK_PREFIXES) else -amount
+    db.session.add(Transaction(date=when, description='line', amount=bank_signed,
                                user_id=user_id, account_id=account.id))
 
 
@@ -87,7 +100,10 @@ class TestIncomeAndExpensesCarryTheYearsMovementOnly:
         assert _amount_for(ctx, 'i.100.000') == Decimal('-100.00'), (
             'the 2025 trial balance reported 2024 income as well — the AFS would '
             'count those receipts twice')
-        assert ctx.total_credits == Decimal('100.00')
+        # Double entry (2026-09-28): last year's income is not lost, it is in
+        # opening equity, and the trial balance balances.
+        assert _amount_for(ctx, 'q.200.000') == Decimal('-400.00')
+        assert ctx.total_credits == Decimal('500.00') == ctx.total_debits
 
     def test_prior_year_expenses_are_excluded(self, app):
         with app.app_context():
@@ -133,7 +149,9 @@ class TestIncomeAndExpensesCarryTheYearsMovementOnly:
                 Transaction.account_id == sales.id,
                 Transaction.date.between(ctx.start_date, ctx.end_date)).scalar()
 
-        assert _amount_for(ctx, 'i.100.000') == Decimal(
+        # The income statement sums bank-signed lines (money in +); the trial
+        # balance states the same figure as a credit.
+        assert _amount_for(ctx, 'i.100.000') == -Decimal(
             str(round(income_statement_figure, 2)))
 
 
@@ -176,28 +194,38 @@ class TestBalanceSheetAccountsStillCarryForward:
 
 
 class TestASingleYearClientIsUnaffected:
-    """The safety property. Most clients hold one year, and for them the two rules
-    are arithmetically identical — so this correction cannot disturb the common
-    case. If this class ever fails, the change is not what it claims to be."""
+    """The #13 safety property: for a client whose data lies inside one year,
+    the movement rule and the cumulative rule agree — nothing rolls into
+    Retained Earnings. Written 2026-09-28 against a real statement: its bank
+    account recorded on the upload, lines bank-signed, posted double entry."""
 
     def test_income_expense_and_asset_are_all_unchanged(self, app):
+        from models import UploadedFile
         with app.app_context():
             uid = _client()
             bank = _account(uid, 'ca.810.001', 'Bank', 'Assets')
             sales = _account(uid, 'i.100.000', 'Sales', 'Income')
             fees = _account(uid, 'e.321.000', 'Bank Charges', 'Expenses')
-            _txn(uid, bank, IN_FY2025, 250.0)
-            _txn(uid, sales, IN_FY2025, -200.0)
-            _txn(uid, fees, datetime(2025, 11, 5), -50.0)
+            statement = UploadedFile(filename='fnb.csv', user_id=uid,
+                                     bank_account_id=bank.id)
+            db.session.add(statement)
+            db.session.flush()
+            for when, amount, account in ((IN_FY2025, 200.0, sales),
+                                          (datetime(2025, 11, 5), -50.0, fees)):
+                db.session.add(Transaction(date=when, description='line',
+                                           amount=amount, user_id=uid,
+                                           account_id=account.id,
+                                           file_id=statement.id))
             db.session.commit()
 
             ctx = load_trial_balance(uid, as_at=FY2025)
 
-        assert _amount_for(ctx, 'ca.810.001') == Decimal('250.00')
+        assert _amount_for(ctx, 'ca.810.001') == Decimal('150.00')
         assert _amount_for(ctx, 'i.100.000') == Decimal('-200.00')
-        assert _amount_for(ctx, 'e.321.000') == Decimal('-50.00')
-        assert ctx.total_debits == Decimal('250.00')
-        assert ctx.total_credits == Decimal('250.00')
+        assert _amount_for(ctx, 'e.321.000') == Decimal('50.00')
+        assert _amount_for(ctx, 'q.200.000') is None
+        assert ctx.total_debits == Decimal('200.00')
+        assert ctx.total_credits == Decimal('200.00')
 
 
 class TestACarriedBalanceIsNeverDropped:
@@ -291,5 +319,7 @@ class TestACarriedBalanceIsNeverDropped:
 
             ctx = load_trial_balance(mine, as_at=FY2025)
 
-        assert _links(ctx) == {'ca.810.001'}
+        # The bank side of lines with no recorded statement is its own row.
+        # Its bank line has no category yet, so it waits in Suspense.
+        assert _links(ctx) - {SUSPENSE_LINK} == {'ca.810.001'}
         assert _amount_for(ctx, 'ca.810.002') is None

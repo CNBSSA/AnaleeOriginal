@@ -380,6 +380,13 @@ class UploadedFile(db.Model):
     filename = Column(String(255), nullable=False)
     upload_date = Column(DateTime, default=datetime.utcnow)
     user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
+    # The bank account this statement belongs to (2026-09-28). Every line is
+    # stamped with it on import, but categorising a line overwrites
+    # Transaction.account_id, so without this the trial balance could not
+    # post the bank side of a categorised line. NULL on statements imported
+    # before it existed; the trial balance then infers the bank.
+    bank_account_id = Column(Integer, ForeignKey('account.id', ondelete='SET NULL'),
+                             nullable=True)
     transactions = relationship('Transaction', back_populates='file')
 
 class KeywordRule(db.Model):

@@ -161,3 +161,25 @@ def test_a_clean_import_is_unchanged(monkeypatch):
         assert Transaction.query.count() == 2
     assert messages.strip() == 'Imported 2 transaction(s).'
     assert 'NOT imported' not in messages
+
+
+def test_the_statement_records_its_bank_account():
+    """2026-09-28: categorising a line overwrites its account, so the statement
+    itself must remember the bank or the trial balance loses the bank side."""
+    from models import Account, UploadedFile
+    app = _make_app()
+    uid = _seed_user(app)
+    with app.app_context():
+        bank = Account(link='ca.810.001', name='Bank', category='Assets',
+                       sub_category='Current Asset', user_id=uid)
+        db.session.add(bank)
+        db.session.commit()
+        bank_id = bank.id
+    client = app.test_client()
+    _login(client, uid)
+    client.post('/ocr/statement/confirm', data={
+        'date': ['2026-03-15'], 'description': ['Sale'], 'amount': ['100.00'],
+        'filename': 'statement.pdf', 'account_id': str(bank_id),
+    })
+    with app.app_context():
+        assert UploadedFile.query.one().bank_account_id == bank_id

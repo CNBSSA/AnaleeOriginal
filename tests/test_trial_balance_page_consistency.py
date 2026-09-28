@@ -103,10 +103,11 @@ class TestTheRowsAgreeWithTheTotals:
         with app.app_context():
             sales = _account(user_id, 'i.100.000', 'Sales', 'Income')
             db.session.add_all([
+                # Bank lines: money in is positive (2026-09-28 double entry).
                 Transaction(date=datetime(2025, 6, 1), description='In period',
-                            amount=-30.0, user_id=user_id, account_id=sales),
+                            amount=30.0, user_id=user_id, account_id=sales),
                 Transaction(date=datetime(2026, 6, 1), description='Next year',
-                            amount=-30.0, user_id=user_id, account_id=sales),
+                            amount=30.0, user_id=user_id, account_id=sales),
             ])
             db.session.commit()
 
@@ -116,7 +117,8 @@ class TestTheRowsAgreeWithTheTotals:
         assert ctx.total_credits == Decimal('30.00')
         amounts = _rendered_amounts(html)
         assert amounts, 'no rows rendered — the assertion below would be vacuous'
-        assert amounts == [('0.00', '30.00')], (
+        # Bank (debit) and Sales (credit), each for this year only.
+        assert amounts == [('30.00', '0.00'), ('0.00', '30.00')], (
             f'the page shows {amounts} while the service totals say '
             f'credits={ctx.total_credits} — the page disagrees with itself')
 
@@ -164,7 +166,8 @@ class TestTheRowsAgreeWithTheTotals:
             ctx = load_trial_balance(user_id, as_at=datetime(2025, 6, 30))
             html = _render(ctx)
 
-        assert _rendered_amounts(html) == [('0.00', '0.00')]
+        # The bank row and its Suspense contra, both netting to zero.
+        assert _rendered_amounts(html) == [('0.00', '0.00'), ('0.00', '0.00')]
 
 
 class TestThePeriodSurvivesEveryAction:

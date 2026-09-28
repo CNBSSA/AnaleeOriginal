@@ -198,6 +198,7 @@ def confirm_receipt():
             filename=filename,
             user_id=current_user.id,
             upload_date=datetime.utcnow(),
+            bank_account_id=account.id if account else None,
         )
         db.session.add(uploaded_file)
         db.session.flush()  # get uploaded_file.id without a second round-trip

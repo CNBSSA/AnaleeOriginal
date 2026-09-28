@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 from itsdangerous import BadSignature, SignatureExpired
 
-from models import Account, CompanySettings, Transaction, User, db
+from models import UploadedFile, Account, CompanySettings, Transaction, User, db
 from reports.tb_share_tokens import (
     DEFAULT_MAX_AGE_SECONDS,
     create_share_token,
@@ -43,22 +43,23 @@ def _seed_balanced_tb(app, user_id: int):
         )
         db.session.add_all([settings, bank, sales])
         db.session.flush()
-        db.session.add_all([
+        # ONE bank line (money in, bank-signed) on a statement whose bank is
+        # recorded, categorised to Sales — what a real import produces. The
+        # trial balance posts both sides (2026-09-28 double entry).
+        statement = UploadedFile(filename='statement.csv', user_id=user_id,
+                                 bank_account_id=bank.id)
+        db.session.add(statement)
+        db.session.flush()
+        db.session.add(
             Transaction(
                 date=datetime(2026, 4, 15),
-                description='Receipt',
+                description='Sale',
                 amount=100.0,
                 user_id=user_id,
-                account_id=bank.id,
-            ),
-            Transaction(
-                date=datetime(2026, 4, 16),
-                description='Sale',
-                amount=-100.0,
-                user_id=user_id,
                 account_id=sales.id,
+                file_id=statement.id,
             ),
-        ])
+        )
         db.session.commit()
 
 
@@ -182,12 +183,13 @@ def _seed_prior_year_tb(app, user_id: int):
     with app.app_context():
         bank = Account.query.filter_by(user_id=user_id, link='ca.810.001').first()
         sales = Account.query.filter_by(user_id=user_id, link='i.100.000').first()
-        db.session.add_all([
-            Transaction(date=datetime(2025, 6, 1), description='Old receipt',
-                        amount=40.0, user_id=user_id, account_id=bank.id),
-            Transaction(date=datetime(2025, 6, 2), description='Old sale',
-                        amount=-40.0, user_id=user_id, account_id=sales.id),
-        ])
+        statement = UploadedFile(filename='old.csv', user_id=user_id,
+                                 bank_account_id=bank.id)
+        db.session.add(statement)
+        db.session.flush()
+        db.session.add(Transaction(date=datetime(2025, 6, 2), description='Old sale',
+                                   amount=40.0, user_id=user_id,
+                                   account_id=sales.id, file_id=statement.id))
         db.session.commit()
 
 

@@ -96,28 +96,117 @@ def _account_balance(account: Account, start_date: datetime,
     return _quantize(Decimal(str(total)))
 
 
+# --- Double entry from single-legged bank lines (Festus re-open, 2026-09-28) --
+#
+# Analee stores ONE row per bank line: a bank-signed amount (money in +, money
+# out -) and the account the line was categorised to. Until 2026-09-28 the
+# trial balance summed that bank-signed amount straight onto the category, so
+# income read as a debit, expenses as a credit, the bank account was missing,
+# and THE ACCOUNTANTS imported the profit with its sign inverted.
+#
+# Each bank line is now posted as the entry it is:
+#   bank account          +amount   (money in debits the bank)
+#   categorised account   -amount   (so income is a credit, an expense a debit)
+# which balances by construction. Where the other side is not known yet the
+# line waits in the Suspense Account, which is what an accountant would do.
+
+BANK_LINK_PREFIXES = ('ca.810', 'ca.820', 'cl.810')
+SUSPENSE_LINK = 'ca.900.000'
+SUSPENSE_NAME = 'Suspense Account'
+# A statement from before the bank account was recorded, whose bank cannot be
+# inferred: its bank side still has to be posted somewhere, so it is posted to
+# one clearly named row rather than guessed onto one of the client's banks.
+UNRECORDED_BANK_LINK = 'ca.810.000'
+UNRECORDED_BANK_NAME = 'Bank (statement account not recorded)'
+RETAINED_LINKS = ('q.200.000', 'q.100.000')
+RETAINED_NAME = 'Retained Earnings'
+
+
+@dataclass(frozen=True)
+class _SyntheticAccount:
+    """A trial-balance row with no Account behind it (same shape the page reads)."""
+    link: str
+    name: str
+    category: str
+
+
+def _is_bank(account) -> bool:
+    link = (getattr(account, 'link', '') or '').lower()
+    return link.startswith(BANK_LINK_PREFIXES)
+
+
+def _statement_banks(user_id: int, transactions) -> dict:
+    """Map file_id -> the bank Account its lines belong to.
+
+    Recorded on the statement since 2026-09-28. For an older statement it is
+    inferred, in this order, and never guessed across banks:
+      1. a line of that statement still sitting on a bank-type account (the
+         import stamps the bank onto every line until it is categorised);
+      2. the client's only bank-type account ever used for a statement.
+    Anything left maps to None and is posted to UNRECORDED_BANK_LINK.
+    """
+    from models import BankStatementUpload, UploadedFile
+
+    file_ids = {t.file_id for t in transactions if t.file_id is not None}
+    accounts_by_id = {a.id: a for a in Account.query.filter_by(user_id=user_id).all()}
+    banks: dict = {}
+    if file_ids:
+        for f in UploadedFile.query.filter(UploadedFile.id.in_(file_ids)).all():
+            acct = accounts_by_id.get(getattr(f, 'bank_account_id', None))
+            if acct is not None:
+                banks[f.id] = acct
+
+    stamped: dict = {}
+    for t in transactions:
+        if t.file_id is None or t.file_id in banks:
+            continue
+        acct = accounts_by_id.get(t.account_id)
+        if acct is not None and _is_bank(acct):
+            stamped.setdefault(t.file_id, {}).setdefault(acct.id, 0)
+            stamped[t.file_id][acct.id] += 1
+    for file_id, counts in stamped.items():
+        if len(counts) == 1:
+            banks[file_id] = accounts_by_id[next(iter(counts))]
+
+    used = {a.id for a in banks.values()}
+    used |= {row[0] for row in UploadedFile.query.with_entities(
+        UploadedFile.bank_account_id).filter_by(user_id=user_id)}
+    used |= {u.account_id for u in BankStatementUpload.query.filter_by(user_id=user_id)}
+    used_banks = [accounts_by_id[i] for i in used if i in accounts_by_id
+                  and _is_bank(accounts_by_id[i])]
+    only_bank = used_banks[0] if len(used_banks) == 1 else None
+    for file_id in file_ids:
+        banks.setdefault(file_id, only_bank)
+    banks[None] = only_bank
+    return banks
+
+
+def _first_by_link(accounts_by_link: dict, links, name: str, category: str):
+    for link in links:
+        if link in accounts_by_link:
+            return accounts_by_link[link]
+    return _SyntheticAccount(link=links[0], name=name, category=category)
+
+
 def load_trial_balance(
     user_id: int,
     *,
     as_at: datetime | None = None,
     year: int | None = None,
 ) -> TrialBalanceContext:
-    """Load FY-scoped trial balance for ``user_id`` (same logic as the HTML report).
+    """Load the FY-scoped trial balance for ``user_id``.
 
     By default the balance is the client's CURRENT financial year — the one
-    containing today. That is right for the accountant looking at the books,
-    and wrong for the accountant compiling the year just closed: during AFS
-    season the share link and the export carried the next year's year-to-date
-    position, and nothing could ask for the year that had ended (QA register
-    #6, 2026-09-07). Either keyword selects a different year and is passed
-    straight through to ``CompanySettings.get_financial_year``:
+    containing today. ``as_at`` (any date inside the wanted year) or ``year``
+    (the year the financial year STARTS in) select another year and are passed
+    straight to ``CompanySettings.get_financial_year`` (QA register #6).
 
-    - ``as_at`` — any date inside the wanted year (a consumer that knows the
-      year-end passes exactly that date, and the balance comes back as at it);
-    - ``year`` — the year the financial year STARTS in, matching the
-      ``financial_year`` selector the Analee reports already use.
+    Semantics (QA #12/#13, kept): balance-sheet accounts are cumulative to the
+    period end; income and expense accounts carry the year's movement only.
+    Earlier years' income and expenses now roll into Retained Earnings, so
+    the trial balance balances for a multi-year client too.
 
-    Both omitted → identical to the original behaviour.
+    Every row sums to zero: total debits equal total credits.
     """
     company_settings = CompanySettings.query.filter_by(user_id=user_id).first()
     if company_settings is None:
@@ -126,66 +215,68 @@ def load_trial_balance(
     fy_dates = company_settings.get_financial_year(date=as_at, year=year)
     start_date, end_date = fy_dates['start_date'], fy_dates['end_date']
 
-    # QA #13/#12: the candidate set is every account this client has ever posted
-    # to on or before the period end. The previous query filtered the JOINED table
-    # on `date >= start AND date <= end`, which turns an outer join into an
-    # effective INNER one: an account was listed only if it had activity INSIDE
-    # the year, so a balance-sheet account carrying a prior-year balance with no
-    # current-year movement disappeared from the trial balance while its balance
-    # was not zero. A trial balance must list every account with a balance.
-    #
-    # Selected by id through a distinct sub-select rather than a join, so the
-    # result can never depend on how many transactions an account happens to
-    # have. Accounts with no transactions at all are still excluded, exactly as
-    # before — the page does not render the whole chart of accounts.
-    posted_account_ids = {
-        row[0]
-        for row in Transaction.query.with_entities(Transaction.account_id)
-        .filter(
-            and_(
-                Transaction.user_id == user_id,
-                Transaction.account_id.isnot(None),
-                Transaction.date <= end_date,
-            )
-        )
-        .distinct()
+    transactions = (
+        Transaction.query.filter(
+            and_(Transaction.user_id == user_id, Transaction.date <= end_date))
+        .order_by(Transaction.id)
         .all()
-    }
-    candidates = (
-        Account.query.filter(
-            and_(Account.user_id == user_id, Account.id.in_(posted_account_ids)))
-        .order_by(Account.link)
-        .all()
-        if posted_account_ids else []
     )
+    accounts_by_id = {a.id: a for a in Account.query.filter_by(user_id=user_id).all()}
+    accounts_by_link = {a.link: a for a in accounts_by_id.values()}
+    banks = _statement_banks(user_id, transactions)
+    suspense = _first_by_link(accounts_by_link, (SUSPENSE_LINK,), SUSPENSE_NAME, 'Assets')
+    retained = _first_by_link(accounts_by_link, RETAINED_LINKS, RETAINED_NAME, 'Equity')
+    unrecorded_bank = _SyntheticAccount(
+        link=UNRECORDED_BANK_LINK, name=UNRECORDED_BANK_NAME, category='Assets')
 
-    accounts: list[Account] = []
+    balances: dict = {}
+    moved: set = set()
+    holders: dict = {}
+
+    def post(holder, amount: Decimal, in_period: bool) -> None:
+        holders[holder.link] = holder
+        balances[holder.link] = balances.get(holder.link, Decimal('0')) + amount
+        if in_period:
+            moved.add(holder.link)
+
+    for t in transactions:
+        amount = Decimal(str(t.amount))
+        in_period = start_date <= t.date <= end_date
+        category = accounts_by_id.get(t.account_id)
+        bank = banks.get(t.file_id)
+        if bank is None:
+            # No statement bank known: a line still sitting on a bank-type
+            # account is that bank's own, not yet categorised.
+            bank = category if category is not None and _is_bank(category) \
+                else unrecorded_bank
+        if category is None or getattr(category, 'link', None) == bank.link:
+            category = suspense
+        post(bank, amount, in_period)
+        if _is_profit_or_loss(category) and not in_period:
+            # An earlier year's trading is already in the opening equity.
+            post(retained, -amount, False)
+        else:
+            post(category, -amount, in_period)
+
+    accounts: list = []
     total_debits = Decimal('0')
     total_credits = Decimal('0')
     export_rows: list[TrialBalanceRow] = []
 
-    for account in candidates:
-        balance = _account_balance(account, start_date, end_date)
-        moved_in_period = any(
-            start_date <= t.date <= end_date for t in account.transactions)
-        # Shown when it traded this year (even if it nets to zero — that row was
-        # always displayed as 0.00) OR when it carries a balance into the year.
-        # Hidden only when there is genuinely nothing to report.
-        if not moved_in_period and balance == 0:
+    for link in sorted(balances):
+        holder = holders[link]
+        balance = _quantize(balances[link])
+        # Shown when it moved this year (even at 0.00) or carries a balance in.
+        if link not in moved and balance == 0:
             continue
-        accounts.append(account)
+        accounts.append(holder)
         if balance > 0:
             total_debits += balance
         elif balance < 0:
             total_credits += abs(balance)
         if balance != 0:
-            export_rows.append(
-                TrialBalanceRow(
-                    link=account.link,
-                    account_name=account.name,
-                    amount=balance,
-                )
-            )
+            export_rows.append(TrialBalanceRow(
+                link=holder.link, account_name=holder.name, amount=balance))
 
     return TrialBalanceContext(
         accounts=tuple(accounts),

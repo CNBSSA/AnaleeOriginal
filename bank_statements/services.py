@@ -49,14 +49,16 @@ class BankStatementService:
     def create_uploaded_file_record(
         self,
         filename: str,
-        user_id: int
+        user_id: int,
+        bank_account_id: Optional[int] = None,
     ) -> UploadedFile:
         """
         Create a record for the uploaded file
         """
         uploaded_file = UploadedFile(
             filename=secure_filename(filename),
-            user_id=user_id
+            user_id=user_id,
+            bank_account_id=bank_account_id,
         )
         db.session.add(uploaded_file)
         db.session.commit()
@@ -175,7 +177,8 @@ class BankStatementService:
                         'details': reader_errors,
                     }
 
-                uploaded_file = self.create_uploaded_file_record(file.filename, user_id)
+                uploaded_file = self.create_uploaded_file_record(
+                    file.filename, user_id, bank_account_id=account_id)
 
                 transactions = self.create_transactions(
                     df, account_id, user_id, uploaded_file.id
