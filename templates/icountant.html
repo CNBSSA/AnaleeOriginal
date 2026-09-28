@@ -109,6 +109,7 @@
                     </div>
 
                     <form method="POST" action="{{ url_for('main.icountant_interface') }}" id="transactionForm">
+                        {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
                         <input type="hidden" name="transaction_id" value="{{ transaction.id }}" id="transactionIdField">
 
                         <div class="form-group">
