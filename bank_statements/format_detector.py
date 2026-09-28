@@ -11,14 +11,28 @@ from typing import Any
 import pandas as pd
 from utils.date_parsing import parse_statement_date
 
-_DATE_PATTERNS = {'date', 'transaction date', 'posting date', 'value date'}
+_DATE_PATTERNS = {
+    'date', 'transaction date', 'posting date', 'value date', 'trans date',
+    'date posted', 'processing date', 'effective date',
+}
 _DESC_PATTERNS = {
     'description', 'description 1', 'transaction details', 'details',
     'narrative', 'particulars', 'trans description', 'transaction description',
     'reference', 'trans details',
 }
-_DEBIT_PATTERNS = {'debit', 'withdrawals', 'payment amount', 'debit amount', 'paid out'}
-_CREDIT_PATTERNS = {'credit', 'deposits', 'receipt amount', 'credit amount', 'paid in'}
+# Capitec exports "Money In" / "Money Out" (+ a separate "Fee" column);
+# Nedbank and others use "Debits"/"Credits" or "Withdrawal"/"Deposit". Before
+# 2026-09-28 none of those were recognised, so a real Capitec CSV was refused
+# with "Could not find required columns".
+_DEBIT_PATTERNS = {
+    'debit', 'debits', 'withdrawal', 'withdrawals', 'payment amount',
+    'debit amount', 'paid out', 'money out', 'amount out',
+}
+_CREDIT_PATTERNS = {
+    'credit', 'credits', 'deposit', 'deposits', 'receipt amount',
+    'credit amount', 'paid in', 'money in', 'amount in',
+}
+_FEE_PATTERNS = {'fee', 'fees', 'fee amount', 'bank fee', 'bank fees'}
 _AMOUNT_PATTERNS = {'amount', 'transaction amount', 'value', 'rand amount'}
 _DESC2_PATTERNS = {'description 2', 'description 3', 'additional information'}
 
@@ -48,24 +62,92 @@ def _find_header_row(rows: list[list[Any]]) -> int | None:
     return None
 
 
+_DR_CR_SUFFIX = re.compile(r'\s*(?<![A-Za-z])(DR|CR)\.?\s*$', re.IGNORECASE)
+
+
 def _parse_number(value: Any) -> float | None:
+    """Read an amount the way SA bank exports actually write one.
+
+    Handles, in addition to plain ``-150.00``: a currency prefix (``R``,
+    ``ZAR``), spaces or commas as thousands separators (``R 1 150.00``,
+    ``1,150.00``), a decimal comma (``150,00`` — semicolon-delimited exports),
+    negatives in brackets (``(1,150.00)``), a trailing minus (``150.00-``, FNB)
+    and a ``Dr``/``Cr`` suffix. Returns None when the cell is not a number.
+    Before 2026-09-28 a bracketed amount returned None and its row was dropped
+    without a word, and ``150,00`` was read as 15 000.
+    """
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
-    cleaned = re.sub(r'[R\s,]', '', str(value).strip())
-    if cleaned in ('', '-', 'nan', 'None'):
-        return None
-    try:
-        return float(cleaned)
-    except (ValueError, TypeError):
+    text = str(value).replace('\u00a0', ' ').strip()
+    if text in ('', '-', 'nan', 'NaN', 'None'):
         return None
 
+    negative = False
+    suffix = _DR_CR_SUFFIX.search(text)
+    if suffix:
+        negative = suffix.group(1).upper() == 'DR'
+        text = text[:suffix.start()].strip()
+    if text.startswith('(') and text.endswith(')'):
+        negative = True
+        text = text[1:-1].strip()
+    if text.endswith('-'):
+        negative = True
+        text = text[:-1].strip()
 
-def _signed_amount(debit_raw: Any, credit_raw: Any, amount_raw: Any = None) -> float | None:
+    text = re.sub(r'(?i)zar', '', text)
+    text = re.sub(r'[Rr\s]', '', text)
+    if text.startswith('+'):
+        text = text[1:]
+    if text.startswith('-'):
+        negative = not negative
+        text = text[1:]
+    if not text:
+        return None
+
+    if ',' in text and '.' in text:
+        # Whichever separator comes last is the decimal point.
+        if text.rfind(',') > text.rfind('.'):
+            text = text.replace('.', '').replace(',', '.')
+        else:
+            text = text.replace(',', '')
+    elif ',' in text:
+        # One comma followed by one or two digits is a decimal comma
+        # (150,00); anything else is a thousands separator (15,000).
+        if text.count(',') == 1 and re.search(r',\d{1,2}$', text):
+            text = text.replace(',', '.')
+        else:
+            text = text.replace(',', '')
+
+    if not re.fullmatch(r'\d+(\.\d+)?|\.\d+', text):
+        return None
+    number = float(text)
+    return -number if negative else number
+
+
+def _signed_amount(debit_raw: Any, credit_raw: Any, amount_raw: Any = None,
+                   fee_raw: Any = None) -> float | None:
+    """Money in is positive, money out (and a separate fee) negative.
+
+    Debit/credit columns are read by magnitude: Capitec writes "Money Out" as
+    ``-150.00`` and other banks as ``150.00``; both mean 150 left the account.
+    (Subtracting a negative debit used to turn a payment into a receipt.)
+    """
     debit = _parse_number(debit_raw)
     credit = _parse_number(credit_raw)
-    if debit is not None or credit is not None:
-        return (credit or 0.0) - (debit or 0.0)
+    fee = _parse_number(fee_raw)
+    if debit is not None or credit is not None or fee is not None:
+        if debit is None and credit is None and amount_raw is not None:
+            base = _parse_number(amount_raw)
+            if base is None:
+                return -abs(fee)
+            return base - abs(fee)
+        return abs(credit or 0.0) - abs(debit or 0.0) - abs(fee or 0.0)
     return _parse_number(amount_raw)
+
+
+def find_header_row(rows: list[list[Any]]) -> int | None:
+    """Public alias used by the CSV reader to choose a delimiter."""
+    return _find_header_row(rows)
 
 
 def normalize_bank_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -91,6 +173,7 @@ def normalize_bank_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     desc2_col = _find_index(headers_lower, _DESC2_PATTERNS)
     debit_col = _find_index(headers_lower, _DEBIT_PATTERNS)
     credit_col = _find_index(headers_lower, _CREDIT_PATTERNS)
+    fee_col = _find_index(headers_lower, _FEE_PATTERNS)
     amount_col = (
         _find_index(headers_lower, _AMOUNT_PATTERNS)
         if debit_col is None and credit_col is None
@@ -113,9 +196,16 @@ def normalize_bank_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         amount_col = headers_lower.index('amount')
 
     if date_col is None or (desc_col is None and amount_col is None and debit_col is None and credit_col is None):
+        if header_index is None:
+            first = next((r for r in raw_rows if any(str(c).strip() for c in r)), [])
+            seen = [str(c).strip() for c in first if str(c).strip()][:12]
+        else:
+            seen = [str(c) for c in working.columns if str(c).strip()][:12]
         raise ValueError(
-            'Could not find required columns. Need Date plus Amount or Debit/Credit '
-            '(or Description with Amount).'
+            'Could not find the column headings. Analee needs a Date column and '
+            'an Amount column (or Debit and Credit, or Money In and Money Out). '
+            'Column headings found: ' + (', '.join(str(c) for c in seen) or 'none')
+            + '.'
         )
 
     normalized_rows: list[dict[str, Any]] = []
@@ -136,7 +226,8 @@ def normalize_bank_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         debit_raw = row.iloc[debit_col] if debit_col is not None else None
         credit_raw = row.iloc[credit_col] if credit_col is not None else None
         amount_raw = row.iloc[amount_col] if amount_col is not None else None
-        amount = _signed_amount(debit_raw, credit_raw, amount_raw)
+        fee_raw = row.iloc[fee_col] if fee_col is not None else None
+        amount = _signed_amount(debit_raw, credit_raw, amount_raw, fee_raw)
         if amount is None:
             continue
 

@@ -20,7 +20,11 @@ class BankStatementUploadForm(FlaskForm):
         'Bank Statement File',
         validators=[
             FileRequired(message="Please select a file to upload"),
-            FileAllowed(['csv', 'xlsx'], 'Only CSV and Excel files are allowed')
+            FileAllowed(
+                ['csv', 'xlsx'],
+                'Only CSV (.csv) and Excel (.xlsx) files can be imported here. '
+                'Save an older .xls file as .xlsx first; PDF statements go '
+                'through Import PDF Statement.')
         ],
         description='Upload bank statement in CSV or Excel format'
     )

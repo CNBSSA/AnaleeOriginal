@@ -35,6 +35,7 @@ class BankStatementService:
             'invalid_amount': "Some amounts are not in the correct format. Please ensure amounts are numbers.",
             'future_date': "We noticed some future dates in your statement. Please check the dates.",
             'empty_file': "The uploaded file appears to be empty. Please check the file contents.",
+            'unreadable': "We could not read the transactions in this file.",
             'processing_error': "We encountered an issue while processing your file. Please try again.",
             'db_error': "There was a problem saving your data. Please try again.",
             'unknown': "An unexpected error occurred. Please try again or contact support.",
@@ -159,15 +160,19 @@ class BankStatementService:
                 df = self.excel_reader.read_excel(temp_path)
 
                 if df is None or df.empty:
-                    details = '; '.join(self.excel_reader.get_errors()) or 'No readable rows'
-                    error_msg = self.get_friendly_error_message('empty_file', details)
+                    reader_errors = self.excel_reader.get_errors()
+                    # A file whose layout could not be read is not "empty":
+                    # say what was wrong, in the reader's own words.
+                    error_type = 'unreadable' if reader_errors else 'empty_file'
+                    details = '; '.join(reader_errors) or 'No readable rows'
+                    error_msg = self.get_friendly_error_message(error_type, details)
                     upload.set_error(error_msg)
                     db.session.commit()
                     return False, {
                         'success': False,
                         'error': error_msg,
-                        'error_type': 'empty_file',
-                        'details': self.excel_reader.get_errors(),
+                        'error_type': error_type,
+                        'details': reader_errors,
                     }
 
                 uploaded_file = self.create_uploaded_file_record(file.filename, user_id)
