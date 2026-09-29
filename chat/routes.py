@@ -127,46 +127,80 @@ def get_context():
             'error': str(e)
         })
 
+# The assistant sees the client's whole FINANCIAL YEAR, not five lines.
+# Before 2026-09-28 the context was the current calendar month's totals plus
+# the five latest transactions — so a question about last quarter's rent was
+# answered from five lines that did not contain it (QA, 2026-09-28).
+CONTEXT_LINE_CAP = 150
+
+
+def _period_for(user_id: int):
+    """The client's current financial year (CompanySettings), else the last
+    twelve months."""
+    from models import CompanySettings
+    settings = CompanySettings.query.filter_by(user_id=user_id).first()
+    if settings is not None:
+        try:
+            fy = settings.get_financial_year()
+            return fy['start_date'], fy['end_date'], 'financial year'
+        except Exception:  # a settings row with no usable year-end
+            pass
+    end = datetime.now()
+    return end - timedelta(days=365), end, 'last 12 months'
+
+
 def get_financial_context(user_id: int) -> Dict:
     """
-    Get current financial context including recent transactions,
-    monthly summary, and key metrics.
+    The assistant's view of the books: the financial year's totals, a total
+    per account, and the period's transactions (newest first, capped at
+    CONTEXT_LINE_CAP with the cap stated), all in rand.
     """
     try:
-        # Get current month's transactions
-        start_date = datetime.now().replace(day=1)
-        end_date = (start_date + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+        start_date, end_date, period_label = _period_for(user_id)
 
         transactions = Transaction.query.filter(
             Transaction.user_id == user_id,
             Transaction.date.between(start_date, end_date)
-        ).order_by(desc(Transaction.date)).all()
+        ).order_by(desc(Transaction.date), desc(Transaction.id)).all()
 
-        # Calculate monthly totals
         income = sum(t.amount for t in transactions if t.amount > 0)
         expenses = abs(sum(t.amount for t in transactions if t.amount < 0))
         balance = income - expenses
 
-        # Get recent transactions
-        recent = Transaction.query.filter_by(user_id=user_id)\
-            .order_by(desc(Transaction.date))\
-            .limit(5)\
-            .all()
+        by_account: Dict[str, Dict] = {}
+        uncategorised = 0
+        for t in transactions:
+            name = t.account.name if t.account else 'Not yet categorised'
+            if not t.account:
+                uncategorised += 1
+            row = by_account.setdefault(name, {'count': 0, 'total': 0.0})
+            row['count'] += 1
+            row['total'] += float(t.amount)
+        account_totals = sorted(
+            ({'account': k, 'count': v['count'], 'total': round(v['total'], 2)}
+             for k, v in by_account.items()),
+            key=lambda r: abs(r['total']), reverse=True)
 
         recent_transactions = [{
             'date': tx.date.strftime('%Y-%m-%d'),
             'description': tx.description,
             'amount': float(tx.amount),
-            'category': tx.account.category if tx.account else 'Uncategorized',
+            'category': tx.account.name if tx.account else 'Not yet categorised',
             'analyzed': bool(tx.account_id and tx.explanation)
-        } for tx in recent]
+        } for tx in transactions[:CONTEXT_LINE_CAP]]
 
         context = {
+            'period_label': period_label,
+            'period_start': start_date.strftime('%Y-%m-%d'),
+            'period_end': end_date.strftime('%Y-%m-%d'),
             'income': float(income),
             'expenses': float(expenses),
             'balance': float(balance),
+            'account_totals': account_totals,
+            'uncategorised': uncategorised,
             'recent_transactions': recent_transactions,
-            'total_transactions': len(transactions)
+            'total_transactions': len(transactions),
+            'lines_shown': len(recent_transactions),
         }
 
         logger.info(f"Financial context generated for user {user_id}")
@@ -176,11 +210,15 @@ def get_financial_context(user_id: int) -> Dict:
         logger.error(f"Error getting financial context: {str(e)}")
         # Return a safe fallback context
         return {
+            'period_label': '', 'period_start': '', 'period_end': '',
             'income': 0,
             'expenses': 0,
             'balance': 0,
+            'account_totals': [],
+            'uncategorised': 0,
             'recent_transactions': [],
             'total_transactions': 0,
+            'lines_shown': 0,
             'error': str(e)
         }
 
@@ -190,17 +228,24 @@ def generate_ai_response(client, message: str, context: Dict) -> str:
         # Create prompt with context
         prompt = f"""As a financial AI assistant, help the user with their query. Here's the current context:
 
-Monthly Summary:
-- Income: ${context['income']:,.2f}
-- Expenses: ${context['expenses']:,.2f}
-- Balance: ${context['balance']:,.2f}
+Period: the {context.get('period_label') or 'period'} {context.get('period_start', '')} to {context.get('period_end', '')}.
+All amounts are South African rand (R), from the company's own categorised bank statements.
 
-Recent Transactions:
+Summary for the period:
+- Money in: R{context['income']:,.2f}
+- Money out: R{context['expenses']:,.2f}
+- Net: R{context['balance']:,.2f}
+- Transactions in the period: {context['total_transactions']} ({context.get('uncategorised', 0)} not yet categorised)
+
+Totals by account (money in positive, money out negative):
+{format_account_totals_for_prompt(context.get('account_totals', []))}
+
+Transactions (newest first{', the latest ' + str(context['lines_shown']) + ' of ' + str(context['total_transactions']) if context.get('lines_shown', 0) < context['total_transactions'] else ''}):
 {format_transactions_for_prompt(context['recent_transactions'])}
 
 User Query: {message}
 
-Provide a helpful, concise response focusing on their financial situation."""
+Answer from the figures above. Do not call the data dummy or inconsistent; if something is not in the period shown, say so."""
 
         response = client.messages.create(
             model=CLAUDE_MODEL,
@@ -216,8 +261,15 @@ Provide a helpful, concise response focusing on their financial situation."""
         return "I apologize, but I'm having trouble generating a response right now. Please try again in a moment."
 
 def format_transactions_for_prompt(transactions: List[Dict]) -> str:
-    """Format recent transactions for the AI prompt."""
+    """Format transactions for the AI prompt (rand, with the account)."""
     return "\n".join([
-        f"- {tx['date']}: {tx['description']} (${tx['amount']:,.2f})"
+        f"- {tx['date']}: {tx['description']} (R{tx['amount']:,.2f}) — {tx.get('category', '')}"
         for tx in transactions
-    ])
+    ]) or "- none in the period"
+
+
+def format_account_totals_for_prompt(rows: List[Dict]) -> str:
+    return "\n".join([
+        f"- {r['account']}: R{r['total']:,.2f} ({r['count']} transactions)"
+        for r in rows
+    ]) or "- nothing categorised yet"
