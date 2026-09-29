@@ -82,9 +82,35 @@ def _remember_credential(data: dict) -> None:
     _ctx.credential = dict(cred) if ok else None
 
 
+def _forget_credential(*_args, **_kwargs) -> None:
+    # A worker thread serves many practices: whatever credential the previous
+    # request resolved must never be used by the next one.
+    _ctx.credential = None
+
+
+from flask import request_started as _request_started  # noqa: E402
+_request_started.connect(_forget_credential, weak=False)
+
+
+def _ttl(data) -> int:
+    """FileIt's ``expires_in``, or an hour when it is missing or not a number
+    (a malformed answer must not turn a filing into a 500)."""
+    try:
+        return int((data or {}).get("expires_in") or 3600)
+    except (AttributeError, TypeError, ValueError):
+        return 3600
+
+
+def _cache_key(client_id: str, secret: str, base: str) -> str:
+    # Keyed on the secret too, so a rotated or revoked secret is never served
+    # a token cached for the old one.
+    import hashlib
+    return f"{base}|{client_id}|{hashlib.sha256(secret.encode()).hexdigest()}"
+
+
 def _token_for(client_id: str, secret: str, base: str) -> str:
-    hit = _tokens_by_client.get(client_id)
-    if hit and _time.time() < hit[1]:
+    hit = _tokens_by_client.get(_cache_key(client_id, secret, base))
+    if hit and hit[0] and _time.time() < hit[1]:
         return hit[0]
     resp = requests.post(f"{base}{_API}/auth/token",
                          json={"client_id": client_id, "client_secret": secret},
@@ -92,8 +118,8 @@ def _token_for(client_id: str, secret: str, base: str) -> str:
     resp.raise_for_status()
     data = resp.json() or {}
     token = str(data.get("access_token") or "")
-    ttl = int(data.get("expires_in") or 3600)
-    _tokens_by_client[client_id] = (token, _time.time() + max(60, ttl - 120))
+    ttl = _ttl(data)
+    _tokens_by_client[_cache_key(client_id, secret, base)] = (token, _time.time() + max(60, ttl - 120))
     return token
 
 
@@ -101,7 +127,7 @@ def _bearer() -> str:
     cred = getattr(_ctx, "credential", None)
     if cred:
         return _token_for(cred["client_id"], cred["client_secret"],
-                          (cred.get("base_url") or _base()).rstrip("/"))
+                          _base())
     client_id = os.environ.get("FILEIT_CLIENT_ID", "").strip()
     secret = os.environ.get("FILEIT_CLIENT_SECRET", "").strip()
     if client_id and secret:
@@ -206,7 +232,7 @@ def usable_documents() -> list[dict]:
     FileIt-classified statements first, then newest first."""
     if not configured():
         raise FileItError("FileIt is not connected on this service yet "
-                          "(FILEIT_API_BASE_URL / FILEIT_API_TOKEN).")
+                          "(FILEIT_API_BASE_URL and CLUB_PRACTICE_SYNC_URL / CLUB_PRACTICE_SYNC_TOKEN).")
     ref = workspace_ref()
     folder_id = resolve_folder(ref)
     if not folder_id:
