@@ -79,6 +79,17 @@
                 </div>
             </div>
 
+
+            {% if fileit_pull_available %}
+            <div class="card mb-4 border-success">
+                <div class="card-body">
+                    <h5 class="card-title mb-1">…or take it from FileIt</h5>
+                    <p class="text-muted small mb-2">Bank statements already filed in this client's FileIt folder — no second upload.</p>
+                    <a class="btn btn-outline-success btn-sm" href="{{ url_for('fileit.statements') }}">Choose from FileIt</a>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="alert alert-light border small">
                 <strong>How it works:</strong> digital PDFs are parsed locally (fast).
                 Scanned or complex layouts use Claude Vision. Every import is checked:

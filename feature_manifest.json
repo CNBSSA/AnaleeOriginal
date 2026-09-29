@@ -55,6 +55,8 @@
     "client_explain.client_explain_similar",
     "club_sso.enter",
     "errors.error_dashboard",
+    "fileit.import_statement",
+    "fileit.statements",
     "historical_data.index",
     "historical_data.upload",
     "main.acknowledge_alert",

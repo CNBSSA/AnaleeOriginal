@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <h2 class="card-title mb-0">Take a bank statement from FileIt</h2>
+                <p class="text-muted mb-0 small">Statements the practice has already filed for this client. A CSV or Excel file imports straight in; a PDF opens the usual review screen first.</p>
+            </div>
+            <a href="{{ url_for('bank_statements.upload') }}" class="btn btn-outline-secondary btn-sm">&larr; Bank statements</a>
+        </div>
+        <div class="card-body">
+            {% if error %}
+                <div class="alert alert-warning mb-0">{{ error }}</div>
+            {% elif not documents %}
+                <p class="text-muted mb-0">Nothing in this client's FileIt folder looks like a bank statement yet (no PDF, CSV or Excel files).</p>
+            {% elif not accounts %}
+                <div class="alert alert-info mb-0">Add a bank account under Charts of Accounts first (a <code>ca.810</code> account), then come back.</div>
+            {% else %}
+                <table class="table table-striped align-middle">
+                    <thead><tr><th>Document</th><th>Filed</th><th>Type</th><th>Bank account</th><th></th></tr></thead>
+                    <tbody>
+                    {% for d in documents %}
+                        <tr>
+                            <td>{{ d.display_name }}{% if d.is_statement %} <span class="badge bg-success">bank statement</span>{% endif %}</td>
+                            <td class="text-muted">{{ (d.created_at or '')[:10] }}</td>
+                            <td>{% if d.route == 'table' %}CSV / Excel{% else %}PDF{% endif %}</td>
+                            <td colspan="2">
+                                <form method="POST" action="{{ url_for('fileit.import_statement') }}" class="d-flex gap-2 align-items-center">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="document_id" value="{{ d.id }}">
+                                    <select name="account_id" class="form-select form-select-sm" required>
+                                        {% for a in accounts %}<option value="{{ a.id }}">{{ a.name }} ({{ a.link }})</option>{% endfor %}
+                                    </select>
+                                    <button type="submit" class="btn btn-sm btn-primary">Import</button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            {% endif %}
+            <p class="text-muted small mb-0 mt-2">Only this client's own filed documents are listed. Nothing is changed in FileIt.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

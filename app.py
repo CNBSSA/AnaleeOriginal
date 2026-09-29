@@ -490,6 +490,9 @@ def create_app(env=None):
             # ANALEE_PRACTICE_LAYER_ENABLED; fail-soft, never blocks startup.
             import practice_layer
             practice_layer.register(app)
+            # FileIt → Analee bank-statement tunnel (Festus 2026-09-28), dark.
+            import fileit_pull
+            fileit_pull.register(app)
 
             @app.cli.command('seed-charts')
             def seed_charts_command():

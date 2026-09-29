@@ -90,35 +90,49 @@ def upload_statement():
             return redirect(url_for('ocr.upload_statement'))
 
         pdf_bytes = file.read()
-        if not pdf_bytes:
-            flash('The uploaded file is empty.', 'error')
-            return redirect(url_for('ocr.upload_statement'))
-        if len(pdf_bytes) > MAX_PDF_BYTES:
-            flash('PDF is too large (max 32 MB).', 'error')
-            return redirect(url_for('ocr.upload_statement'))
-
-        outcome = extract_bank_statement(
-            pdf_bytes,
-            opening_balance=request.form.get('opening_balance'),
-            closing_balance=request.form.get('closing_balance'),
-        )
-        if not outcome.ok:
-            flash(outcome.error or 'Could not read any transactions from that PDF.', 'error')
-            return redirect(url_for('ocr.upload_statement'))
-
-        rows = _flag_duplicate_rows(outcome.rows)
-        return render_template(
-            'ocr/review.html',
-            rows=rows,
-            accounts=accounts,
-            account_id=request.form.get('account_id', ''),
-            filename=file.filename,
-            statement_header=outcome.header,
-            report_card=outcome.report_card,
-            extraction_method=outcome.method,
-        )
+        return review_extracted_statement(
+            pdf_bytes, file.filename, request.form.get('account_id', ''),
+            request.form.get('opening_balance'), request.form.get('closing_balance'),
+            accounts=accounts)
 
     return render_template('ocr/statement_upload.html', accounts=accounts)
+
+
+def review_extracted_statement(pdf_bytes, filename, account_id, opening_balance,
+                               closing_balance, *, accounts=None, back_to='ocr.upload_statement'):
+    """Extract a PDF statement and show the review screen — the body of the
+    upload route, shared with the FileIt tunnel (2026-09-29) so a fetched PDF
+    takes exactly the path an uploaded one does; ``/ocr/statement/confirm``
+    then finishes the import unchanged."""
+    if accounts is None:
+        accounts = _user_accounts()
+    if not pdf_bytes:
+        flash('The uploaded file is empty.', 'error')
+        return redirect(url_for(back_to))
+    if len(pdf_bytes) > MAX_PDF_BYTES:
+        flash('PDF is too large (max 32 MB).', 'error')
+        return redirect(url_for(back_to))
+
+    outcome = extract_bank_statement(
+        pdf_bytes,
+        opening_balance=opening_balance,
+        closing_balance=closing_balance,
+    )
+    if not outcome.ok:
+        flash(outcome.error or 'Could not read any transactions from that PDF.', 'error')
+        return redirect(url_for(back_to))
+
+    rows = _flag_duplicate_rows(outcome.rows)
+    return render_template(
+        'ocr/review.html',
+        rows=rows,
+        accounts=accounts,
+        account_id=account_id or '',
+        filename=filename,
+        statement_header=outcome.header,
+        report_card=outcome.report_card,
+        extraction_method=outcome.method,
+    )
 
 
 @ocr.route('/statement/confirm', methods=['POST'])
