@@ -52,17 +52,65 @@ def enabled() -> bool:
 
 
 def configured() -> bool:
+    # The credential normally arrives from the hub per practice (in the resolve
+    # answer); a service-wide client id + secret or a static token are fallbacks.
     return bool(os.environ.get("FILEIT_API_BASE_URL", "").strip()
-                and os.environ.get("FILEIT_API_TOKEN", "").strip())
+                and os.environ.get("CLUB_PRACTICE_SYNC_URL", "").strip()
+                and os.environ.get("CLUB_PRACTICE_SYNC_TOKEN", "").strip())
 
 
 def _base() -> str:
     return os.environ.get("FILEIT_API_BASE_URL", "").strip().rstrip("/")
 
 
+# --- credentials: the practice's own key, never another practice's -------------
+# Festus 2026-09-30: access is provisioned in FileIt; one user's documents must not
+# leak into another user's applications. The hub hands us, in the resolve answer,
+# the FileIt credential issued for THIS practice and Analee; kept for the current
+# request only (thread-local), exchanged for a short-lived token cached per client
+# id. Fallbacks: FILEIT_CLIENT_ID + FILEIT_CLIENT_SECRET, then FILEIT_API_TOKEN.
+import threading as _threading
+import time as _time
+
+_ctx = _threading.local()
+_tokens_by_client: dict = {}
+
+
+def _remember_credential(data: dict) -> None:
+    cred = data.get("credential") if isinstance(data, dict) else None
+    ok = isinstance(cred, dict) and cred.get("client_id") and cred.get("client_secret")
+    _ctx.credential = dict(cred) if ok else None
+
+
+def _token_for(client_id: str, secret: str, base: str) -> str:
+    hit = _tokens_by_client.get(client_id)
+    if hit and _time.time() < hit[1]:
+        return hit[0]
+    resp = requests.post(f"{base}{_API}/auth/token",
+                         json={"client_id": client_id, "client_secret": secret},
+                         timeout=_TIMEOUT_SECONDS, allow_redirects=False)
+    resp.raise_for_status()
+    data = resp.json() or {}
+    token = str(data.get("access_token") or "")
+    ttl = int(data.get("expires_in") or 3600)
+    _tokens_by_client[client_id] = (token, _time.time() + max(60, ttl - 120))
+    return token
+
+
+def _bearer() -> str:
+    cred = getattr(_ctx, "credential", None)
+    if cred:
+        return _token_for(cred["client_id"], cred["client_secret"],
+                          (cred.get("base_url") or _base()).rstrip("/"))
+    client_id = os.environ.get("FILEIT_CLIENT_ID", "").strip()
+    secret = os.environ.get("FILEIT_CLIENT_SECRET", "").strip()
+    if client_id and secret:
+        return _token_for(client_id, secret, _base())
+    return os.environ.get("FILEIT_API_TOKEN", "").strip()
+
+
 def _headers() -> dict:
-    return {"Authorization": f"Bearer {os.environ.get('FILEIT_API_TOKEN', '').strip()}",
-            "User-Agent": "Analee/fileit-pull"}
+    return {"Authorization": f"Bearer {_bearer()}", "User-Agent": "Analee/fileit-pull"}
 
 
 def in_workspace() -> bool:
@@ -98,6 +146,7 @@ def _hub_endpoint(name: str) -> str:
 
 
 def resolve_folder(ref: str) -> str:
+    _ctx.credential = None  # never carry one practice's key into another's request
     endpoint = _hub_endpoint("resolve")
     token = os.environ.get("CLUB_PRACTICE_SYNC_TOKEN", "").strip()
     if not endpoint or not token or not ref:
@@ -118,6 +167,7 @@ def resolve_folder(ref: str) -> str:
         data = resp.json() or {}
     except ValueError:
         return ""
+    _remember_credential(data)
     return str(data.get("external_ref") or "") if data.get("found") else ""
 
 
