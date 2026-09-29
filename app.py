@@ -493,6 +493,9 @@ def create_app(env=None):
             # FileIt → Analee bank-statement tunnel (Festus 2026-09-28), dark.
             import fileit_pull
             fileit_pull.register(app)
+            # Analee → FileIt trial-balance tunnel (Festus 2026-09-29), dark.
+            import fileit_push
+            fileit_push.register(app)
 
             @app.cli.command('seed-charts')
             def seed_charts_command():

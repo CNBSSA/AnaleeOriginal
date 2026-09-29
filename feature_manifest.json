@@ -57,6 +57,7 @@
     "errors.error_dashboard",
     "fileit.import_statement",
     "fileit.statements",
+    "fileit_push.send_trial_balance",
     "historical_data.index",
     "historical_data.upload",
     "main.acknowledge_alert",

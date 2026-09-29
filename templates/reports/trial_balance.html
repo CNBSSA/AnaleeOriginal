@@ -20,6 +20,13 @@
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="tbShareLinkBtn">
                     Copy share link
                 </button>
+                {% if fileit_push_available %}
+                {# Analee → FileIt (Festus 2026-09-29): the same Excel, filed in the client's FileIt folder once approved. #}
+                <form method="post" action="{{ url_for('fileit_push.send_trial_balance', **period_query) }}" class="d-inline">
+                    {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+                    <button type="submit" class="btn btn-outline-success btn-sm">File in FileIt</button>
+                </form>
+                {% endif %}
             </div>
         </div>
         <div class="card-body">
