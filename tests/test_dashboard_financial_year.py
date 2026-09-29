@@ -93,3 +93,16 @@ def test_december_year_end_uses_calendar_years(canary_app):
     assert labels['2025'] == 'FY 2025'
     # 2025-04-03, 2025-05-03 are in calendar 2025; 2025-01-15 as well.
     assert _count_card(html) == '3'
+
+
+def test_dashboard_draws_its_charts_in_rand(canary_app):
+    """QA 2026-09-28: the chart canvases existed but nothing drew them, and
+    every amount was shown with '$'."""
+    client = _setup(canary_app)
+    page = client.get('/dashboard?financial_year=2025').data.decode()
+    assert '$' not in page
+    assert 'R15000.00' in page or 'R15,000.00' in page or 'R15000.0' in page
+    assert "new Chart(monthly" in page and "type: 'bar'" in page
+    assert '"Money in"' in page or "'Money in'" in page
+    assert 'Bank' in page and "type: 'doughnut'" in page
+    assert 'R{{' not in page

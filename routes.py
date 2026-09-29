@@ -209,12 +209,25 @@ def dashboard():
         monthly_income.append(income)
         monthly_expenses.append(expenses)
     
+    # Expense distribution for the selected year, per account (the chart's
+    # data — the canvas existed but nothing ever drew on it, QA 2026-09-28).
+    expense_by_account = {}
+    for t in fy_transactions:
+        if t.amount < 0:
+            name = t.account.name if t.account else 'Not yet categorised'
+            expense_by_account[name] = expense_by_account.get(name, 0.0) + abs(float(t.amount))
+    category_pairs = sorted(expense_by_account.items(), key=lambda kv: kv[1], reverse=True)[:8]
+    category_labels = [k for k, _ in category_pairs]
+    category_totals = [round(v, 2) for _, v in category_pairs]
+
     return render_template('dashboard.html',
         total_income=total_income,
         total_expenses=total_expenses,
         monthly_labels=monthly_labels,
-        monthly_income=monthly_income,
-        monthly_expenses=monthly_expenses,
+        monthly_income=[float(v) for v in monthly_income],
+        monthly_expenses=[float(v) for v in monthly_expenses],
+        category_labels=category_labels,
+        category_totals=category_totals,
         transactions=fy_transactions[:20],
         transaction_count=len(fy_transactions),
         financial_years=financial_years,

@@ -24,7 +24,7 @@
                         <div class="card bg-primary bg-opacity-10">
                             <div class="card-body">
                                 <h5 class="card-title">Total Income</h5>
-                                <h2 class="text-success">${{ "%.2f"|format(total_income) }}</h2>
+                                <h2 class="text-success">R{{ "%.2f"|format(total_income) }}</h2>
                                 <p class="card-text">
                                     <small class="text-muted">{% if fy_start %}{{ fy_start.strftime('%d %b %Y') }} &ndash; {{ fy_end_date.strftime('%d %b %Y') }}{% else %}For current financial year{% endif %}</small>
                                 </p>
@@ -35,7 +35,7 @@
                         <div class="card bg-danger bg-opacity-10">
                             <div class="card-body">
                                 <h5 class="card-title">Total Expenses</h5>
-                                <h2 class="text-danger">${{ "%.2f"|format(total_expenses) }}</h2>
+                                <h2 class="text-danger">R{{ "%.2f"|format(total_expenses) }}</h2>
                                 <p class="card-text">
                                     <small class="text-muted">{% if fy_start %}{{ fy_start.strftime('%d %b %Y') }} &ndash; {{ fy_end_date.strftime('%d %b %Y') }}{% else %}For current financial year{% endif %}</small>
                                 </p>
@@ -47,7 +47,7 @@
                             <div class="card-body">
                                 <h5 class="card-title">Net Position</h5>
                                 <h2 class="{{ 'text-success' if (total_income - total_expenses) >= 0 else 'text-danger' }}">
-                                    ${{ "%.2f"|format(total_income - total_expenses) }}
+                                    R{{ "%.2f"|format(total_income - total_expenses) }}
                                 </h2>
                                 <p class="card-text">
                                     <small class="text-muted">Income - Expenses</small>
@@ -110,7 +110,7 @@
                         <td>{{ transaction.date.strftime('%Y-%m-%d') }}</td>
                         <td>{{ transaction.description }}</td>
                         <td class="{{ 'text-success' if transaction.amount > 0 else 'text-danger' }}">
-                            ${{ "%.2f"|format(transaction.amount) }}
+                            R{{ "%.2f"|format(transaction.amount) }}
                         </td>
                         <td>{{ transaction.account.name if transaction.account else '' }}</td>
                     </tr>
@@ -125,6 +125,39 @@
 
 {% block scripts %}
 <script>
+    // The two charts (QA 2026-09-28: the canvases existed, nothing drew them).
+    (function () {
+        if (typeof Chart === 'undefined') { return; }
+        var rand = function (v) { return 'R ' + Number(v).toLocaleString('en-ZA', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+        var monthly = document.getElementById('monthlyChart');
+        if (monthly) {
+            new Chart(monthly, {
+                type: 'bar',
+                data: {
+                    labels: {{ monthly_labels|tojson }},
+                    datasets: [
+                        {label: 'Money in', data: {{ monthly_income|tojson }}, backgroundColor: 'rgba(25, 135, 84, 0.6)'},
+                        {label: 'Money out', data: {{ monthly_expenses|tojson }}, backgroundColor: 'rgba(220, 53, 69, 0.6)'}
+                    ]
+                },
+                options: {responsive: true, scales: {y: {ticks: {callback: function (v) { return rand(v); }}}},
+                          plugins: {tooltip: {callbacks: {label: function (c) { return c.dataset.label + ': ' + rand(c.parsed.y); }}}}}
+            });
+        }
+        var category = document.getElementById('categoryChart');
+        var categoryLabels = {{ category_labels|default([])|tojson }};
+        if (category && categoryLabels.length) {
+            new Chart(category, {
+                type: 'doughnut',
+                data: {labels: categoryLabels, datasets: [{data: {{ category_totals|default([])|tojson }}}]},
+                options: {responsive: true, plugins: {tooltip: {callbacks: {label: function (c) { return c.label + ': ' + rand(c.parsed); }}}}}
+            });
+        } else if (category) {
+            category.insertAdjacentHTML('afterend', '<p class="text-muted small mb-0">No categorised expenses in this year yet.</p>');
+            category.remove();
+        }
+    })();
+
     // Choosing a year reloads the dashboard for that financial year.
     (function () {
         var select = document.getElementById('financialYear');
