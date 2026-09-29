@@ -5,6 +5,7 @@ Enhanced with user-friendly error notifications
 """
 import logging
 import os
+import tempfile
 from datetime import datetime
 from typing import Tuple, Dict, Any, List, Optional
 from werkzeug.utils import secure_filename
@@ -143,9 +144,17 @@ class BankStatementService:
                     'error_type': 'file_type'
                 }
 
-            # Save file temporarily
+            # Save file temporarily — under a UNIQUE name (2026-09-30). This used
+            # to be /tmp/<the uploaded file's name>, so two users uploading
+            # "statement.xlsx" at the same moment wrote the same path: one
+            # user's rows could be read into the other user's account, and the
+            # first request's cleanup deleted the second's file mid-read.
+            # mkstemp creates the file atomically with a random name (mode
+            # 0600); the extension is kept because the reader picks CSV vs
+            # Excel by it.
             try:
-                temp_path = os.path.join('/tmp', secure_filename(file.filename))
+                fd, temp_path = tempfile.mkstemp(prefix='analee-upload-', suffix=file_ext)
+                os.close(fd)
                 file.save(temp_path)
             except Exception as e:
                 error_msg = self.get_friendly_error_message('file_save_error', str(e))
