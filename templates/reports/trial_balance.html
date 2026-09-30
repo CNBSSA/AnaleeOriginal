@@ -15,7 +15,7 @@
                     Download Excel
                 </a>
                 <a href="{{ url_for('reports.trial_balance_api', **period_query) }}" class="btn btn-outline-primary btn-sm" target="_blank" rel="noopener">
-                    View JSON API
+                    View as data (for other systems)
                 </a>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="tbShareLinkBtn">
                     Copy share link
@@ -38,6 +38,8 @@
                         <strong>Approved for sending</strong> to THE ACCOUNTANTS
                         {% if approval.record.decider %}by {{ approval.record.decider.email }}{% endif %}
                         {% if approval.record.decided_at %}on {{ approval.record.decided_at.strftime('%Y-%m-%d') }}{% endif %}.
+                        <span class="d-block small">To hand it over, use "Copy share link" and send the link to your
+                            accountant, or download the Excel file.</span>
                     {% elif approval.state == 'requested' %}
                         <strong>Waiting for an administrator's approval</strong>
                         (requested {{ approval.record.requested_at.strftime('%Y-%m-%d %H:%M') if approval.record.requested_at else '' }}). It can be sent once approved.
@@ -96,9 +98,9 @@
                 This is a <strong>cash-basis summary</strong> from categorised bank activity — not an accrual GL.
             </p>
             <p class="text-muted small mb-0">
-                <strong>API transmission:</strong> authenticated JSON at
-                <code>{{ url_for('reports.trial_balance_api', _external=True) }}</code>
-                or a <strong>24-hour signed share link</strong> for BooksXperts / Accountants to pull the same payload.
+                <strong>Getting it to your accountant:</strong> once approved, THE ACCOUNTANTS or
+                BooksXperts can fetch these same figures with a <strong>share link</strong> (valid 24 hours) —
+                use "Copy share link" and send it to them — or download the Excel file.
             </p>
             <div id="tbShareStatus" class="small mt-2" style="display:none;"></div>
             <div class="table-responsive">
@@ -161,7 +163,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             await navigator.clipboard.writeText(data.share_url);
             status.className = 'small mt-2 text-success';
-            status.textContent = 'Share link copied (valid 24 hours). Downstream systems can GET this URL for JSON.';
+            status.textContent = 'Share link copied (valid 24 hours). Paste it into THE ACCOUNTANTS or BooksXperts to bring these figures in.';
         } catch (err) {
             status.className = 'small mt-2 text-danger';
             status.textContent = err.message || 'Failed to create share link';

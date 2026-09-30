@@ -46,6 +46,7 @@ def _make_app():
 
     app.register_blueprint(ocr_bp)
     app.add_url_rule('/upload', endpoint='main.upload', view_func=lambda: 'ok')
+    app.add_url_rule('/analyze/<int:file_id>', endpoint='main.analyze', view_func=lambda file_id: 'ok')
     return app
 
 

@@ -248,7 +248,12 @@ def send_tb():
     from provisioning import WORKSPACE_EMAIL_DOMAIN, _is_workspace_email
 
     if not enabled():
-        return jsonify({"error": "not found"}), 404
+        # The nav button can show while the layer is off; a bare JSON 404 was a
+        # dead end (2026-09-30). The button itself is unchanged.
+        flash("Sending to THE ACCOUNTANTS isn't switched on here yet. Download the "
+              "Excel file or use \"Copy share link\" on the Trial Balance page instead.",
+              "info")
+        return redirect(url_for("reports.trial_balance"))
     if not (session.get("workspace_session")
             and _is_workspace_email(getattr(current_user, "email", ""))):
         flash("Open a client first, then send their trial balance.", "info")

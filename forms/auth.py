@@ -44,6 +44,16 @@ class RegistrationForm(FlaskForm):
     ])
     submit = SubmitField('Register')
 
+    def validate_username(self, username):
+        """A taken username used to fail only at save, as "An error occurred
+        during registration." (2026-09-30). Say so on the form instead."""
+        taken = User.query.filter(
+            User.username == (username.data or ''),
+            User.is_deleted.isnot(True),
+        ).first()
+        if taken:
+            raise ValidationError('That username is taken. Please choose another.')
+
     def validate_email(self, email):
         """Check if the email is available for registration.
 

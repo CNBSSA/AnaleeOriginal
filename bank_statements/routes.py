@@ -112,7 +112,7 @@ def upload():
         ).order_by(Account.name).all()
 
         # Update form choices
-        form.account.choices = [(acc.id, f"{acc.name} ({acc.link})") for acc in bank_accounts]
+        form.account.choices = [(acc.id, acc.name) for acc in bank_accounts]
 
         if request.method == 'POST':
             # Check if it's an AJAX request
@@ -192,8 +192,11 @@ def upload():
                     flash('Bank statement uploaded and processed successfully!', 'success')
                     if started:
                         flash('Analee is categorising and explaining the rows now — '
-                              'open Analyze Data in a minute to review what needs '
+                              'refresh this page in a minute to see what needs '
                               'your eye.', 'info')
+                    if response.get('file_id'):
+                        # Open the statement just uploaded, not an empty form.
+                        return redirect(url_for('main.analyze', file_id=response['file_id']))
                 else:
                     logger.error(f"Upload processing failed: {response.get('error')}")
                     if is_ajax:
@@ -211,8 +214,7 @@ def upload():
                 if is_ajax:
                     return jsonify({
                         'success': False,
-                        'error': 'An error occurred during upload',
-                        'details': [str(e)]
+                        'error': 'An error occurred during upload. Please try again.',
                     }), 500
                 flash('An error occurred during upload. Please try again.', 'error')
                 return redirect(url_for('bank_statements.upload'))

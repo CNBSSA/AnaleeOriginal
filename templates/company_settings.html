@@ -13,28 +13,28 @@
                             <div class="mb-3">
                                 <label for="company_name" class="form-label">Company Name</label>
                                 <input type="text" class="form-control" id="company_name" name="company_name" 
-                                       value="{{ settings.company_name if settings else '' }}" required>
+                                       value="{{ request.form.get('company_name', '') if request.method == 'POST' else (settings.company_name if settings else '') }}" required>
                             </div>
                             <div class="mb-3">
                                 <label for="registration_number" class="form-label">Registration Number</label>
                                 <input type="text" class="form-control" id="registration_number" name="registration_number"
-                                       value="{{ settings.registration_number if settings else '' }}">
+                                       value="{{ request.form.get('registration_number', '') if request.method == 'POST' else (settings.registration_number if settings else '') }}">
                             </div>
                             <div class="mb-3">
                                 <label for="tax_number" class="form-label">Tax Number</label>
                                 <input type="text" class="form-control" id="tax_number" name="tax_number"
-                                       value="{{ settings.tax_number if settings else '' }}">
+                                       value="{{ request.form.get('tax_number', '') if request.method == 'POST' else (settings.tax_number if settings else '') }}">
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="vat_number" class="form-label">VAT Number</label>
                                 <input type="text" class="form-control" id="vat_number" name="vat_number"
-                                       value="{{ settings.vat_number if settings else '' }}">
+                                       value="{{ request.form.get('vat_number', '') if request.method == 'POST' else (settings.vat_number if settings else '') }}">
                             </div>
                             <div class="mb-3">
                                 <label for="address" class="form-label">Address</label>
-                                <textarea class="form-control" id="address" name="address" rows="3">{{ settings.address if settings else '' }}</textarea>
+                                <textarea class="form-control" id="address" name="address" rows="3">{{ request.form.get('address', '') if request.method == 'POST' else (settings.address if settings else '') }}</textarea>
                             </div>
                         </div>
                     </div>

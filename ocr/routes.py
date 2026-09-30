@@ -208,8 +208,8 @@ def confirm_receipt():
             flash(
                 'Nothing was imported. The date could not be read on '
                 f'{len(unreadable_dates)} row(s): {_rows_phrase(unreadable_dates)}. '
-                'Go back, type each date as YYYY-MM-DD (for example 2026-03-15), '
-                'and import again.',
+                'Upload the PDF again and, on the review screen, type each of those '
+                'dates as YYYY-MM-DD (for example 2026-03-15) before importing.',
                 'error',
             )
         else:
@@ -254,12 +254,14 @@ def confirm_receipt():
             f'Imported {len(parsed_rows)} transaction(s). '
             f'{len(unreadable_dates)} row(s) were NOT imported because the date '
             f'could not be read: {_rows_phrase(unreadable_dates)}. '
-            'Go back, type each date as YYYY-MM-DD, and import those rows.',
+            'To add them, upload the PDF again and type those dates as YYYY-MM-DD '
+            'on the review screen.',
             'warning',
         )
     else:
         flash(f'Imported {len(parsed_rows)} transaction(s).', 'success')
     if started:
-        flash('Analee is categorising and explaining them now — open Analyze '
-              'Data in a minute to review what needs your eye.', 'info')
-    return redirect(url_for('main.upload'))
+        flash('Analee is categorising and explaining them now — refresh this '
+              'page in a minute to see what needs your eye.', 'info')
+    # Land on the statement just imported, not the empty CSV upload form.
+    return redirect(url_for('main.analyze', file_id=uploaded_file.id))

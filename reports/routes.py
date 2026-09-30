@@ -363,7 +363,7 @@ def trial_balance():
         return redirect(url_for('main.company_settings'))
     except Exception as e:
         logger.error(f"Error generating trial balance: {str(e)}, Stack trace: {str(e.__traceback__)}")
-        flash('Error loading transaction data. Please try again.')
+        flash('The trial balance could not be prepared just now. Please try again.', 'error')
         return redirect(url_for('main.dashboard'))
 
 

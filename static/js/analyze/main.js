@@ -2,7 +2,7 @@
  * main.js — initializes ASF, ERF, and ESF on the analyze page after DOM ready.
  */
 
-import { apiFetch } from './api.js';
+import { apiFetch, showSaveNotice } from './api.js';
 import { ExplanationHandler } from './explanationHandler.js';
 import { AccountSuggestionHandler } from './accountSuggestions.js';
 import { ExplanationSuggestionHandler } from './explanationSuggestions.js';
@@ -57,7 +57,7 @@ class AnalyzeApplication {
         const textarea = document.querySelector(`textarea[name="explanation_${transactionId}"]`);
 
         try {
-            await apiFetch(`/analyze/save-transaction/${transactionId}`, {
+            const result = await apiFetch(`/analyze/save-transaction/${transactionId}`, {
                 method: 'POST',
                 body: JSON.stringify({
                     account_id: parseInt(select.value, 10),
@@ -65,8 +65,13 @@ class AnalyzeApplication {
                 }),
             });
             select.classList.add('border-success');
+            select.classList.remove('border-danger');
+            showSaveNotice(select, result && result.message && result.message.startsWith('Account saved.')
+                ? result.message : 'Saved.', true);
         } catch (error) {
             console.error('Error saving account:', error);
+            select.classList.add('border-danger');
+            showSaveNotice(select, `Not saved — ${error.message || 'please try again.'}`);
         }
     }
 

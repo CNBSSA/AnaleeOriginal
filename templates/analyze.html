@@ -3,11 +3,11 @@
 {% block content %}
 {% if not ai_suggestions_online %}
 <div class="alert alert-warning mb-3" role="alert">
-    <strong>AI suggestions are offline on this server</strong> — no Anthropic API
-    key is configured, so account and explanation suggestions fall back to basic
-    text matching (expect weaker matches). Your manual selections, saved rules,
-    and locked items work normally. Ask your administrator to set
-    ANTHROPIC_API_KEY to restore full intelligence.
+    <strong>Smart suggestions are limited right now.</strong> Account and
+    explanation suggestions are using basic text matching, so expect weaker
+    matches. Everything you choose yourself, your saved rules and locked items
+    work as normal.
+    <span class="d-block small text-muted mt-1">For the administrator: ANTHROPIC_API_KEY is not set on this server.</span>
 </div>
 {% endif %}
 
@@ -67,7 +67,7 @@
                 <p class="mb-0">Each suggestion comes with a confidence score and reasoning!</p>
                 <div class="alert alert-info mt-3">
                     <i class="fas fa-magic me-2"></i>
-                    Click the "AI Suggest" button to see it in action!
+                    Click "Suggest account" on any row to see it in action!
                 </div>
             </div>
             <div class="progress-dots mb-4">
@@ -226,7 +226,7 @@
             <div class="alert alert-primary mt-3 mb-0 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
                 <div>
                     <strong>Ask your client to explain transactions</strong>
-                    <span class="d-block small">No login — one line at a time (ERF only). Send via WhatsApp or email.</span>
+                    <span class="d-block small">No login needed — they explain one line at a time. Send the link by WhatsApp or email.</span>
                 </div>
                 <button type="button" class="btn btn-light btn-sm text-nowrap" id="copy-client-explain-link"
                         data-url="{{ url_for('main.analyze_client_link', file_id=file.id) }}">
@@ -237,9 +237,10 @@
 
         {% if unprocessed_count > 0 %}
         <div class="alert alert-secondary py-2 small mb-3">
-            <strong>Cash-basis tip:</strong> categorise bank lines to income, expense, bank, or PPE <strong>cost</strong>
-            accounts (e.g. Office Furniture - Cost). Avoid trade receivables/payables — BooksXperts or
-            The Accountants handle depreciation and accrual adjustments after trial balance import.
+            <strong>Tip:</strong> put each bank line into an income, expense or bank account. For
+            something you bought to keep (a laptop, furniture), use its <strong>cost</strong> account
+            (e.g. Office Furniture - Cost). Leave amounts owed to or by others to your accountant —
+            BooksXperts or The Accountants handle those after the trial balance is imported.
         </div>
         {# Slice 1 (Festus 2026-08-27, "I cannot imagine my client going through
            400 pages"): one button analyses the WHOLE statement over the existing
@@ -253,8 +254,9 @@
                 </h5>
                 <p class="text-muted mb-3">
                     Let Analee work through <strong>all {{ total_count }} transactions</strong>
-                    in one pass — high-confidence accounts are applied automatically.
-                    You only review the few it can't place.
+                    in one pass. It writes the explanations and fills an account wherever a row
+                    has none yet. Rows that still show your bank account need an account chosen —
+                    you only review the few it can't place.
                 </p>
                 <div class="progress mb-2" style="height: 26px;">
                     <div id="wholeProgressBar" class="progress-bar bg-success progress-bar-striped"
@@ -285,10 +287,10 @@
 
         <div class="card mb-4 border-primary">
             <div class="card-body">
-                <h5 class="card-title">Phased auto-processing</h5>
+                <h5 class="card-title">Prefer smaller steps?</h5>
                 <p class="text-muted mb-3">
-                    Process <strong>10 transactions at a time</strong>. High-confidence AI suggestions
-                    are applied automatically; others are highlighted for your review.
+                    Do <strong>10 transactions at a time</strong> instead. Confident suggestions are
+                    filled in; the rest are left for your review.
                 </p>
                 <div class="progress mb-2" style="height: 24px;">
                     <div id="batchProgressBar" class="progress-bar progress-bar-striped" role="progressbar" style="width: 0%">0%</div>
@@ -327,7 +329,7 @@
                             <td>{{ transaction.date.strftime('%Y-%m-%d') }}</td>
                             <td>{{ transaction.description }}</td>
                             <td class="{{ 'text-success' if transaction.amount > 0 else 'text-danger' }}">
-                                ${{ "%.2f"|format(transaction.amount) }}
+                                {{ '-' if transaction.amount < 0 }}R{{ "{:,.2f}".format(transaction.amount|abs) }}
                             </td>
                             <td>
                                 {% set src = transaction.explanation_source or '' %}
@@ -369,17 +371,17 @@
                                             data-transaction-id="{{ transaction.id }}"
                                             data-description="{{ transaction.description }}"
                                             data-explanation="{{ transaction.explanation or '' }}"
-                                            title="Account Suggestion (ASF)"
+                                            title="Suggest an account for this line"
                                             {% if not ai_available %}disabled{% endif %}>
-                                        <i class="fas fa-magic"></i> ASF
+                                        <i class="fas fa-magic"></i> Suggest account
                                     </button>
                                     <button type="button"
                                             class="btn btn-sm btn-outline-secondary suggest-explanation-btn"
                                             data-transaction-id="{{ transaction.id }}"
                                             data-description="{{ transaction.description }}"
-                                            title="Explanation Suggestion (ESF)"
+                                            title="Suggest an explanation for this line"
                                             {% if not ai_available %}disabled{% endif %}>
-                                        <i class="fas fa-lightbulb"></i> ESF
+                                        <i class="fas fa-lightbulb"></i> Suggest explanation
                                     </button>
                                     <button type="button"
                                             class="btn btn-sm btn-outline-success fanout-btn"
@@ -391,7 +393,7 @@
                                 </div>
                                 <div id="suggestions-{{ transaction.id }}" class="suggestions mt-2" style="display: none;"></div>
                                 <div id="fanout-{{ transaction.id }}" class="small mt-1"></div>
-                                <small class="text-muted d-block mt-1">ERF: type explanation to find similar rows</small>
+                                <small class="text-muted d-block mt-1">Type an explanation to see similar lines</small>
                             </td>
                         </tr>
                         {% endfor %}
@@ -441,7 +443,7 @@
                             <td>{{ transaction.date.strftime('%Y-%m-%d') }}</td>
                             <td data-description="{{ transaction.description }}" data-transaction-id="{{ transaction.id }}">{{ transaction.description }}</td>
                             <td class="{{ 'text-success' if transaction.amount > 0 else 'text-danger' }}">
-                                ${{ "%.2f"|format(transaction.amount) }}
+                                {{ '-' if transaction.amount < 0 }}R{{ "{:,.2f}".format(transaction.amount|abs) }}
                             </td>
                             <td>
                                 <div class="position-relative">
@@ -521,17 +523,19 @@
         const copyBtn = document.getElementById('copy-client-explain-link');
         if (copyBtn) {
             copyBtn.addEventListener('click', () => {
+                const failed = () => alert('The client link could not be created just now. Please try again.');
                 fetch(copyBtn.dataset.url)
-                    .then(r => r.json())
+                    .then(r => r.ok ? r.json() : Promise.reject(r))
                     .then(data => {
-                        if (!data.url) return;
+                        if (!data.url) { failed(); return; }
                         const done = () => alert('Client link copied — send it to the business owner.');
                         if (navigator.clipboard && navigator.clipboard.writeText) {
                             navigator.clipboard.writeText(data.url).then(done);
                         } else {
                             window.prompt('Copy this client link:', data.url);
                         }
-                    });
+                    })
+                    .catch(failed);
             });
         }
         {% endif %}

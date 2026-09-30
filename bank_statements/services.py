@@ -43,7 +43,10 @@ class BankStatementService:
             'file_save_error': "Failed to save the uploaded file. Please try again."
         }
         base_message = error_messages.get(error_type, error_messages['unknown'])
-        if details:
+        # Only a problem with the FILE (our own validation) is worth showing the
+        # user; database and unexpected errors carry internal text, so they are
+        # logged and the plain sentence is shown (2026-09-30).
+        if details and error_type == 'processing_error':
             return f"{base_message} Details: {details}"
         return base_message
 
@@ -251,7 +254,6 @@ class BankStatementService:
                 'success': False,
                 'error': error_msg,
                 'error_type': 'unknown',
-                'details': [str(e)]
             }
         finally:
             # Clean up temporary file

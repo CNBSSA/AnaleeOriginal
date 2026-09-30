@@ -9,6 +9,10 @@
     <title>Financial Analysis Platform</title>
     <!-- Use standard Bootstrap CSS to ensure stability -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Icons used by the fas fa-* markup, and the app stylesheet that hides the
+         Analyze tutorial until it is shown (neither was ever loaded; 2026-09-30). -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='styles.css') }}" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/plotly-latest.min.js"></script>
 </head>
@@ -137,7 +141,7 @@
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="alert alert-{{ category if category != 'message' else 'info' }} alert-dismissible fade show">
+                    <div class="alert alert-{{ {'message': 'info', 'error': 'danger'}.get(category, category) }} alert-dismissible fade show">
                         {{ message }}
                         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                     </div>

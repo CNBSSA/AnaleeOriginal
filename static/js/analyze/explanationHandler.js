@@ -2,7 +2,7 @@
  * explanationHandler.js — saves explanations and triggers ERF lookups.
  */
 
-import { apiFetch } from './api.js';
+import { apiFetch, showSaveNotice } from './api.js';
 
 export class ExplanationHandler {
     initialize() {
@@ -57,8 +57,10 @@ export class ExplanationHandler {
                     description,
                 }),
             });
+            showSaveNotice(textarea, 'Saved.', true);
         } catch (error) {
             console.error('Error saving explanation:', error);
+            showSaveNotice(textarea, `Not saved — ${error.message || 'please try again.'}`);
         }
     }
 }

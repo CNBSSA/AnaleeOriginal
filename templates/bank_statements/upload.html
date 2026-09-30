@@ -33,7 +33,9 @@
                     {% endif %}
                     {% if not form.account.choices %}
                         <div class="alert alert-warning mt-2">
-                            <small>No bank accounts found. Please add a bank account (starting with ca.810) in settings first.</small>
+                            <small>No bank account yet. First open
+                                <a href="{{ url_for('main.company_settings') }}">Company Settings</a> and choose
+                                your entity type — that sets up your accounts, including your bank account.</small>
                         </div>
                     {% endif %}
                 </div>
@@ -193,8 +195,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 statusText.textContent = 'Upload successful!';
                 statusDiv.className = 'alert alert-success';
 
-                if (result.rows_processed) {
-                    processedRows.textContent = result.rows_processed;
+                // The service reports transactions_processed (rows_processed never
+                // existed, so this always read 0).
+                const processed = result.transactions_processed ?? result.rows_processed;
+                if (processed) {
+                    processedRows.textContent = processed;
+                }
+                const analyzeUrl = result.file_id
+                    ? "{{ url_for('main.analyze', file_id=0) }}".replace(/0$/, String(result.file_id))
+                    : null;
+                if (result.autoprocess_started) {
+                    statusText.textContent = 'Upload successful! Analee is categorising and explaining the rows now.';
                 }
 
                 // Show processing notes if any
@@ -204,8 +215,19 @@ document.addEventListener('DOMContentLoaded', function() {
                     errorContainer.classList.add('alert-info');
                 }
 
-                // Reload page after success
-                setTimeout(() => window.location.reload(), 2000);
+                // Open the statement just uploaded. With processing notes to read,
+                // offer the link instead of leaving the page on its own.
+                if (analyzeUrl && !(result.processing_notes && result.processing_notes.length)) {
+                    setTimeout(() => { window.location.href = analyzeUrl; }, 1500);
+                } else if (analyzeUrl) {
+                    const link = document.createElement('a');
+                    link.href = analyzeUrl;
+                    link.className = 'btn btn-sm btn-success ms-2';
+                    link.textContent = 'Open this statement';
+                    statusText.appendChild(link);
+                } else {
+                    setTimeout(() => window.location.reload(), 2000);
+                }
             } else {
                 throw new Error(result.error || 'Upload failed');
             }

@@ -36,6 +36,7 @@ def _make_app():
     app.register_blueprint(ocr_bp)
     # Stub the redirect target so url_for('main.upload') can build.
     app.add_url_rule('/upload', endpoint='main.upload', view_func=lambda: 'ok')
+    app.add_url_rule('/analyze/<int:file_id>', endpoint='main.analyze', view_func=lambda file_id: 'ok')
     return app
 
 

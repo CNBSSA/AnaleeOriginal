@@ -363,6 +363,8 @@ def company_settings():
                     )
                 else:
                     flash('Company settings updated.', 'success')
+                flash('Next: add a bank statement under Bank Statements or '
+                      'Import PDF Statement.', 'info')
                 return redirect(url_for('main.company_settings'))
 
             except EntityChangeBlocked as exc:
@@ -372,6 +374,17 @@ def company_settings():
                 logger.error(f'Error updating company settings: {str(e)}')
                 flash('Error updating company settings', 'error')
                 db.session.rollback()
+        elif request.method == 'POST':
+            # A failed check used to reload the page with no message and the
+            # typed values replaced by the saved ones (2026-09-30).
+            problems = []
+            for name, errs in form.errors.items():
+                if name == 'csrf_token':
+                    problems.append('your session expired — reload the page and try again')
+                    continue
+                label = getattr(getattr(form, name, None), 'label', None)
+                problems.extend(f"{label.text if label else name}: {e}" for e in errs)
+            flash('Nothing was saved. Please fix: ' + '; '.join(problems or ['the highlighted fields']), 'error')
 
         if settings:
             form.company_name.data = settings.company_name
@@ -541,6 +554,26 @@ def analyze_process_batch(file_id):
         return jsonify({'error': str(e)}), 500
     
     
+def _save_accountant_explanation(transaction, text):
+    """A person's edit on the Analyze page: recorded as theirs (so the row stops
+    saying "Analee"), and never over an explanation the client wrote — the same
+    rule every other accountant path already follows (2026-09-30).
+    Returns (saved, reason)."""
+    from services.client_explanation import (
+        CLIENT_SOURCES, SOURCE_ACCOUNTANT, save_explanation)
+    if not (text or '').strip():
+        if (transaction.explanation_source or '') in CLIENT_SOURCES:
+            return False, 'client_locked'
+        transaction.explanation = ''
+        transaction.explanation_source = None
+        return True, 'cleared'
+    return save_explanation(transaction, text, SOURCE_ACCOUNTANT)
+
+
+CLIENT_LOCKED_MESSAGE = ("Your client explained this line, so their explanation "
+                         "was kept.")
+
+
 @main.route('/analyze/save-transaction/<int:transaction_id>', methods=['POST'])
 @login_required
 def save_transaction(transaction_id):
@@ -579,18 +612,19 @@ def save_transaction(transaction_id):
             return jsonify({'error': 'That account is not in your chart of accounts'}), 400
 
         transaction.account_id = account.id
-        transaction.explanation = explanation
+        saved, reason = _save_accountant_explanation(transaction, explanation)
         db.session.commit()
 
         return jsonify({
             'success': True,
-            'message': 'Transaction details saved successfully'
+            'message': ('Transaction details saved successfully' if saved
+                        else 'Account saved. ' + CLIENT_LOCKED_MESSAGE),
         })
 
     except Exception as e:
         logger.error(f"Error saving transaction: {str(e)}")
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Not saved — please try again.'}), 500
 
 @main.route('/analyze/<int:file_id>/similar-rows/<int:transaction_id>', methods=['GET'])
 @login_required
@@ -962,7 +996,9 @@ def update_explanation():
         if not transaction:
             return jsonify({'error': 'Transaction not found'}), 404
 
-        transaction.explanation = explanation
+        saved, reason = _save_accountant_explanation(transaction, explanation)
+        if not saved:
+            return jsonify({'error': CLIENT_LOCKED_MESSAGE, 'reason': reason}), 409
         db.session.commit()
 
         return jsonify({
@@ -973,7 +1009,7 @@ def update_explanation():
     except Exception as e:
         logger.error(f"Error updating explanation: {str(e)}")
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Not saved — please try again.'}), 500
 
 @main.route('/predict_account', methods=['POST'])
 @login_required
@@ -1348,8 +1384,10 @@ def icountant_interface():
         if current_transaction:
             transaction_info = {
                 'insights': {
-                    'amount_formatted': f"${abs(current_transaction.amount):,.2f}",
-                    'transaction_type': 'credit' if current_transaction.amount < 0 else 'debit',
+                    'amount_formatted': f"R{abs(current_transaction.amount):,.2f}",
+                    # Plain words for a bank line (the old labels had the signs
+                    # backwards against the PDF page's own convention).
+                    'transaction_type': 'money out' if current_transaction.amount < 0 else 'money in',
                     'ai_insights': (
                         '<p class="text-muted mb-0">'
                         '<span class="spinner-border spinner-border-sm me-2" role="status"></span>'
@@ -1363,7 +1401,9 @@ def icountant_interface():
         else:
             current_transaction = None
             transaction_info = None
-            message = "No transactions pending for processing"
+            message = ("Nothing is waiting here. Imported statements carry your bank account "
+                       "on every line, so choose each line's account on "
+                       f'<a href="{url_for("main.analyze_list")}">Analyze Data</a>.')
 
         recently_processed = Transaction.query.filter(
             Transaction.user_id == current_user.id,

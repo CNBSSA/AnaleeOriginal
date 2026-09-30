@@ -12,6 +12,22 @@ export function getCsrfToken() {
     return fromInput?.value || '';
 }
 
+/**
+ * Show a short save result right after a field (2026-09-30: failed saves were
+ * logged to the console only, so an edit could be lost with nothing on screen).
+ */
+export function showSaveNotice(el, message, ok = false) {
+    if (!el || !el.parentNode) return;
+    let note = el.parentNode.querySelector(':scope > .save-notice');
+    if (!note) {
+        note = document.createElement('div');
+        note.className = 'save-notice small mt-1';
+        el.insertAdjacentElement('afterend', note);
+    }
+    note.className = `save-notice small mt-1 ${ok ? 'text-muted' : 'text-danger'}`;
+    note.textContent = message;
+}
+
 export async function apiFetch(url, options = {}) {
     const headers = {
         'Content-Type': 'application/json',

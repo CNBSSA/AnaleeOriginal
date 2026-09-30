@@ -3,11 +3,11 @@
 {% block content %}
 {% if not ai_suggestions_online %}
 <div class="alert alert-warning mb-3" role="alert">
-    <strong>AI suggestions are offline on this server</strong> — no Anthropic API
-    key is configured, so account and explanation suggestions fall back to basic
-    text matching (expect weaker matches). Your manual selections, saved rules,
-    and locked items work normally. Ask your administrator to set
-    ANTHROPIC_API_KEY to restore full intelligence.
+    <strong>Smart suggestions are limited right now.</strong> Account and
+    explanation suggestions are using basic text matching, so expect weaker
+    matches. Everything you choose yourself, your saved rules and locked items
+    work as normal.
+    <span class="d-block small text-muted mt-1">For the administrator: ANTHROPIC_API_KEY is not set on this server.</span>
 </div>
 {% endif %}
 <div class="container mt-4">
@@ -19,7 +19,7 @@
             <li>Upload your bank statement on <a href="{{ url_for('bank_statements.upload') }}">Bank Statements</a>.</li>
             <li>Click <strong>Analyze</strong> next to your file below.</li>
             <li>Work through transactions <strong>10 at a time</strong> — assign accounts and add explanations.</li>
-            <li>Use <strong>Auto-process next 10</strong> for AI account suggestions, or use <strong>iCountant Assistant</strong> for guided one-by-one review.</li>
+            <li>Use <strong>Auto-process next 10</strong> for AI account suggestions, or use <strong>Ask Analee</strong> for guided one-by-one review.</li>
         </ol>
     </div>
 

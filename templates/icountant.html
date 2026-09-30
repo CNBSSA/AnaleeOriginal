@@ -4,15 +4,7 @@
 <div class="container mt-4">
     <h2>Analee — your AI accountant</h2>
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            {% for category, message in messages %}
-                <div class="alert alert-{{ category if category != 'message' else 'info' }}">
-                    {{ message }}
-                </div>
-            {% endfor %}
-        {% endif %}
-    {% endwith %}
+    {# Messages are shown once, by base.html. #}
 
     <!-- Loading Animation -->
     <div id="loadingOverlay" class="loading-overlay d-none">
@@ -158,7 +150,7 @@
                                     <tr>
                                         <td>{{ tx.date.strftime('%Y-%m-%d') }}</td>
                                         <td>{{ tx.description }}</td>
-                                        <td>{{ "${:,.2f}".format(tx.amount) }}</td>
+                                        <td>{{ '-' if tx.amount < 0 }}R{{ "{:,.2f}".format(tx.amount|abs) }}</td>
                                         <td>{{ tx.account.name if tx.account else 'N/A' }}</td>
                                     </tr>
                                 {% endfor %}

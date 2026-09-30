@@ -60,7 +60,7 @@
                 </div>
                 {% if extraction_method %}
                     <div class="text-muted small mt-1">
-                        Extracted via {{ 'digital PDF parse' if extraction_method == 'digital_pdf' else ('Claude Vision (chunked)' if extraction_method == 'claude_vision_chunked' else 'Claude Vision (scan/complex layout)') }}.
+                        Read {{ 'from the PDF text' if extraction_method == 'digital_pdf' else 'from a scanned or complex statement — check the figures carefully' }}.
                     </div>
                 {% endif %}
             </div>
@@ -129,11 +129,7 @@
         </div>
     {% endif %}
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% for category, message in messages %}
-            <div class="alert alert-{{ 'danger' if category == 'error' else category }}">{{ message }}</div>
-        {% endfor %}
-    {% endwith %}
+    {# Messages are shown once, by base.html. #}
 
     <form method="POST" action="{{ url_for('ocr.confirm_receipt') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
@@ -141,7 +137,7 @@
         <input type="hidden" name="has_include_filter" value="1"/>
 
         <div class="mb-3" style="max-width: 420px;">
-            <label for="account_id" class="form-label">Assign all rows to account (optional)</label>
+            <label for="account_id" class="form-label">Which bank account is this statement from? (optional)</label>
             <select name="account_id" id="account_id" class="form-select">
                 <option value="">— Leave unassigned —</option>
                 {% for account in accounts %}
