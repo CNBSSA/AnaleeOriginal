@@ -569,7 +569,16 @@ def save_transaction(transaction_id):
         if not transaction:
             return jsonify({'error': 'Transaction not found'}), 404
 
-        transaction.account_id = account_id
+        # The filter above scopes the TRANSACTION, not the ACCOUNT: an id from
+        # another user's chart was stored as sent (2026-09-30). Every other
+        # path that sets an account already refuses one that is not the user's.
+        account = Account.query.filter_by(id=account_id, user_id=current_user.id).first()
+        if account is None:
+            logger.warning("save_transaction refused account %s: not user %s's",
+                           account_id, current_user.id)
+            return jsonify({'error': 'That account is not in your chart of accounts'}), 400
+
+        transaction.account_id = account.id
         transaction.explanation = explanation
         db.session.commit()
 
