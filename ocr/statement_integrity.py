@@ -54,7 +54,21 @@ def normalize_amount(raw) -> Decimal:
     elif low.endswith("cr"):
         s = s[:-2].strip()
 
-    s = s.replace("R", "").replace("r", "").replace("$", "").replace(" ", "").replace(",", "")
+    s = s.replace("R", "").replace("r", "").replace("$", "").strip()
+    # Spaces and commas are only thousands separators. If they do not form
+    # proper groups (a 1-3 digit lead, then exactly 3 digits per group), the
+    # text is two figures run together — e.g. an amount and the running
+    # balance, "1 500 8 650.25" — and must NOT be read as one number
+    # (R15 008 650.25). Refuse it so the row is reviewed, not imported.
+    int_part = s.split(".", 1)[0]
+    if re.search(r"[\s,]", int_part):
+        groups = [g for g in re.split(r"[\s,]+", int_part) if g]
+        if not groups or not (1 <= len(groups[0]) <= 3) or any(
+                len(g) != 3 for g in groups[1:]):
+            raise ValueError(
+                f"unparseable amount: {raw!r} (looks like two figures run "
+                "together — e.g. an amount and its balance)")
+    s = s.replace(" ", "").replace(",", "")
     if s in ("", "."):
         raise ValueError(f"unparseable amount: {raw!r}")
     try:
@@ -256,8 +270,46 @@ class ReportCard(BaseModel):
     duplicate_fingerprints: list[str] = Field(default_factory=list)
     running_balance_breaks: list[dict] = Field(default_factory=list)
     low_confidence_lines: list[dict] = Field(default_factory=list)
+    # Rows whose amount cannot be right: far out of scale with the rest of the
+    # statement (typically two printed figures read as one number).
+    implausible_lines: list[dict] = Field(default_factory=list)
+    # Every row the review screen should name — running-balance breaks and
+    # implausible amounts, one entry per row, in statement order.
+    suspect_lines: list[dict] = Field(default_factory=list)
     continuity_ok: Optional[bool] = None
     errors: list[dict] = Field(default_factory=list)
+
+
+# A single row is called implausible when it is at least this large AND this
+# many times the statement's typical (median) row. A deliberately wide margin:
+# it exists to catch figures run together (R15 008 650.25 on a statement of
+# R1 500 rows), not to second-guess a genuinely large payment.
+IMPLAUSIBLE_MIN_AMOUNT = Decimal("1000000.00")
+IMPLAUSIBLE_MEDIAN_MULTIPLE = Decimal("50")
+
+
+def _implausible_lines(lines) -> list[dict]:
+    sizes = sorted(abs(ln.amount) for ln in lines)
+    if len(sizes) < 2:
+        return []
+    mid = len(sizes) // 2
+    median = sizes[mid] if len(sizes) % 2 else (sizes[mid - 1] + sizes[mid]) / 2
+    flagged: list[dict] = []
+    for idx, ln in enumerate(lines):
+        size = abs(ln.amount)
+        if size < IMPLAUSIBLE_MIN_AMOUNT:
+            continue
+        if median > 0 and size < median * IMPLAUSIBLE_MEDIAN_MULTIPLE:
+            continue
+        flagged.append({
+            "line_index": idx,
+            "date": ln.date,
+            "description": ln.description,
+            "amount": str(ln.amount),
+            "reason": "amount is far larger than every other row — "
+                      "possibly two figures (amount and balance) read as one",
+        })
+    return flagged
 
 
 def self_audit(
@@ -378,6 +430,30 @@ def self_audit(
     else:
         reconciled = (variance == Decimal("0.00")) and not running_breaks and not low_conf
         status = "reconciled" if reconciled else "unreconciled"
+
+    # A statement the arithmetic proves is right needs no plausibility guess;
+    # anything else gets its out-of-scale rows named.
+    implausible = [] if reconciled else _implausible_lines(lines)
+    if implausible:
+        errors.append({
+            "code": "IMPLAUSIBLE_AMOUNT",
+            "message": f"{len(implausible)} line(s) have an implausible amount.",
+            "count": len(implausible),
+        })
+    suspects: dict[int, dict] = {}
+    for brk in running_breaks:
+        ln = lines[brk["line_index"]]
+        suspects[brk["line_index"]] = {
+            "line_index": brk["line_index"],
+            "date": ln.date,
+            "description": ln.description,
+            "amount": str(ln.amount),
+            "reason": (f"running balance does not follow (statement shows "
+                       f"R {brk['stated_balance']}, expected R {brk['expected_balance']})"),
+        }
+    for item in implausible:
+        suspects.setdefault(item["line_index"], dict(item))
+    suspect_lines = [suspects[i] for i in sorted(suspects)]
     return ReportCard(
         reconciled=reconciled,
         status=status,
@@ -390,6 +466,8 @@ def self_audit(
         duplicate_fingerprints=dup_prints,
         running_balance_breaks=running_breaks,
         low_confidence_lines=low_conf,
+        implausible_lines=implausible,
+        suspect_lines=suspect_lines,
         continuity_ok=continuity_ok,
         errors=errors,
     )

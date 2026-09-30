@@ -19,7 +19,24 @@ _DATE_TOKEN = (
 )
 
 _DATE_RE = re.compile(rf'^\s*({_DATE_TOKEN})\s+(.*)$', re.IGNORECASE)
-_AMOUNT_RE = re.compile(r'\(?-?R?\s?[\d\s,]*\d\.\d{2}-?\)?')
+# One money token. The integer part is EITHER properly grouped thousands
+# ("1 500", "12,345,678" — a 1-3 digit lead then exact 3-digit groups) OR an
+# ungrouped run of digits ("1500"), always followed by cents.
+#
+# The previous pattern was ``[\d\s,]*\d\.\d{2}``, which let a token absorb ANY
+# run of digits and spaces in front of the cents. So a figure standing next to
+# other digits was read as one number: "POS 4521 150.00" became R4 521 150.00,
+# and "1 500 8 650.25" (amount then balance) became R15 008 650.25 — the
+# ~R10 000 000 rows seen live on 2026-09-30. A token now may not start straight
+# after a digit, comma or point (so it cannot swallow a reference number in
+# front of it) — except straight after another amount's cents, so abutting
+# columns such as "1500.008650.25" still split into 1500.00 and 8650.25.
+_AMOUNT_RE = re.compile(
+    r'\(?-?(?:R\s?)?'
+    r'(?:(?<![\d,.])|(?<=\.\d\d))'
+    r'(?:\d{1,3}(?:[ ,]\d{3})+|\d+)\.\d{2}'
+    r'-?\)?'
+)
 
 _SKIP_SUBSTRINGS = (
     'transaction date', 'posting date', 'description', 'money in', 'money out',

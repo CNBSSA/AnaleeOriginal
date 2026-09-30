@@ -9,14 +9,15 @@ import re
 from decimal import Decimal
 from typing import Optional
 
-from .bank_profiles import detect_profile, parse_transaction_lines
+from .bank_profiles import _AMOUNT_RE, detect_profile, parse_transaction_lines
 from .statement_integrity import (
     ExtractionResult,
     StatementHeader,
     normalize_amount,
 )
 
-_AMOUNT_RE = re.compile(r'\(?-?R?\s?[\d\s,]*\d\.\d{2}-?\)?')
+# _AMOUNT_RE is shared with bank_profiles so balance labels and transaction
+# rows follow the same money-token rule.
 
 _OPENING_LABELS = (
     'opening balance', 'balance brought forward', 'balance b/f', 'balance b/fwd',

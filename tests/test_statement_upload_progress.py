@@ -46,9 +46,19 @@ def _make_app():
 
 
 def test_review_page_announces_success():
-    """When extraction completes, the review screen opens with an explicit
-    'Extraction successful' banner so the user knows the wait paid off."""
+    """When extraction completes AND the statement reconciles, the review
+    screen opens with an explicit 'Extraction successful' banner so the user
+    knows the wait paid off. (2026-09-30: success is only claimed once the
+    arithmetic proves it — an unverified read gets a neutral banner; see
+    tests/test_ocr_amount_balance_concat.py.)"""
+    from decimal import Decimal
     from flask import render_template
+    from ocr.statement_integrity import ReportCard
+
+    reconciled = ReportCard(reconciled=True, status="reconciled",
+                            declared_net=Decimal("10.00"),
+                            computed_net=Decimal("10.00"),
+                            variance=Decimal("0.00"), line_count=1)
 
     app = _make_app()
     with app.test_request_context("/ocr/statement"):
@@ -60,12 +70,30 @@ def test_review_page_announces_success():
             account_id="",
             filename="statement.pdf",
             statement_header=None,
-            report_card=None,
+            report_card=reconciled,
             extraction_method="digital_pdf",
         )
     assert "Extraction successful" in body
     assert "1 transaction(s) read" in body
     assert "statement.pdf" in body
+
+
+def test_review_page_without_a_report_card_does_not_claim_success():
+    from flask import render_template
+
+    app = _make_app()
+    with app.test_request_context("/ocr/statement"):
+        body = render_template(
+            "ocr/review.html",
+            rows=[{"date": "2026-07-01", "description": "TEST", "amount": 10.0,
+                   "confidence": 0.95, "duplicate": False}],
+            accounts=[], account_id="", filename="statement.pdf",
+            statement_header=None, report_card=None,
+            extraction_method="digital_pdf",
+        )
+    assert "Extraction successful" not in body
+    assert "not yet verified" in body
+    assert "1 transaction(s) read" in body
 
 
 def test_upload_page_ships_progress_feedback():

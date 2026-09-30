@@ -4,12 +4,28 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="alert alert-success">
-        <i class="fas fa-check-circle"></i>
-        <strong>Extraction successful.</strong>
-        {{ rows|length }} transaction(s) read from <strong>{{ filename }}</strong>.
-        Review below, then confirm to import.
-    </div>
+    {# "Extraction successful" is only said when the statement's own arithmetic
+       proves the rows (opening + rows = closing, running balance unbroken).
+       Anything less is a read that still needs checking — 2026-09-30: a parse
+       with two ~R10 000 000 rows and a R20 million variance was shown green. #}
+    {% set verified = report_card is not none and report_card.reconciled %}
+    {% set suspect_lines = report_card.suspect_lines if report_card is not none else [] %}
+    {% set suspect_indexes = suspect_lines | map(attribute='line_index') | list %}
+    {% if verified %}
+        <div class="alert alert-success">
+            <i class="fas fa-check-circle"></i>
+            <strong>Extraction successful.</strong>
+            {{ rows|length }} transaction(s) read from <strong>{{ filename }}</strong>.
+            Review below, then confirm to import.
+        </div>
+    {% else %}
+        <div class="alert alert-secondary">
+            <i class="fas fa-exclamation-circle"></i>
+            <strong>Extraction finished — not yet verified.</strong>
+            {{ rows|length }} transaction(s) read from <strong>{{ filename }}</strong>.
+            Check the rows below against your statement before you import.
+        </div>
+    {% endif %}
 
     <h2>Review extracted transactions</h2>
     <p class="text-muted">
@@ -72,11 +88,29 @@
                 Variance: R {{ '%.2f'|format(report_card.variance) }}
                 (declared movement R {{ '%.2f'|format(report_card.declared_net) }},
                 computed R {{ '%.2f'|format(report_card.computed_net) }}).
+                Importing now would put these figures in your books as read.
+                {% if not suspect_lines %}
+                    The row(s) causing it could not be pinpointed — compare each
+                    amount below with the statement.
+                {% endif %}
                 {% if report_card.low_confidence_lines %}
                     {{ report_card.low_confidence_lines|length }} low-confidence row(s) flagged.
                 {% endif %}
             </div>
         {% endif %}
+    {% endif %}
+
+    {% if suspect_lines %}
+        <div class="alert alert-danger">
+            <strong>Check these row(s) — the amount read looks wrong:</strong>
+            <ul class="mb-0">
+                {% for item in suspect_lines %}
+                    <li>{{ item.date }} · {{ item.description }} · R {{ item.amount }}
+                        — {{ item.reason }}.</li>
+                {% endfor %}
+            </ul>
+            Correct the amount (or untick the row) before you import.
+        </div>
     {% endif %}
 
     <p class="text-muted small">
@@ -127,7 +161,7 @@
                 </thead>
                 <tbody>
                     {% for row in rows %}
-                        <tr class="{% if row.duplicate %}table-danger{% elif row.confidence < 0.6 %}table-warning{% endif %}">
+                        <tr class="{% if row.duplicate or loop.index0 in suspect_indexes %}table-danger{% elif row.confidence < 0.6 %}table-warning{% endif %}">
                             <td class="text-center">
                                 <input type="checkbox" class="form-check-input" name="include"
                                        value="{{ loop.index0 }}" {% if not row.duplicate %}checked{% endif %}>
@@ -144,10 +178,16 @@
                                 <input type="number" step="0.01" name="amount" class="form-control"
                                        value="{{ '%.2f'|format(row.amount) }}" required>
                             </td>
-                            <td>{{ (row.confidence * 100)|round|int }}%</td>
+                            {# A confidence figure is only shown once the statement
+                               reconciles — "100%" beside a R20 million variance
+                               tells the user the opposite of the truth. #}
+                            <td>{% if verified %}{{ (row.confidence * 100)|round|int }}%{% else %}<span class="text-muted">Not verified</span>{% endif %}</td>
                             <td>
                                 {% if row.duplicate %}
                                     <span class="badge bg-danger">Possible duplicate</span>
+                                {% endif %}
+                                {% if loop.index0 in suspect_indexes %}
+                                    <span class="badge bg-danger">Check amount</span>
                                 {% endif %}
                             </td>
                         </tr>
