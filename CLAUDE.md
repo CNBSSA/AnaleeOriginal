@@ -35,6 +35,24 @@ findings are there to be **fixed**, not merely logged.
 **The grey edge, ruled in advance:** if you cannot tell whether something is a fix
 or a new feature, treat it as a new feature and ask.
 
+**REAFFIRMED — AND MENUS ADDED (Festus, 2026-09-30):** *"I hope you remember at
+this stage we are not building anything. We go back to the rules of not removing
+features and not changing menus or removing menus. So we just enhancing. Please
+let's keep to that rule. No new development, no removal of the existing features,
+and no changing or deleting of menus in all South African products. Save it
+somewhere so that all agencies are aware of that."*
+
+What this adds, for every agent and department:
+- **Menus are not CHANGED either** — no menu or nav item renamed, moved,
+  re-ordered, added or deleted, in any South African product, without Festus's
+  explicit prior approval of that specific change. The older "prefer relabelling
+  to removing" guidance does NOT apply to menus while this stands.
+- **The work is enhancing:** making existing features work, and work better.
+  Nothing new is built, nothing existing is removed.
+- **A scoped exception ends with its scope.** An approval Festus gave for one named
+  task (a tunnel, an unfreeze, a fix) is never read as permission for the next.
+
+
 
 
 ## ⛔ STANDING RULE — MAIN-BRANCH PROMOTION WINDOW ONLY (Festus, 2026-08-06)
