@@ -85,6 +85,10 @@
                                     {% if csrf_token is defined %}
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     {% endif %}
+                                    {# The year on screen travels with Send TB (2026-09-30, "approve 5"); the button is unchanged. #}
+                                    {% for key in ('as_at', 'financial_year') %}{% if request.args.get(key) %}
+                                    <input type="hidden" name="{{ key }}" value="{{ request.args.get(key) }}">
+                                    {% endif %}{% endfor %}
                                     <button type="submit" class="btn btn-outline-success btn-sm mt-1"
                                             title="Hand this client's trial balance to THE ACCOUNTANTS for review">
                                         Send TB &rarr; THE ACCOUNTANTS
@@ -107,6 +111,10 @@
                                     {% if csrf_token is defined %}
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     {% endif %}
+                                    {# The year on screen travels with Send TB (2026-09-30, "approve 5"); the button is unchanged. #}
+                                    {% for key in ('as_at', 'financial_year') %}{% if request.args.get(key) %}
+                                    <input type="hidden" name="{{ key }}" value="{{ request.args.get(key) }}">
+                                    {% endif %}{% endfor %}
                                     <button type="submit" class="btn btn-outline-success btn-sm mt-1"
                                             title="Hand this client's trial balance to THE ACCOUNTANTS for review">
                                         Send TB &rarr; THE ACCOUNTANTS

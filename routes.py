@@ -1357,9 +1357,24 @@ def icountant_interface():
     try:
         total_count = Transaction.query.filter_by(user_id=current_user.id).count()
 
-        transactions = Transaction.query.filter_by(
-            user_id=current_user.id,
-            account_id=None,
+        # Festus 2026-09-30 ("approve 1"): a line still carrying only the bank
+        # account the statement came from is waiting too. Both import paths
+        # stamp that bank on every line, so a queue of account-less lines only
+        # never showed a single imported statement. Only the queue changed.
+        from sqlalchemy import or_
+        from reports.trial_balance_service import BANK_LINK_PREFIXES
+        bank_ids = [a.id for a in Account.query.filter(
+            Account.user_id == current_user.id,
+            or_(*[Account.link.like(f'{p}%') for p in BANK_LINK_PREFIXES]),
+        ).all()]
+        waiting = or_(Transaction.account_id.is_(None),
+                      Transaction.account_id.in_(bank_ids)) if bank_ids \
+            else Transaction.account_id.is_(None)
+        decided = ~waiting
+
+        transactions = Transaction.query.filter(
+            Transaction.user_id == current_user.id,
+            waiting,
         ).order_by(Transaction.date).all()
 
         accounts = Account.query.filter_by(
@@ -1401,18 +1416,18 @@ def icountant_interface():
         else:
             current_transaction = None
             transaction_info = None
-            message = ("Nothing is waiting here. Imported statements carry your bank account "
-                       "on every line, so choose each line's account on "
+            message = ("Nothing is waiting here — every line has an account. To review "
+                       "explanations too, open "
                        f'<a href="{url_for("main.analyze_list")}">Analyze Data</a>.')
 
         recently_processed = Transaction.query.filter(
             Transaction.user_id == current_user.id,
-            Transaction.account_id.isnot(None),
+            decided,
         ).order_by(Transaction.date.desc()).limit(5).all()
 
         processed_count = Transaction.query.filter(
             Transaction.user_id == current_user.id,
-            Transaction.account_id.isnot(None),
+            decided,
         ).count()
 
         return render_template(

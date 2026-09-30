@@ -659,6 +659,22 @@ Excel download is a manual export and is NOT gated. Switch:
 `ANALEE_TB_APPROVAL_REQUIRED` (default on). The frozen TB core is only called.
 Tests: `tests/test_tb_approval_gate.py` (6).
 
+### Scoped re-open + re-freeze record (Festus, 2026-09-30) — WHAT ASK ANALEE COUNTS AS WAITING
+
+Festus: *"approve 1, 2, 5"* — item 1 re-opens ONE thing inside the capability
+freeze: the queue of the iCountant / Ask Analee guided review
+(`routes.icountant_interface`). It listed only lines with NO account, and both
+import paths stamp the statement's bank on every line, so an imported statement
+never appeared ("Nothing is waiting" every time). It now also lists lines whose
+account is still a bank-type account (`BANK_LINK_PREFIXES`, read from the TB core
+— called, not changed), and its processed count agrees. The review screen, the
+suggestion machinery and how a choice is saved are unchanged. Items 2 (PDF import
+offers/accepts bank-type accounts only) and 5 (Send TB carries the financial year
+on screen) are ingress/egress, outside the freeze. Tests:
+`tests/test_analee_approved_1_2_5.py` (8). `protected_assets.py --check` clean.
+
+**THE ENGINE IS RE-FROZEN.**
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)

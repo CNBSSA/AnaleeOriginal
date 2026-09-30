@@ -14,13 +14,23 @@ from .statement_extractor import extract_bank_statement, MAX_PDF_BYTES
 logger = logging.getLogger(__name__)
 
 
+def _bank_account_filter():
+    """Bank-type accounts only (bank, cash, credit card / overdraft) — the only
+    accounts a bank statement can come from (Festus 2026-09-30, "approve 2").
+    The same prefixes the trial balance uses to find a statement's bank."""
+    from sqlalchemy import or_
+    from reports.trial_balance_service import BANK_LINK_PREFIXES
+    return or_(*[Account.link.like(f'{p}%') for p in BANK_LINK_PREFIXES])
+
+
 def _user_accounts():
-    """The current user's active accounts. Never raises: on any DB error it
+    """The current user's active BANK accounts. Never raises: on any DB error it
     returns [] (and rolls back) so the upload page still renders instead of
     returning a 500 to the user."""
     try:
         return (Account.query
                 .filter_by(user_id=current_user.id, is_active=True)
+                .filter(_bank_account_filter())
                 .order_by(Account.name)
                 .all())
     except Exception as exc:
@@ -168,10 +178,16 @@ def confirm_receipt():
     account = None
     if account_id:
         try:
-            account = Account.query.filter_by(
-                id=int(account_id), user_id=current_user.id).first()
+            account = (Account.query
+                       .filter_by(id=int(account_id), user_id=current_user.id)
+                       .filter(_bank_account_filter())
+                       .first())
         except (TypeError, ValueError):
             account = None
+        if account is None:
+            flash("Nothing was imported: choose the bank account this statement "
+                  "is from (or leave it blank).", 'error')
+            return redirect(url_for('ocr.upload_statement'))
 
     parsed_rows = []
     unreadable_dates = []

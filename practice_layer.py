@@ -262,10 +262,17 @@ def send_tb():
     # Festus 2026-09-28: an administrator approves this exact trial balance
     # before it goes to THE ACCOUNTANTS. The frozen TB core is only called.
     from reports import tb_approval
+    from reports.routes import BadPeriodError, _requested_period
     from reports.trial_balance_service import load_trial_balance
     try:
-        ctx = load_trial_balance(current_user.id)
+        # The financial year shown on the page (Festus 2026-09-30, "approve 5");
+        # none given → the current year, exactly as before.
+        period = _requested_period(current_user.id, request.form)
+        ctx = load_trial_balance(current_user.id, **period)
         tb_approval.require_approval(current_user.id, ctx)
+    except BadPeriodError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("reports.trial_balance"))
     except tb_approval.ApprovalRequired as exc:
         flash(str(exc), "error")
         return redirect(url_for("reports.trial_balance"))
@@ -279,8 +286,13 @@ def send_tb():
     # THE ACCOUNTANTS accepts HTTPS share links only. Behind Railway's TLS
     # proxy the request reaches gunicorn as plain http, so a scheme taken
     # from the request would hand over an http:// link it must refuse.
+    share_kwargs = {}
+    if period.get("as_at"):
+        share_kwargs["as_at"] = period["as_at"].strftime("%Y-%m-%d")
+    elif period.get("year"):
+        share_kwargs["financial_year"] = period["year"]
     share_url = url_for("reports.trial_balance_shared", token=token,
-                        _external=True, _scheme="https")
+                        _external=True, _scheme="https", **share_kwargs)
 
     local = current_user.email[:-(len(WORKSPACE_EMAIL_DOMAIN) + 1)]
     client_ref = local[len("client+"):]

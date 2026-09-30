@@ -243,7 +243,7 @@ def _fy_probe_date(year: int, financial_year_end: int) -> datetime:
     return datetime(year, financial_year_end + 1, 15)   # just after the year-end
 
 
-def _requested_period(user_id: int | None = None) -> dict:
+def _requested_period(user_id: int | None = None, args=None) -> dict:
     """Optional period selectors shared by the trial-balance page, the export, the
     JSON API and the share endpoint, passed through to ``load_trial_balance``:
 
@@ -259,8 +259,9 @@ def _requested_period(user_id: int | None = None) -> dict:
     Nothing given → the client's current financial year, exactly as before.
     """
     period: dict = {}
-    raw_as_at = (request.args.get('as_at') or '').strip()
-    raw_year = (request.args.get('financial_year') or '').strip()
+    args = request.args if args is None else args  # Send TB posts them as a form
+    raw_as_at = (args.get('as_at') or '').strip()
+    raw_year = (args.get('financial_year') or '').strip()
     if raw_as_at:
         try:
             period['as_at'] = datetime.strptime(raw_as_at, '%Y-%m-%d')
