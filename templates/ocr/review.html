@@ -11,6 +11,9 @@
     {% set verified = report_card is not none and report_card.reconciled %}
     {% set suspect_lines = report_card.suspect_lines if report_card is not none else [] %}
     {% set suspect_indexes = suspect_lines | map(attribute='line_index') | list %}
+    {# Decision 2026-09-30: a statement whose balances were read and do NOT add
+       up is never blocked, but importing it takes one deliberate tick. #}
+    {% set needs_ack = report_card is not none and report_card.balances_provided and not report_card.reconciled %}
     {% if verified %}
         <div class="alert alert-success">
             <i class="fas fa-check-circle"></i>
@@ -196,6 +199,16 @@
             </table>
         </div>
 
+        {% if needs_ack %}
+            <input type="hidden" name="needs_ack" value="1"/>
+            <div class="form-check alert alert-warning py-2 ps-5 mb-3" style="max-width: 640px;">
+                <input class="form-check-input" type="checkbox" name="ack_unreconciled"
+                       value="1" id="ack_unreconciled" required>
+                <label class="form-check-label" for="ack_unreconciled">
+                    This statement doesn't add up. I've checked the flagged rows — import anyway.
+                </label>
+            </div>
+        {% endif %}
         <button type="submit" class="btn btn-success">
             <i class="fas fa-check"></i> Confirm &amp; import
         </button>

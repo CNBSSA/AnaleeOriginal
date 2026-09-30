@@ -152,6 +152,15 @@ def confirm_receipt():
     # duplicates by default; only checked rows carry an 'include' value equal to
     # their row index. The hidden 'has_include_filter' field disambiguates
     # "filter present, nothing checked" from "no filter at all" (import everything).
+    # Decision 2026-09-30: a statement whose balances were read and do not add
+    # up imports only after the user ticks "I've checked the flagged rows" on
+    # the review screen (the box is required there; this is the server half).
+    if request.form.get('needs_ack') and not request.form.get('ack_unreconciled'):
+        flash("Nothing was imported. This statement doesn't add up — tick "
+              "\"I've checked the flagged rows\" to import it anyway, or fix the "
+              "rows first.", 'error')
+        return redirect(url_for('ocr.upload_statement'))
+
     has_include_filter = bool(request.form.get('has_include_filter'))
     included_indexes = set(request.form.getlist('include'))
 
