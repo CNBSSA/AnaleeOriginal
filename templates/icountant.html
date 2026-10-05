@@ -162,6 +162,7 @@
         </div>
     {% endif %}
 </div>
+{% endblock %}
 
 {% block scripts %}
 <style>
@@ -275,7 +276,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (transactionIdField && aiInsightsContent) {
         const transactionId = transactionIdField.value;
-        fetch(`/api/icountant/${transactionId}/insights`)
+        // The AI call behind this can wait for minutes; never leave the
+        // spinner up indefinitely (work-orders #56).
+        const controller = new AbortController();
+        const insightsTimer = setTimeout(() => controller.abort(), 45000);
+        fetch(`/api/icountant/${transactionId}/insights`, { signal: controller.signal })
             .then((response) => response.json())
             .then((data) => {
                 if (!data.success) {
@@ -318,11 +323,15 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch((error) => {
                 console.error('Insights load error:', error);
+                const message = (error && error.name === 'AbortError')
+                    ? 'AI insights are taking too long to load. You can still select an account manually, or reload the page to try again.'
+                    : 'Could not load AI insights. You can still select an account manually.';
                 aiInsightsContent.innerHTML = `
                     <div class="alert alert-warning mb-0">
-                        Could not load AI insights. You can still select an account manually.
+                        ${message}
                     </div>`;
-            });
+            })
+            .finally(() => clearTimeout(insightsTimer));
     }
 
     // Touch swipe handling
@@ -367,5 +376,4 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-{% endblock %}
 {% endblock %}
