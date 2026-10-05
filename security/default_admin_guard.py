@@ -109,3 +109,62 @@ def neutralise_default_admin(session, *, replacement_password: str | None = None
         "default admin credential was LIVE for %s and has been rotated (%s)",
         email, 'to ADMIN_PASSWORD from the environment' if used_env else 'to a random value')
     return {'status': STATUS_ROTATED, 'email': email, 'used_env_password': used_env}
+
+
+# --- Provisioning a missing administrator (work-orders #66) -----------------
+#
+# The trial-balance send gate waits for an administrator, and production had no
+# administrator row at all: create_admin.py was never run (there is no shell),
+# and the guard above only ever resets an EXISTING legacy row. The pre-deploy
+# step therefore also creates the administrator named by ADMIN_EMAIL when that
+# row does not exist. It never promotes an ordinary account and never resets an
+# existing administrator without the one-shot ADMIN_PASSWORD_FORCE_RESET flag.
+
+ADMIN_SKIPPED = 'skipped'       # ADMIN_EMAIL / ADMIN_PASSWORD not both set
+ADMIN_CREATED = 'created'       # no row existed; administrator created
+ADMIN_EXISTS = 'exists'         # administrator already there; nothing changed
+ADMIN_FORCED = 'forced'         # existing administrator reset on request
+ADMIN_NOT_ADMIN = 'not_admin'   # the email belongs to an ordinary account
+ADMIN_REFUSED = 'refused'       # the password is a known default
+
+
+def ensure_admin_account(session, *, email: str | None, password: str | None,
+                         username: str | None = None, force: bool = False) -> dict:
+    """Create the administrator ``email`` with ``password`` if no row exists.
+
+    Returns ``{'status': ..., 'email': ...}``. Never logs a password.
+    """
+    from datetime import datetime
+
+    email = (email or '').strip().lower()
+    if not email or not password:
+        return {'status': ADMIN_SKIPPED, 'email': email}
+    if _is_known_credential(password):
+        logger.error("REFUSING to provision %s: ADMIN_PASSWORD is a known default.", email)
+        return {'status': ADMIN_REFUSED, 'email': email}
+
+    from sqlalchemy import func
+    user = session.query(User).filter(func.lower(User.email) == email).first()
+    if user is None:
+        now = datetime.utcnow()
+        user = User(username=(username or 'Admin'), email=email, is_admin=True,
+                    subscription_status='active', created_at=now, updated_at=now)
+        user.set_password(password)
+        session.add(user)
+        session.commit()
+        logger.warning("administrator %s created from ADMIN_EMAIL/ADMIN_PASSWORD", email)
+        return {'status': ADMIN_CREATED, 'email': email}
+
+    if not user.is_admin:
+        logger.error("ADMIN_EMAIL %s belongs to an ordinary account — not promoted, "
+                     "not changed. Choose an address with no Analee account.", email)
+        return {'status': ADMIN_NOT_ADMIN, 'email': email}
+
+    if force:
+        user.set_password(password)
+        session.commit()
+        logger.warning("administrator %s password reset to ADMIN_PASSWORD on request "
+                       "(ADMIN_PASSWORD_FORCE_RESET) — remove the flag now", email)
+        return {'status': ADMIN_FORCED, 'email': email}
+
+    return {'status': ADMIN_EXISTS, 'email': email}
