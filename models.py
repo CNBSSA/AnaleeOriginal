@@ -598,6 +598,25 @@ class TrialBalanceApproval(db.Model):
         return f'<TrialBalanceApproval user={self.user_id} {self.period_end} {self.status}>'
 
 
+class LoginAttempt(db.Model):
+    """One sign-in attempt, keyed by a HASH of the e-mail address or of the
+    client IP — never the value itself (work-orders #69, R1). The login route
+    counts recent failures per key before checking a password, so a guessed
+    password stops being free. Additive table, created by the boot-time
+    ``db.create_all()`` like every other; the migration beside it is for
+    environments that run ``flask db upgrade``. See ``security/login_throttle``."""
+    __tablename__ = 'login_attempt'
+
+    id = Column(Integer, primary_key=True)
+    key_hash = Column(String(64), nullable=False, index=True)
+    kind = Column(String(8), nullable=False)          # 'email' | 'ip'
+    attempted_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    succeeded = Column(Boolean, nullable=False, default=False)
+
+    def __repr__(self):
+        return f'<LoginAttempt {self.kind} {self.key_hash[:8]} ok={self.succeeded}>'
+
+
 class AdminChartOfAccounts(db.Model):
     __tablename__ = 'admin_chart_of_accounts'
     __table_args__ = (

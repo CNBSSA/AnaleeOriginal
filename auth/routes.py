@@ -16,6 +16,7 @@ from forms.auth import (
     LoginForm, RequestPasswordResetForm, ResetPasswordForm, 
     RegistrationForm
 )
+from security import login_throttle
 from password_reset_tokens import (
     BadSignature,
     SignatureExpired,
@@ -103,24 +104,42 @@ def login():
 
         form = LoginForm()
         if form.validate_on_submit():
-            user = User.query.filter_by(email=form.email.data.lower().strip()).first()
+            submitted_email = form.email.data.lower().strip()
+
+            # Abuse protection (work-orders #69, R1): too many failures for this
+            # address or from this client in the last 15 minutes → refuse before
+            # any password is checked. Database-backed, hashed keys, fail-open —
+            # see security/login_throttle.py.
+            if login_throttle.locked(submitted_email):
+                flash(login_throttle.LOCKED_MESSAGE, 'error')
+                response = current_app.make_response(
+                    render_template('auth/login.html', form=form))
+                response.status_code = 429
+                response.headers['Retry-After'] = str(login_throttle.retry_after_seconds())
+                return response
+
+            user = User.query.filter_by(email=submitted_email).first()
 
             if not user:
                 logger.warning(f"Login attempt with non-existent email: {form.email.data}")
+                login_throttle.record_failure(submitted_email)
                 flash('Invalid email or password', 'error')
                 return render_template('auth/login.html', form=form)
 
             if user.is_deleted:
                 logger.warning(f"Login attempt by deleted user: {form.email.data}")
+                login_throttle.record_failure(submitted_email)
                 flash('This account has been deleted. Please register again.', 'error')
                 return render_template('auth/login.html', form=form)
 
             if not user.check_password(form.password.data):
                 logger.warning(f"Failed login attempt for email: {form.email.data}")
+                login_throttle.record_failure(submitted_email)
                 flash('Invalid email or password', 'error')
                 return render_template('auth/login.html', form=form)
 
             # Login successful
+            login_throttle.record_success(submitted_email)
             login_user(user, remember=form.remember_me.data)
             logger.info(f"User {user.email} logged in successfully")
 
