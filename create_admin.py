@@ -5,17 +5,27 @@ No credentials are hardcoded. Set these before running:
 
     ADMIN_EMAIL=you@example.com ADMIN_PASSWORD=YOUR_STRONG_PASSWORD \
         [ADMIN_USERNAME=Admin] python create_admin.py
+
+This script goes through the same rules as the pre-deploy guard
+(security/default_admin_guard.ensure_admin_account) — work-orders #69, R10:
+a missing administrator is created; an EXISTING administrator's password is
+reset to ADMIN_PASSWORD; a known-default ADMIN_PASSWORD is REFUSED; an address
+that belongs to an ordinary (non-admin) account is NEVER promoted or reset.
+Exit status is non-zero on a refusal. No password is ever printed.
 """
 import os
 import sys
-from datetime import datetime
 
 from app import create_app
-from models import db, User
+from models import db
+from security.default_admin_guard import (
+    ADMIN_CREATED, ADMIN_EXISTS, ADMIN_FORCED, ADMIN_NOT_ADMIN, ADMIN_REFUSED,
+    ADMIN_SKIPPED, ensure_admin_account)
 
 
 def create_admin_user():
-    """Create the admin user if it doesn't exist, else reset its password."""
+    """Create the admin user if it doesn't exist, else reset its password —
+    through the guard's refusals."""
     email = (os.environ.get('ADMIN_EMAIL') or '').lower().strip()
     password = os.environ.get('ADMIN_PASSWORD') or ''
     username = os.environ.get('ADMIN_USERNAME', 'Admin')
@@ -32,30 +42,37 @@ def create_admin_user():
 
     with app.app_context():
         try:
-            admin = User.query.filter_by(email=email).first()
-            if not admin:
-                admin = User(
-                    username=username,
-                    email=email,
-                    is_admin=True,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
-                    subscription_status='active',
-                )
-                admin.set_password(password)
-                db.session.add(admin)
-                print(f"Admin user created: {email}")
-            else:
-                admin.set_password(password)
-                admin.is_admin = True
-                admin.subscription_status = 'active'
-                print(f"Admin user updated: {email}")
-            db.session.commit()
-            return 0
+            result = ensure_admin_account(
+                db.session, email=email, password=password, username=username,
+                force=True)
         except Exception as e:
-            print(f"Error creating/updating admin user: {e}", file=sys.stderr)
+            print(f"Error creating/updating admin user: {e.__class__.__name__}",
+                  file=sys.stderr)
             db.session.rollback()
             return 1
+
+    status = result['status']
+    if status == ADMIN_CREATED:
+        print(f"Admin user created: {email}")
+        return 0
+    if status in (ADMIN_FORCED, ADMIN_EXISTS):
+        print(f"Admin user updated: {email}")
+        return 0
+    if status == ADMIN_NOT_ADMIN:
+        print(f"REFUSED: {email} is an ordinary Analee account; it was not promoted "
+              "or changed. Set ADMIN_EMAIL to an address with no account.",
+              file=sys.stderr)
+        return 1
+    if status == ADMIN_REFUSED:
+        print("REFUSED: ADMIN_PASSWORD is a known default; nothing was created or "
+              "changed. Choose a different ADMIN_PASSWORD.", file=sys.stderr)
+        return 1
+    if status == ADMIN_SKIPPED:
+        print("Set ADMIN_EMAIL and ADMIN_PASSWORD in the environment first.",
+              file=sys.stderr)
+        return 2
+    print(f"Unexpected guard status: {status}", file=sys.stderr)
+    return 1
 
 
 if __name__ == '__main__':
