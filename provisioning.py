@@ -51,6 +51,8 @@ via SSO ``target_client_ref``.
 import hmac
 import logging
 import os
+
+from config import env_flag
 import re
 import secrets
 
@@ -63,7 +65,7 @@ provisioning = Blueprint("provisioning", __name__)
 
 def enabled():
     """True when the provisioning endpoint is switched on for this environment."""
-    return os.environ.get("ANALEE_PROVISIONING_ENABLED", "False") == "True"
+    return env_flag("ANALEE_PROVISIONING_ENABLED")
 
 
 def _secret():

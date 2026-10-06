@@ -31,12 +31,14 @@ friendly ``/entitlement-required`` page.
 """
 import os
 
+from config import env_flag
+
 from flask import session
 
 
 def enforcement_enabled():
     """True when the entitlement gate is switched on for this environment."""
-    return os.environ.get("ANALEE_ENTITLEMENT_ENFORCED", "False") == "True"
+    return env_flag("ANALEE_ENTITLEMENT_ENFORCED")
 
 
 def is_club_member():

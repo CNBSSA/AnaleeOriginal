@@ -24,6 +24,8 @@ import io
 import logging
 import os
 
+from config import env_flag
+
 import requests
 from flask import (Blueprint, abort, current_app, flash, redirect,
                    render_template, request, session, url_for)
@@ -48,7 +50,7 @@ class FileItError(Exception):
 
 
 def enabled() -> bool:
-    return os.environ.get("ANALEE_FILEIT_PULL_ENABLED", "False") == "True"
+    return env_flag("ANALEE_FILEIT_PULL_ENABLED")
 
 
 def configured() -> bool:

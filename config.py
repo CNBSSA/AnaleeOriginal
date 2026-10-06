@@ -31,6 +31,18 @@ CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', _CLAUDE_DEFAULT)
 # under this ceiling. Override with MAX_UPLOAD_MB.
 MAX_UPLOAD_BYTES = int(os.environ.get('MAX_UPLOAD_MB', '40')) * 1024 * 1024
 
+
+def env_flag(name: str, default: bool = False) -> bool:
+    """Read an on/off switch from the environment the same way everywhere
+    (work-orders #69, R8): 1 / true / yes / on turn it ON, case-insensitive,
+    whitespace ignored; anything else is OFF; unset → ``default``. Three
+    switches used to accept only the exact string "True", so the operator
+    setting "true" or "1" left them silently off."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ('1', 'true', 'yes', 'on')
+
 class Config:
     """Base configuration"""
     SECRET_KEY = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
