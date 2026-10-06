@@ -91,6 +91,22 @@ def register():
         flash('An unexpected error occurred.', 'error')
         return redirect(url_for('auth.login'))
 
+def _safe_next(candidate):
+    """A relative path on this site, or None.
+
+    Must start with a single "/", and contain no backslash and no "//": a
+    second slash or a backslash is how a browser is tricked into leaving the
+    site ("//evil", "/\\evil"), so the login page can never redirect off it.
+    """
+    if not candidate or not isinstance(candidate, str):
+        return None
+    if not candidate.startswith('/') or candidate.startswith('//'):
+        return None
+    if '\\' in candidate or '//' in candidate:
+        return None
+    return candidate
+
+
 @auth.route('/login', methods=['GET', 'POST'])
 def login():
     """Handle user login with enhanced security and session management."""
@@ -156,9 +172,9 @@ def login():
             login_user(user, remember=form.remember_me.data)
             logger.info("User user_id=%s logged in successfully", user.id)
 
-            # Get the next page from the session or default to dashboard
-            next_page = session.get('next', url_for('main.dashboard'))
-            session.pop('next', None)  # Remove the next page from session
+            # Honour ?next= (Flask-Login puts the page the user was bounced
+            # from there), but ONLY a same-origin path — work-orders #69, R9.
+            next_page = _safe_next(request.args.get('next')) or url_for('main.dashboard')
 
             flash('Login successful!', 'success')
             return redirect(next_page)
