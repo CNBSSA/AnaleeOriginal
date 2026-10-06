@@ -1,10 +1,20 @@
 """
 Authentication related forms including login, password reset and MFA
 """
+import unicodedata
+
 from flask_wtf import FlaskForm
+from sqlalchemy import func
 from wtforms import StringField, PasswordField, SubmitField, BooleanField
 from wtforms.validators import DataRequired, Email, EqualTo, Length, ValidationError
 from models import User, db
+
+
+def normalise_email(value: str) -> str:
+    """The one spelling of an address this app compares and stores
+    (work-orders #69, R5): Unicode NFKC (so a full-width or ligature character
+    folds to its plain form), then stripped and lower-cased."""
+    return unicodedata.normalize('NFKC', value or '').strip().lower()
 
 class LoginForm(FlaskForm):
     """Form for user login with CSRF protection"""
@@ -65,7 +75,11 @@ class RegistrationForm(FlaskForm):
         Freeing the address is now done deliberately in auth.register, after
         every validator has passed. See docs/DATA_RETENTION.md.
         """
-        user = User.query.filter_by(email=email.data.lower()).first()
+        # Case-insensitive after NFKC normalisation, against the stored value
+        # lower-cased too — so a legacy mixed-case row, a full-width or a
+        # ligature spelling of an existing address are all one account.
+        user = User.query.filter(
+            func.lower(User.email) == normalise_email(email.data)).first()
         if user and not user.is_deleted:
             raise ValidationError('Email already registered. Please use a different email or login to your existing account.')
 

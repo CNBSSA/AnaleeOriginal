@@ -14,7 +14,7 @@ from . import auth
 from models import db, User
 from forms.auth import (
     LoginForm, RequestPasswordResetForm, ResetPasswordForm, 
-    RegistrationForm
+    RegistrationForm, normalise_email
 )
 from security import login_throttle
 from password_reset_tokens import (
@@ -47,8 +47,11 @@ def register():
 
         form = RegistrationForm()
         if form.validate_on_submit():
-            # Check if user already exists
-            existing_user = User.query.filter_by(email=form.email.data.lower().strip()).first()
+            # Check if user already exists — same normalised, case-insensitive
+            # comparison as the form validator (work-orders #69, R5).
+            from sqlalchemy import func
+            new_email = normalise_email(form.email.data)
+            existing_user = User.query.filter(func.lower(User.email) == new_email).first()
 
             if existing_user and not existing_user.is_deleted:
                 flash('An account with this email already exists.', 'error')
@@ -71,7 +74,7 @@ def register():
                 # Create new user
                 user = User(
                     username=form.username.data,
-                    email=form.email.data.lower().strip()
+                    email=new_email
                 )
                 user.set_password(form.password.data)
                 db.session.add(user)
