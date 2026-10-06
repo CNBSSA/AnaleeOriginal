@@ -55,6 +55,100 @@ What this adds, for every agent and department:
 
 
 
+
+## ⚖️ CONTROLLED SOFTWARE DEVELOPMENT WORKFLOW (Festus, Chairman, 2026-10-06) — AUTHORITATIVE, ALL AGENTS
+
+*Set by Festus on 2026-10-06 and saved verbatim at his instruction: "I want you to save it for all agents to be able to see it and follow the use of it." The corporation-wide authoritative copy is in `autonomusFV/CLAUDE.md`; every other copy mirrors it and never overrides it. It formalises and replaces the shorter "Festie's work orders pass two approval gates" rule of the same day.*
+
+All agents working on software development must follow this process for every work order issued by Festie or Festus, the Chairman.
+
+### People and approval authority
+
+- Festie and Festus are authorized to issue work orders.
+- Festus and Festie are both required reviewers and approvers.
+- Approval from one person does not count as approval from the other.
+- Do not infer approval from silence, prior approvals, or a request to prepare the work.
+- Record who approved each gate and when. If an approval is unclear or cannot be verified, pause and ask.
+
+### Stage 1: Receive and assess the work order
+
+When you receive a work order:
+
+1. Restate the requested outcome, scope, and acceptance criteria.
+2. Inspect the repository’s current state, applicable project instructions, branch, and uncommitted changes.
+3. Identify affected files, systems, dependencies, data, security concerns, and likely risks.
+4. Do not modify code or configuration during this stage.
+
+If the work order is unclear, conflicts with project instructions, or appears to require changes beyond its scope, document the issue and request clarification before proceeding.
+
+### Stage 2: Pre-engagement audit and plan
+
+Prepare a pre-engagement audit and implementation plan containing:
+
+- Work-order summary and acceptance criteria
+- Current repository and branch status
+- Proposed files and components to change
+- Implementation approach and expected impact
+- Dependencies, data changes, security considerations, and risks
+- Verification plan, including relevant tests and checks
+- Assumptions, blockers, and items requiring clarification
+
+Submit the same audit and plan to both Festus and Festie. Then pause. Do not implement anything until both have explicitly approved the plan.
+
+If either reviewer requests changes, revise the plan and resubmit it to both. Approval applies only to the plan and scope that were reviewed.
+
+### Stage 3: Implement after approval
+
+After both approvals are verified:
+
+1. Confirm the working tree and branch are in a safe state.
+2. Make changes only within the approved scope.
+3. Work on an appropriate task branch, following the project’s branching rules. Do not merge directly to main.
+4. Preserve unrelated user changes. Do not discard, overwrite, or reformat unrelated work.
+5. Do not expose secrets, weaken security controls, or make unapproved changes to production systems.
+6. If the implementation requires a broader scope or materially different plan, stop and obtain approval from both reviewers before continuing.
+7. Run the relevant tests, checks, and builds. Report results accurately; never claim that a check passed if it was not run or failed.
+
+Do not merge or deploy during implementation.
+
+### Stage 4: Post-engagement audit
+
+Before any merge, inspect the completed changes and prepare a post-engagement audit containing:
+
+- Summary of what was implemented
+- Files and components changed
+- Differences from the approved plan, if any
+- Tests and checks run, with results
+- Security, data, dependency, and compatibility impacts
+- Known issues, limitations, and remaining risks
+- Confirmation that unrelated changes were preserved
+- Proposed merge target and any required follow-up
+
+Submit the post-engagement audit and review materials to both Festus and Festie. Include enough detail for each reviewer to assess the changes and verification results.
+
+Then pause. Do not merge until both Festus and Festie have explicitly approved the completed work and audit. If either requests changes, make only approved revisions, rerun the relevant checks, update the audit, and resubmit it to both.
+
+### Stage 5: Merge to develop
+
+After both post-engagement approvals are verified:
+
+1. Confirm that the approved changes and audit match the code being merged.
+2. Merge the reviewed work into the develop branch, following the repository’s required merge process.
+3. Do not merge to main, release, or deploy unless separately and explicitly authorized.
+4. Report the merge result, commit or pull request reference, checks completed, and any follow-up work.
+
+### Required control rules
+
+- The pre-engagement approval gate must happen before implementation.
+- The post-engagement approval gate must happen before merging.
+- Both Festus and Festie must approve at both gates.
+- Keep an auditable record of the work order, plan, approvals, changes, checks, audit, and merge.
+- Never fabricate approval, test results, audit findings, or completion status.
+- If you cannot submit materials to both reviewers or verify their approvals, stop at the relevant gate and report what is needed.
+
+**How this is carried out in this estate (implementation notes, not part of Festus's text):** work orders and both submissions live on the `CNBSSA/work-orders` issue (Festie's copy) and in the reply to Festus (his copy, verbatim); each approval is recorded with name and time in `autonomusFV/docs/MASTER_PLAN.md` §22.0 and on the issue; audits are stored in `autonomusFV/docs/qa/work_orders/`. The existing rules still apply alongside it: fix-only mode, the Iron Rule, frozen assets, verified-real defects, no silent password changes, develop first with `main` only by promotion in the 23:00–05:00 SAST window.
+
+
 ## ⛔ STANDING RULE — MAIN-BRANCH PROMOTION WINDOW ONLY (Festus, 2026-08-06)
 
 We now have live paying clients on the SA products. **Promote `develop → main`
