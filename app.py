@@ -3,7 +3,7 @@ import os
 import logging
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from flask import Flask, current_app, redirect, url_for, request, flash, jsonify, session, g
 from flask_migrate import Migrate
@@ -12,7 +12,7 @@ from sqlalchemy import text
 from flask_apscheduler import APScheduler
 from flask_wtf.csrf import CSRFProtect
 from flask_login import LoginManager, current_user
-from config import MAX_UPLOAD_BYTES
+from config import MAX_UPLOAD_BYTES, ProductionConfig
 
 # Configure logging with detailed format
 logging.basicConfig(
@@ -283,9 +283,27 @@ def create_app(env=None):
             'WTF_CSRF_TIME_LIMIT': 3600,
             'SESSION_COOKIE_SECURE': secure_cookies,
             'SESSION_COOKIE_HTTPONLY': True,
+            # Lax is what browsers already default to; stated so it is not
+            # left to the browser (work-orders #69, R7).
+            'SESSION_COOKIE_SAMESITE': 'Lax',
             'REMEMBER_COOKIE_SECURE': secure_cookies,
             'REMEMBER_COOKIE_HTTPONLY': True
         })
+
+        # ProductionConfig (config.py) was never applied — create_app imported
+        # three constants and nothing else — so its 30-minute session lifetime
+        # did not exist (work-orders #69, R7). Applied in production, read from
+        # the class so there is one source of truth. Note plainly: this app
+        # never marks a session permanent, so the lifetime governs no live
+        # cookie yet and nobody is logged out by it; making it an idle timeout
+        # is a user-facing decision for Festus. The remember-me cookie keeps
+        # Flask-Login's default duration. ProductionConfig's engine options
+        # (sslmode=require) are deliberately NOT applied here: forcing SSL on
+        # Railway's internal Postgres could refuse the live connection — a
+        # Railway-connection decision, not a code fix.
+        if secure_cookies:
+            app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(
+                seconds=ProductionConfig.PERMANENT_SESSION_LIFETIME)
 
         # Import db after app creation to avoid circular imports
         from models import db as models_db, User
