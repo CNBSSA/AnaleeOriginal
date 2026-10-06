@@ -17,11 +17,9 @@ class LoginForm(FlaskForm):
     remember_me = BooleanField('Remember Me')
     submit = SubmitField('Login')
 
-    def validate_email(self, field):
-        """Check if email exists and account status"""
-        user = User.query.filter_by(email=field.data.lower()).first()
-        if user and user.is_deleted:
-            raise ValidationError('This account has been deleted. Please register a new account or contact support for account restoration.')
+    # No per-field account lookup here (work-orders #69, R4): a validator that
+    # answered "This account has been deleted" told any visitor who had been a
+    # customer. The route answers every failure the same way.
 
 class RegistrationForm(FlaskForm):
     """Form for new user registration"""

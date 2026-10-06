@@ -28,6 +28,15 @@ from password_reset_tokens import (
 # Configure logging
 logger = logging.getLogger(__name__)
 
+
+def _email_ref(email: str) -> str:
+    """A short, stable reference for an e-mail address in a log line — never
+    the address itself (work-orders #69, R6). Railway logs are read by several
+    people and retained; support can still correlate repeated attempts by the
+    same reference."""
+    import hashlib
+    return 'email#' + hashlib.sha256((email or '').strip().lower().encode('utf-8')).hexdigest()[:12]
+
 @auth.route('/register', methods=['GET', 'POST'])
 def register():
     """Handle new user registration"""
@@ -54,7 +63,7 @@ def register():
                 logger.info(
                     'Releasing identifiers from soft-deleted user_id=%s so %s '
                     'can be re-registered; records retained',
-                    existing_user.id, existing_user.email)
+                    existing_user.id, _email_ref(existing_user.email))
                 existing_user.release_identifiers_for_reregistration()
                 db.session.flush()
 
@@ -67,7 +76,7 @@ def register():
                 user.set_password(form.password.data)
                 db.session.add(user)
                 db.session.commit()
-                logger.info(f"New user registered successfully: {user.email}")
+                logger.info("New user registered successfully: user_id=%s", user.id)
                 flash('Registration successful! Please log in.', 'success')
                 return redirect(url_for('auth.login'))
 
@@ -121,19 +130,23 @@ def login():
             user = User.query.filter_by(email=submitted_email).first()
 
             if not user:
-                logger.warning(f"Login attempt with non-existent email: {form.email.data}")
+                logger.warning("Login attempt with non-existent email: %s",
+                               _email_ref(submitted_email))
                 login_throttle.record_failure(submitted_email)
                 flash('Invalid email or password', 'error')
                 return render_template('auth/login.html', form=form)
 
             if user.is_deleted:
-                logger.warning(f"Login attempt by deleted user: {form.email.data}")
+                # Same answer as an unknown address (work-orders #69, R4): the
+                # old wording told any visitor who HAD been a customer. The
+                # register path explains re-registration to the right person.
+                logger.warning("Login attempt by deleted user_id=%s", user.id)
                 login_throttle.record_failure(submitted_email)
-                flash('This account has been deleted. Please register again.', 'error')
+                flash('Invalid email or password', 'error')
                 return render_template('auth/login.html', form=form)
 
             if not user.check_password(form.password.data):
-                logger.warning(f"Failed login attempt for email: {form.email.data}")
+                logger.warning("Failed login attempt for user_id=%s", user.id)
                 login_throttle.record_failure(submitted_email)
                 flash('Invalid email or password', 'error')
                 return render_template('auth/login.html', form=form)
@@ -141,7 +154,7 @@ def login():
             # Login successful
             login_throttle.record_success(submitted_email)
             login_user(user, remember=form.remember_me.data)
-            logger.info(f"User {user.email} logged in successfully")
+            logger.info("User user_id=%s logged in successfully", user.id)
 
             # Get the next page from the session or default to dashboard
             next_page = session.get('next', url_for('main.dashboard'))
@@ -162,10 +175,10 @@ def login():
 def logout():
     """Handle user logout with proper cleanup"""
     try:
-        user_email = current_user.email
+        user_id = current_user.id
         logout_user()
         session.clear()  # Clear all session data
-        logger.info(f"User {user_email} logged out successfully")
+        logger.info("User user_id=%s logged out successfully", user_id)
         flash('You have been logged out.', 'info')
     except Exception as e:
         logger.error(f"Logout error: {str(e)}")
