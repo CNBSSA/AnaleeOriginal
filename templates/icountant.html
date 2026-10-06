@@ -68,7 +68,7 @@
                     <h5 class="card-title mb-0">AI Insights</h5>
                 </div>
                 <div class="card-body">
-                    <div class="mb-3" id="aiInsightsContent">
+                    <div class="mb-3" id="aiInsightsContent" style="white-space: pre-wrap;">
                         {{ transaction_info.insights.ai_insights|safe }}
                     </div>
                     {% if transaction_info.insights.similar_transactions %}
@@ -287,7 +287,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     throw new Error(data.error || 'Failed to load insights');
                 }
 
-                aiInsightsContent.innerHTML = data.ai_insights || '<p class="text-muted mb-0">No insights available.</p>';
+                // The insight is model-generated free text built from a statement
+                // description; write it as TEXT, never as HTML (work-orders #69, S1).
+                if (data.ai_insights) {
+                    aiInsightsContent.textContent = data.ai_insights;
+                } else {
+                    aiInsightsContent.innerHTML = '<p class="text-muted mb-0">No insights available.</p>';
+                }
 
                 if (data.suggested_accounts && data.suggested_accounts.length > 0) {
                     suggestedAccountsList.innerHTML = '';
@@ -326,10 +332,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 const message = (error && error.name === 'AbortError')
                     ? 'AI insights are taking too long to load. You can still select an account manually, or reload the page to try again.'
                     : 'Could not load AI insights. You can still select an account manually.';
-                aiInsightsContent.innerHTML = `
-                    <div class="alert alert-warning mb-0">
-                        ${message}
-                    </div>`;
+                const warning = document.createElement('div');
+                warning.className = 'alert alert-warning mb-0';
+                warning.textContent = message;
+                aiInsightsContent.replaceChildren(warning);
             })
             .finally(() => clearTimeout(insightsTimer));
     }
