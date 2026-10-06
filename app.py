@@ -305,6 +305,34 @@ def create_app(env=None):
             app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(
                 seconds=ProductionConfig.PERMANENT_SESSION_LIFETIME)
 
+        # Outgoing mail for the password-reset link (work-orders #69, R2).
+        # ONLY when MAIL_SERVER is set: with it unset nothing here runs and
+        # the reset route behaves exactly as before (link created, never
+        # sent). Lazy import and fail-soft so a missing package never blocks
+        # the boot. Values: MAIL_SERVER, MAIL_PORT (587), MAIL_USE_TLS (on),
+        # MAIL_USE_SSL (off), MAIL_USERNAME, MAIL_PASSWORD,
+        # MAIL_DEFAULT_SENDER (defaults to MAIL_USERNAME).
+        _mail_server = (os.environ.get('MAIL_SERVER') or '').strip()
+        if _mail_server:
+            try:
+                from flask_mail import Mail
+                from config import env_flag as _env_flag
+                app.config.update({
+                    'MAIL_SERVER': _mail_server,
+                    'MAIL_PORT': int(os.environ.get('MAIL_PORT') or 587),
+                    'MAIL_USE_TLS': _env_flag('MAIL_USE_TLS', default=True),
+                    'MAIL_USE_SSL': _env_flag('MAIL_USE_SSL', default=False),
+                    'MAIL_USERNAME': os.environ.get('MAIL_USERNAME') or None,
+                    'MAIL_PASSWORD': os.environ.get('MAIL_PASSWORD') or None,
+                    'MAIL_DEFAULT_SENDER': (os.environ.get('MAIL_DEFAULT_SENDER')
+                                            or os.environ.get('MAIL_USERNAME') or None),
+                })
+                Mail(app)
+                logger.info("Outgoing mail configured (MAIL_SERVER set)")
+            except Exception as _mail_exc:  # noqa: BLE001 — never block the boot
+                logger.error(f"Outgoing mail NOT configured: {_mail_exc.__class__.__name__}")
+                app.config.pop('MAIL_SERVER', None)
+
         # Import db after app creation to avoid circular imports
         from models import db as models_db, User
         global db

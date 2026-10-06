@@ -219,6 +219,31 @@ _RESET_LINK_DEAD_MESSAGE = (
 )
 
 
+def _send_password_reset_email(user, reset_url) -> bool:
+    """Send templates/email/password_reset.html to the user when outgoing mail
+    is configured (app.py wires Flask-Mail only when MAIL_SERVER is set).
+    Returns True when a message was handed to the mailer. Never raises, never
+    logs the link."""
+    mail = current_app.extensions.get('mail')
+    if mail is None or not current_app.config.get('MAIL_SERVER'):
+        return False
+    try:
+        from flask_mail import Message
+        message = Message(
+            subject='Reset your Analee password',
+            recipients=[user.email],
+            html=render_template('email/password_reset.html',
+                                 user=user, reset_url=reset_url),
+        )
+        mail.send(message)
+        logger.info('Password reset e-mail sent for user_id=%s', user.id)
+        return True
+    except Exception as exc:  # noqa: BLE001 — the page must still answer
+        logger.error('Could not send the password reset e-mail for user_id=%s (%s)',
+                     user.id, exc.__class__.__name__)
+        return False
+
+
 @auth.route('/reset_password_request', methods=['GET', 'POST'])
 def reset_password_request():
     """Handle password reset requests"""
@@ -234,9 +259,11 @@ def reset_password_request():
                 user, secret_key=current_app.config['SECRET_KEY'])
             reset_url = url_for('auth.reset_password', token=token,
                                 _external=True)
-            # Email delivery is not wired up in this app yet, so nothing is
-            # actually sent. Saying "check your email" while sending nothing is
-            # how a locked-out customer ends up stranded, so we do not say it.
+            # Deliver the link by e-mail when a mail server is configured
+            # (work-orders #69, R2). With MAIL_SERVER unset nothing is sent and
+            # everything below behaves exactly as before. A send failure is
+            # logged WITHOUT the link; the page answers the same either way.
+            _send_password_reset_email(user, reset_url)
             # Festus has no shell but does have Railway logs, so the link can be
             # surfaced there to unstick someone — deliberately OFF by default,
             # because a reset link in a log file is an account-takeover token in
