@@ -169,6 +169,24 @@ def _clamp_confidence(raw) -> float:
     return max(0.0, min(1.0, value))
 
 
+def _wrong_direction(row: Dict[str, Any], account) -> bool:
+    """True when money in meets an Expenses account, or money out an Income one.
+
+    Assets, Liabilities and Equity go either way (transfers, loans, owner
+    money) and are never refused; nor is a zero or unreadable amount.
+    """
+    try:
+        amount = float(row.get('amount') or 0)
+    except (TypeError, ValueError):
+        return False
+    category = str(getattr(account, 'category', '') or '').strip().lower()
+    if amount > 0 and category == 'expenses':
+        return True
+    if amount < 0 and category == 'income':
+        return True
+    return False
+
+
 def suggest_for_rows(
     rows: Sequence[Dict[str, Any]],
     accounts: Sequence,
@@ -216,6 +234,7 @@ def suggest_for_rows(
         return {}
 
     valid_indexes = {row['index'] for row in rows}
+    rows_by_index = {row['index']: row for row in rows}
     suggestions: Dict[int, RowSuggestion] = {}
 
     for item in _parse_reply(text):
@@ -234,7 +253,16 @@ def suggest_for_rows(
         raw_name = item.get('account')
         if raw_name not in (None, '', 'null'):
             matched = by_name.get(str(raw_name).strip().lower())
-            if matched is not None:
+            if matched is not None and _wrong_direction(rows_by_index[index], matched):
+                # Work order #33: the prompt asks the model to respect the
+                # sign, but nothing checked it — a +15,000 receipt came back
+                # "Salaries" at 0.95. Drop the account (a person decides),
+                # keep the explanation.
+                logger.info(
+                    "Bulk suggestion %r refused: wrong direction for amount %s",
+                    matched.name, rows_by_index[index].get('amount'))
+                confidence = 0.0
+            elif matched is not None:
                 account_id = matched.id
                 account_name = matched.name
             else:
