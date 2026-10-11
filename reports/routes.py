@@ -27,6 +27,8 @@ from . import reports
 from . import tb_approval
 from .trial_balance_service import (
     PROFIT_AND_LOSS_CATEGORIES,
+    SUSPENSE_LINK,
+    SUSPENSE_NAME,
     build_booksxperts_trial_balance_xlsx,
     build_trial_balance_payload,
     export_filename,
@@ -387,12 +389,16 @@ def trial_balance():
         # user (ix_account_user_link). Accounts absent from it have a zero balance
         # and still render as 0.00, so the row set is unchanged.
         amounts_by_link = {row.link: row.amount for row in ctx.rows}
+        suspense_balance = abs(amounts_by_link.get(SUSPENSE_LINK, 0) or 0)
         approval = tb_approval.status_for(current_user.id, ctx)
         return render_template(
             'reports/trial_balance.html',
             approval=approval,
             accounts=ctx.accounts,
             amounts_by_link=amounts_by_link,
+            suspense_balance=suspense_balance,
+            suspense_name=SUSPENSE_NAME,
+            analyze_list_url=url_for('main.analyze_list'),
             start_date=ctx.start_date,
             end_date=CompanySettings.financial_year_period_end_inclusive(ctx.end_date),
             total_debits=ctx.total_debits,

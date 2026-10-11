@@ -26,13 +26,22 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="category" class="form-label">Category</label>
-                                <input type="text" class="form-control" id="category" name="category" value="{{ account.category }}" required>
+                                <select class="form-select" id="category" name="category" required>
+                                    {% for cat in chart_categories %}
+                                    <option value="{{ cat }}" {% if account.category == cat %}selected{% endif %}>{{ cat }}</option>
+                                    {% endfor %}
+                                </select>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="sub_category" class="form-label">Sub Category</label>
-                                <input type="text" class="form-control" id="sub_category" name="sub_category" value="{{ account.sub_category }}">
+                                <select class="form-select" id="sub_category" name="sub_category">
+                                    <option value="">—</option>
+                                    {% for sub in chart_subcategories %}
+                                    <option value="{{ sub }}" {% if account.sub_category == sub %}selected{% endif %}>{{ sub }}</option>
+                                    {% endfor %}
+                                </select>
                             </div>
                         </div>
                     </div>

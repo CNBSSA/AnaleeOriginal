@@ -277,7 +277,13 @@ def settings():
             is_active=True
         ).all()
 
-        return render_template('settings.html', accounts=accounts)
+        from utils.chart_form_choices import CHART_CATEGORIES, CHART_SUBCATEGORIES
+        return render_template(
+            'settings.html',
+            accounts=accounts,
+            chart_categories=CHART_CATEGORIES,
+            chart_subcategories=CHART_SUBCATEGORIES,
+        )
     except Exception as e:
         logger.exception('Error in settings route: %s', e)
         db.session.rollback()
@@ -930,7 +936,13 @@ def edit_account(account_id):
                 flash(f'Error updating account: {str(e)}', 'error')
                 db.session.rollback()
 
-        return render_template('edit_account.html', account=account)
+        from utils.chart_form_choices import CHART_CATEGORIES, CHART_SUBCATEGORIES
+        return render_template(
+            'edit_account.html',
+            account=account,
+            chart_categories=CHART_CATEGORIES,
+            chart_subcategories=CHART_SUBCATEGORIES,
+        )
     except Exception as e:
         logger.error(f'Error in edit_account route: {str(e)}')
         flash('Error accessing account', 'error')

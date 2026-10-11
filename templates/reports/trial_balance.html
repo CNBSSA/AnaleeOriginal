@@ -84,6 +84,14 @@
                 </div>
             </form>
             {% endif %}
+            {% if suspense_balance and suspense_balance > 0.005 %}
+            <div class="alert alert-info py-2" id="tbSuspenseHelp">
+                <strong>{{ suspense_name }}</strong> shows R{{ '%.2f'|format(suspense_balance) }} —
+                bank lines that are not categorised yet. Open
+                <a href="{{ analyze_list_url }}">Analyze Data</a>, assign an account and explanation
+                to each line still on a bank account; the suspense balance clears as you work through them.
+            </div>
+            {% endif %}
             {% if not tb_balanced %}
             <div class="alert alert-warning py-2">
                 Debits and credits do not match on this report. You can still export, but review

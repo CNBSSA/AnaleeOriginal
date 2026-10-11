@@ -143,7 +143,7 @@ export class BatchProcessor {
             this.progressBar.textContent = `${percent}%`;
         }
         if (this.progressText) {
-            this.progressText.textContent = `${done} / ${total} reviewed`;
+            this.progressText.textContent = `${done} of ${total} processed in this run`;
         }
         // Mirror progress onto the whole-statement hero bar.
         if (this.wholeBar) {
