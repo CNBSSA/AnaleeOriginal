@@ -1101,6 +1101,7 @@ def financial_insights():
             'risk_factors': [],
             'optimization_opportunities': [],
             'strategic_recommendations': [],
+            'statement_analysis': None,
             'cash_flow_analysis': {
                 'current_status': '',
                 'projected_trend': '',
@@ -1142,13 +1143,21 @@ def generate_insights():
             transaction_in_financial_period(Transaction.date, start_date, end_exclusive),
         ).order_by(Transaction.date.desc()).all()
 
+        from services.statement_insights import (
+            analyze_statement_transactions,
+            cash_flow_analysis_from_statement,
+        )
+
         # Convert transactions to dictionary format for AI processing
         transaction_data = [{
             'date': t.date.isoformat(),
             'description': t.description,
             'amount': float(t.amount),
-            'category': t.account.category if t.account else 'Uncategorized'
+            'category': t.account.category if t.account else 'Uncategorized',
+            'account_name': t.account.name if t.account else '',
         } for t in transactions]
+
+        statement_analysis = analyze_statement_transactions(transaction_data)
 
         # Generate insights using AI
         insights_generator = FinancialInsightsGenerator()
@@ -1165,7 +1174,10 @@ def generate_insights():
                 'risk_factors': _extract_risk_factors(insights['insights']),
                 'optimization_opportunities': _extract_opportunities(insights['insights']),
                 'strategic_recommendations': _extract_recommendations(insights['insights']),
-                'cash_flow_analysis': _analyze_cash_flow(transaction_data)
+                'statement_analysis': insights.get('statement_analysis') or statement_analysis,
+                'analysis_type': insights.get('analysis_type', 'ai_powered'),
+                'cash_flow_analysis': cash_flow_analysis_from_statement(
+                    transaction_data, statement_analysis),
             }
             session['financial_advice'] = financial_advice
             flash('Financial insights generated successfully', 'success')
@@ -1253,21 +1265,11 @@ def _extract_recommendations(insights_text):
         return []
 
 def _analyze_cash_flow(transaction_data):
-    """Analyze cash flow patterns from transaction data"""
-    try:
-        total_inflow = sum(t['amount'] for t in transaction_data if t['amount'] > 0)
-        total_outflow = abs(sum(t['amount'] for t in transaction_data if t['amount']< 0))
-        net_flow = total_inflow - total_outflow
+    """Analyze cash flow patterns from statement transaction data."""
+    from services.statement_insights import cash_flow_analysis_from_statement
 
-        return {
-            'current_status': f"Net cash flow: ${net_flow:,.2f}",
-            'projected_trend': "Trend analysis will be available in the next update",
-            'key_drivers': [
-                f"Total inflow: ${total_inflow:,.2f}",
-                f"Total outflow: ${total_outflow:,.2f}"
-            ],
-            'improvement_suggestions': ["Cash flow optimization suggestions will be available in the next update"]
-        }
+    try:
+        return cash_flow_analysis_from_statement(transaction_data)
     except Exception as e:
         logger.error(f"Error analyzing cash flow: {str(e)}")
         return {
@@ -1653,12 +1655,14 @@ def generate_insights_api():
             return jsonify({'error': 'Please configure company settings first.'}), 400
             
         from models import transaction_in_financial_period
+        from services.workspace_fy import current_financial_year_period
 
-        fy_dates = company_settings.get_financial_year()
+        start_date, end_exclusive, _end_inclusive, _start_year = (
+            current_financial_year_period(current_user.id, company_settings))
+
         transactions = Transaction.query.filter(
             Transaction.user_id == current_user.id,
-            transaction_in_financial_period(
-                Transaction.date, fy_dates['start_date'], fy_dates['end_date']),
+            transaction_in_financial_period(Transaction.date, start_date, end_exclusive),
         ).order_by(Transaction.date.desc()).all()
         
         # Format transactions for response
@@ -1667,7 +1671,8 @@ def generate_insights_api():
             'date': t.date.strftime('%Y-%m-%d'),
             'description': t.description,
             'amount': float(t.amount),
-            'category': t.account.category if t.account else 'Uncategorized'
+            'category': t.account.category if t.account else 'Uncategorized',
+            'account_name': t.account.name if t.account else '',
         } for t in transactions]
         
         # Generate insights using AI

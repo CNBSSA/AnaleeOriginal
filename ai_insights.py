@@ -6,6 +6,10 @@ import anthropic
 from anthropic import APIError, RateLimitError
 from nlp_utils import get_claude_client as get_openai_client, categorize_transaction
 from config import CLAUDE_MODEL
+from services.statement_insights import (
+    analyze_statement_transactions,
+    format_statement_analysis_for_prompt,
+)
 
 # Enhanced logging configuration
 logger = logging.getLogger(__name__)
@@ -143,8 +147,11 @@ class FinancialInsightsGenerator:
     def generate_insights(self, transactions: List[Dict]) -> Dict:
         """Generate insights from transaction data using AI."""
         try:
+            statement_analysis = analyze_statement_transactions(transactions or [])
             if not self.client:
-                return self._generate_fallback_insights(transactions)
+                result = self._generate_fallback_insights(transactions)
+                result['statement_analysis'] = statement_analysis
+                return result
 
             # Prepare transaction data for analysis
             transaction_summary = self._prepare_transaction_summary(transactions)
@@ -204,6 +211,7 @@ class FinancialInsightsGenerator:
                 'insights': insights,
                 'generated_at': datetime.now().isoformat(),
                 'analysis_type': 'ai_powered',
+                'statement_analysis': statement_analysis,
                 'service_status': {
                     'error_count': self.service_status.error_count,
                     'last_success': self.service_status.last_success.isoformat() if self.service_status.last_success else None
@@ -218,18 +226,23 @@ class FinancialInsightsGenerator:
         except Exception as e:
             logger.error(f"Critical error generating insights: {str(e)}")
             self.service_status.record_error(e)
-            return self._generate_fallback_insights(transactions, error=f"Critical error: {str(e)}")
+            result = self._generate_fallback_insights(transactions, error=f"Critical error: {str(e)}")
+            result['statement_analysis'] = analyze_statement_transactions(transactions or [])
+            return result
 
     def _prepare_transaction_summary(self, transactions: List[Dict]) -> str:
         """Prepare transaction data for AI analysis."""
         if not transactions:
             return "No transactions to analyze"
 
+        statement_block = format_statement_analysis_for_prompt(
+            analyze_statement_transactions(transactions))
+
         total_income = sum(t['amount'] for t in transactions if t['amount'] > 0)
         total_expenses = sum(abs(t['amount']) for t in transactions if t['amount'] < 0)
         transaction_count = len(transactions)
 
-        # Categorize transactions
+        # Ledger category breakdown (may still be mostly bank accounts until coded)
         categories = {}
         for t in transactions:
             category = t.get('category', 'Uncategorized')
@@ -243,7 +256,8 @@ class FinancialInsightsGenerator:
             f"Total Income: R{total_income:,.2f}\n"
             f"Total Expenses: R{total_expenses:,.2f}\n"
             f"Transaction Count: {transaction_count}\n\n"
-            f"Category Breakdown:\n"
+            f"{statement_block}\n\n"
+            f"Ledger category breakdown:\n"
         )
 
         for category, data in categories.items():
@@ -291,12 +305,15 @@ class FinancialInsightsGenerator:
 
                 category_guess = "expense" if amount < 0 else "income"
 
+                statement_block = format_statement_analysis_for_prompt(
+                    analyze_statement_transactions(transactions))
                 insights = (
-                    f"Basic Financial Analysis:\n"
+                    f"Basic Financial Analysis (read-only, no live AI):\n"
                     f"- Total Income: R{total_income:,.2f}\n"
                     f"- Total Expenses: R{total_expenses:,.2f}\n"
                     f"- Net Change: R{net_change:,.2f}\n\n"
-                    f"Transaction appears to be an {category_guess}.\n"
+                    f"{statement_block}\n\n"
+                    f"Latest line appears to be an {category_guess}.\n"
                     f"This is a basic analysis generated without AI assistance."
                 )
 

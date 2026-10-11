@@ -7,7 +7,16 @@
             <div class="card">
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-center mb-4">
-                        <h2 class="card-title mb-0">Financial Insights</h2>
+                        <div>
+                            <h2 class="card-title mb-1">Financial Insights</h2>
+                            {% if start_date is defined and end_date is defined %}
+                            <p class="text-muted small mb-0">
+                                Workspace period:
+                                {{ start_date.strftime('%d %b %Y') }} –
+                                {{ end_date.strftime('%d %b %Y') }}
+                            </p>
+                            {% endif %}
+                        </div>
                         <form action="{{ url_for('main.generate_insights') }}" method="POST" class="d-inline">
                             {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
                             <button type="submit" class="btn btn-primary">
@@ -15,6 +24,70 @@
                             </button>
                         </form>
                     </div>
+
+                    {% if financial_advice.statement_analysis %}
+                    <div class="mb-4">
+                        <h4 class="text-secondary">Bank statement analysis</h4>
+                        <p class="text-muted small">
+                            Read-only summary from your statement lines in this period
+                            (not ledger postings).
+                        </p>
+                        {% if financial_advice.statement_analysis.empty %}
+                        <div class="alert alert-light border mb-0">
+                            {{ financial_advice.statement_analysis.message }}
+                        </div>
+                        {% else %}
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <div class="row">
+                                    {% if financial_advice.statement_analysis.top_spending %}
+                                    <div class="col-md-6 mb-3">
+                                        <h6 class="text-primary">Top spending</h6>
+                                        <ul class="list-group list-group-flush">
+                                        {% for item in financial_advice.statement_analysis.top_spending %}
+                                            <li class="list-group-item bg-transparent px-0">
+                                                {{ item.label }}:
+                                                R{{ '{:,.2f}'.format(item.total) }}
+                                                <span class="text-muted">({{ item.count }} lines)</span>
+                                            </li>
+                                        {% endfor %}
+                                        </ul>
+                                    </div>
+                                    {% endif %}
+                                    {% if financial_advice.statement_analysis.recurring_payments %}
+                                    <div class="col-md-6 mb-3">
+                                        <h6 class="text-primary">Recurring payments</h6>
+                                        <ul class="list-group list-group-flush">
+                                        {% for item in financial_advice.statement_analysis.recurring_payments %}
+                                            <li class="list-group-item bg-transparent px-0">
+                                                {{ item.payee }}:
+                                                ~R{{ '{:,.2f}'.format(item.typical_amount) }}
+                                                <span class="text-muted">({{ item.count }}×)</span>
+                                            </li>
+                                        {% endfor %}
+                                        </ul>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% if financial_advice.statement_analysis.unusual_amounts %}
+                                <div class="mb-0">
+                                    <h6 class="text-primary">Unusual amounts</h6>
+                                    <ul class="list-group list-group-flush">
+                                    {% for item in financial_advice.statement_analysis.unusual_amounts %}
+                                        <li class="list-group-item bg-transparent px-0">
+                                            <strong>{{ item.description }}</strong> —
+                                            R{{ '{:,.2f}'.format(item.amount) }}.
+                                            <span class="text-muted">{{ item.reason }}</span>
+                                        </li>
+                                    {% endfor %}
+                                    </ul>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
 
                     {% if financial_advice.error %}
                     <div class="alert alert-danger">
@@ -25,6 +98,11 @@
                     <!-- Key Insights -->
                     <div class="mb-4">
                         <h4 class="text-primary">Key Insights</h4>
+                        <p class="text-muted small mb-2">
+                            <span class="badge bg-secondary">AI-generated</span>
+                            Narrative is produced by AI from your statement summary;
+                            verify figures against your bank statements before acting.
+                        </p>
                         <div class="card bg-light">
                             <div class="card-body">
                                 {% if financial_advice.key_insights is string %}
