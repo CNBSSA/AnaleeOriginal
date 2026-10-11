@@ -2,9 +2,11 @@
 
 ## `synthetic_monitor.py` — live uptime monitor
 
-Logs in as a dedicated monitoring user and checks the **dashboard** and one
-**report**, measuring latency. Exits non-zero (so a scheduler/CI run fails and
-alerts) on any non-200, a bounce back to the login page, or a slow response.
+Probes **GET /health** (DB-aware, no login), logs in as a dedicated monitoring
+user, and checks the **dashboard** and one **report**, measuring latency. Exits
+non-zero (so a scheduler/CI run fails and alerts) when secrets are missing (zero
+probes ran), on any non-200, a degraded /health, a bounce back to the login
+page, or a slow response.
 
 ### Run locally
 ```bash
