@@ -331,7 +331,17 @@ class CompanySettings(db.Model):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user = relationship("User", back_populates="company_settings")
     entity = relationship('Entity', back_populates='company_settings')
-    
+
+    @staticmethod
+    def financial_year_period_end_inclusive(end_exclusive: datetime) -> datetime:
+        """Last calendar day of the financial year (midnight).
+
+        ``get_financial_year`` returns ``end_date`` as an exclusive upper bound
+        (start of the day after the year closes). Labels, exports and approval
+        keys use this inclusive last day instead.
+        """
+        return end_exclusive - timedelta(days=1)
+
     def get_financial_year(self, date=None, year=None):
         if date is None:
             date = datetime.utcnow()
@@ -352,7 +362,7 @@ class CompanySettings(db.Model):
             start_date = datetime(start_year, self.financial_year_end + 1, 1)
         
         if self.financial_year_end == 12:
-            end_date = datetime(end_year, 12, 31)
+            last_inclusive = datetime(end_year, 12, 31)
         else:
             if self.financial_year_end == 2:
                 last_day = 29 if end_year % 4 == 0 and (end_year % 100 != 0 or end_year % 400 == 0) else 28
@@ -360,9 +370,14 @@ class CompanySettings(db.Model):
                 last_day = 30
             else:
                 last_day = 31
-            
-            end_date = datetime(end_year, self.financial_year_end, last_day)
-        
+
+            last_inclusive = datetime(end_year, self.financial_year_end, last_day)
+
+        # Exclusive upper bound: the full closing calendar day is included when
+        # callers filter with ``date < end_date`` (not ``<=`` midnight on the
+        # last day, which dropped afternoon timestamps on the closing date).
+        end_date = last_inclusive + timedelta(days=1)
+
         return {
             'start_date': start_date,
             'end_date': end_date,
@@ -372,6 +387,18 @@ class CompanySettings(db.Model):
 
     def __repr__(self):
         return f'<CompanySettings {self.company_name}>'
+
+
+def transaction_in_financial_period(date_column, start_date, end_exclusive):
+    """Inclusive start, exclusive end — matches ``get_financial_year`` bounds."""
+    from sqlalchemy import and_
+    return and_(date_column >= start_date, date_column < end_exclusive)
+
+
+def in_financial_period(moment: datetime, start_date: datetime, end_exclusive: datetime) -> bool:
+    """Python-side check with the same semantics as ``transaction_in_financial_period``."""
+    return start_date <= moment < end_exclusive
+
 
 class UploadedFile(db.Model):
     __tablename__ = 'uploaded_file'

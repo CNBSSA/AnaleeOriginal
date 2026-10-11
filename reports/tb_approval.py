@@ -20,7 +20,7 @@ import hashlib
 import os
 from datetime import datetime
 
-from models import TrialBalanceApproval, db
+from models import CompanySettings, TrialBalanceApproval, db
 
 STATUS_REQUESTED = 'requested'
 STATUS_APPROVED = 'approved'
@@ -44,10 +44,14 @@ def enabled() -> bool:
         '0', 'false', 'no', 'off')
 
 
+def _period_end(ctx):
+    return CompanySettings.financial_year_period_end_inclusive(ctx.end_date)
+
+
 def fingerprint(ctx) -> str:
     """A stable digest of what the trial balance says for its period."""
     h = hashlib.sha256()
-    h.update(ctx.end_date.strftime('%Y-%m-%d').encode())
+    h.update(_period_end(ctx).strftime('%Y-%m-%d').encode())
     for row in sorted(ctx.rows, key=lambda r: r.link):
         h.update(f'|{row.link}={row.amount:.2f}'.encode())
     return h.hexdigest()
@@ -62,7 +66,7 @@ def latest(user_id: int, period_end) -> TrialBalanceApproval | None:
 
 def status_for(user_id: int, ctx) -> dict:
     """What the Trial Balance page shows: state + the record behind it."""
-    record = latest(user_id, ctx.end_date)
+    record = latest(user_id, _period_end(ctx))
     if record is None:
         state = 'none'
     elif record.status == STATUS_APPROVED:
@@ -75,7 +79,7 @@ def status_for(user_id: int, ctx) -> dict:
 
 
 def is_approved(user_id: int, ctx) -> bool:
-    record = latest(user_id, ctx.end_date)
+    record = latest(user_id, _period_end(ctx))
     return (record is not None and record.status == STATUS_APPROVED
             and record.tb_fingerprint == fingerprint(ctx))
 
@@ -84,7 +88,7 @@ def require_approval(user_id: int, ctx) -> None:
     """Raise ``ApprovalRequired`` unless this exact trial balance is approved."""
     if not enabled():
         return
-    record = latest(user_id, ctx.end_date)
+    record = latest(user_id, _period_end(ctx))
     if record is not None and record.status == STATUS_APPROVED:
         if record.tb_fingerprint == fingerprint(ctx):
             return
@@ -94,14 +98,14 @@ def require_approval(user_id: int, ctx) -> None:
 
 def request_approval(user_id: int, ctx, *, requested_by: int) -> TrialBalanceApproval:
     """Record a request for the current figures (idempotent for identical ones)."""
-    record = latest(user_id, ctx.end_date)
+    record = latest(user_id, _period_end(ctx))
     fp = fingerprint(ctx)
     if record is not None and record.tb_fingerprint == fp and record.status in (
             STATUS_REQUESTED, STATUS_APPROVED):
         return record
     record = TrialBalanceApproval(
         user_id=user_id,
-        period_end=_as_date(ctx.end_date),
+        period_end=_as_date(_period_end(ctx)),
         period_start=_as_date(ctx.start_date),
         tb_fingerprint=fp,
         row_count=len(ctx.rows),

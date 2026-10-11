@@ -145,16 +145,6 @@ def _dashboard_financial_years(user_id, company_settings):
     return sorted(years), fy_end, start_year
 
 
-def _dashboard_fy_range(start, fy_end):
-    """First and last day of the financial year that starts in ``start``."""
-    if fy_end == 12:
-        return datetime(start, 1, 1), datetime(start, 12, 31, 23, 59, 59)
-    from calendar import monthrange
-    last_day = monthrange(start + 1, fy_end)[1]
-    return (datetime(start, fy_end + 1, 1),
-            datetime(start + 1, fy_end, last_day, 23, 59, 59))
-
-
 @main.route('/dashboard')
 @login_required
 def dashboard():
@@ -173,12 +163,17 @@ def dashboard():
     selected_fy = request.args.get('financial_year', type=int)
     if selected_fy not in financial_years:
         selected_fy = start_year_of(datetime.now())
-    fy_start, fy_finish = _dashboard_fy_range(selected_fy, fy_end)
+    from reports.routes import _financial_year_bounds
+    from models import transaction_in_financial_period
+
+    fy_bounds = _financial_year_bounds(company_settings, selected_fy)
+    fy_start = fy_bounds['start']
+    fy_finish = fy_bounds['end_exclusive']
+    fy_end_date = fy_bounds['end_inclusive']
 
     fy_transactions = Transaction.query.filter(
         Transaction.user_id == current_user.id,
-        Transaction.date >= fy_start,
-        Transaction.date <= fy_finish,
+        transaction_in_financial_period(Transaction.date, fy_start, fy_finish),
     ).order_by(Transaction.date.desc()).all()
 
     total_income = sum(t.amount for t in fy_transactions if t.amount > 0)
@@ -1082,14 +1077,17 @@ def financial_insights():
             return redirect(url_for('main.company_settings'))
 
         # Get current financial year dates
+        from models import transaction_in_financial_period
+
         fy_dates = company_settings.get_financial_year()
         start_date = fy_dates['start_date']
-        end_date = fy_dates['end_date']
+        end_exclusive = fy_dates['end_date']
+        end_date = CompanySettings.financial_year_period_end_inclusive(end_exclusive)
 
         # Get transactions for analysis
         transactions = Transaction.query.filter(
             Transaction.user_id == current_user.id,
-            Transaction.date.between(start_date, end_date)
+            transaction_in_financial_period(Transaction.date, start_date, end_exclusive),
         ).order_by(Transaction.date.desc()).all()
 
         # Initialize financial insights generator
@@ -1132,12 +1130,16 @@ def generate_insights():
             return redirect(url_for('main.company_settings'))
 
         # Get current financial year dates
+        from models import transaction_in_financial_period
+
         fy_dates = company_settings.get_financial_year()
+        start_date = fy_dates['start_date']
+        end_exclusive = fy_dates['end_date']
 
         # Get transactions for analysis
         transactions = Transaction.query.filter(
             Transaction.user_id == current_user.id,
-            Transaction.date.between(fy_dates['start_date'], fy_dates['end_date'])
+            transaction_in_financial_period(Transaction.date, start_date, end_exclusive),
         ).order_by(Transaction.date.desc()).all()
 
         # Convert transactions to dictionary format for AI processing
@@ -1646,10 +1648,13 @@ def generate_insights_api():
         if not company_settings:
             return jsonify({'error': 'Please configure company settings first.'}), 400
             
+        from models import transaction_in_financial_period
+
         fy_dates = company_settings.get_financial_year()
         transactions = Transaction.query.filter(
             Transaction.user_id == current_user.id,
-            Transaction.date.between(fy_dates['start_date'], fy_dates['end_date'])
+            transaction_in_financial_period(
+                Transaction.date, fy_dates['start_date'], fy_dates['end_date']),
         ).order_by(Transaction.date.desc()).all()
         
         # Format transactions for response

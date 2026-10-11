@@ -11,7 +11,7 @@ from flask import Blueprint, jsonify, request, render_template
 from flask_login import login_required, current_user
 from sqlalchemy import desc, or_
 
-from models import db, Transaction, Account
+from models import CompanySettings, db, Transaction, Account, transaction_in_financial_period
 from ai_insights import FinancialInsightsGenerator
 from nlp_utils import get_claude_client as get_openai_client
 from config import CLAUDE_MODEL
@@ -142,11 +142,13 @@ def _period_for(user_id: int):
     if settings is not None:
         try:
             fy = settings.get_financial_year()
-            return fy['start_date'], fy['end_date'], 'financial year'
+            end_inclusive = CompanySettings.financial_year_period_end_inclusive(
+                fy['end_date'])
+            return fy['start_date'], fy['end_date'], end_inclusive, 'financial year'
         except Exception:  # a settings row with no usable year-end
             pass
     end = datetime.now()
-    return end - timedelta(days=365), end, 'last 12 months'
+    return end - timedelta(days=365), end, end, 'last 12 months'
 
 
 def get_financial_context(user_id: int) -> Dict:
@@ -156,11 +158,11 @@ def get_financial_context(user_id: int) -> Dict:
     CONTEXT_LINE_CAP with the cap stated), all in rand.
     """
     try:
-        start_date, end_date, period_label = _period_for(user_id)
+        start_date, end_exclusive, end_inclusive, period_label = _period_for(user_id)
 
         transactions = Transaction.query.filter(
             Transaction.user_id == user_id,
-            Transaction.date.between(start_date, end_date)
+            transaction_in_financial_period(Transaction.date, start_date, end_exclusive),
         ).order_by(desc(Transaction.date), desc(Transaction.id)).all()
 
         income = sum(t.amount for t in transactions if t.amount > 0)
@@ -192,7 +194,7 @@ def get_financial_context(user_id: int) -> Dict:
         context = {
             'period_label': period_label,
             'period_start': start_date.strftime('%Y-%m-%d'),
-            'period_end': end_date.strftime('%Y-%m-%d'),
+            'period_end': end_inclusive.strftime('%Y-%m-%d'),
             'income': float(income),
             'expenses': float(expenses),
             'balance': float(balance),
