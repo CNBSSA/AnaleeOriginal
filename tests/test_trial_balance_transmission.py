@@ -67,7 +67,7 @@ def test_build_trial_balance_payload_contract():
     ctx = TrialBalanceContext(
         accounts=(),
         start_date=datetime(2025, 3, 1),
-        end_date=datetime(2026, 2, 28),
+        end_date=datetime(2026, 3, 1),
         total_debits=Decimal('100.00'),
         total_credits=Decimal('100.00'),
         rows=(
@@ -253,7 +253,7 @@ def test_load_trial_balance_keywords_select_the_year_and_default_is_unchanged(ap
     with app.app_context():
         default = load_trial_balance(sample_user)
         chosen = load_trial_balance(sample_user, as_at=datetime(2026, 2, 28))
-        assert chosen.end_date == datetime(2026, 2, 28)
+        assert chosen.end_date == datetime(2026, 3, 1)
         assert default.end_date != chosen.end_date
         assert {r.link: float(r.amount) for r in chosen.rows} == {'ca.810.001': 40.0, 'i.100.000': -40.0}
         assert load_trial_balance(sample_user, year=2025).end_date == chosen.end_date

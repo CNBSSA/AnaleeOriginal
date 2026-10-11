@@ -50,8 +50,9 @@ def test_build_xlsx_uses_booksxperts_columns():
 
 
 def test_export_filename_includes_period_end():
-    end = datetime(2026, 2, 28)
-    assert export_filename(end) == 'analee-trial-balance-2026-02-28.xlsx'
+    # ``export_filename`` takes the exclusive ``end_date`` from ``load_trial_balance``.
+    end_exclusive = datetime(2026, 3, 1)
+    assert export_filename(end_exclusive) == 'analee-trial-balance-2026-02-28.xlsx'
 
 
 def test_load_trial_balance_builds_signed_amounts(app, sample_user):

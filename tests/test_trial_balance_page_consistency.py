@@ -73,7 +73,7 @@ def _render(ctx, *, period_query=None):
         accounts=ctx.accounts,
         amounts_by_link={row.link: row.amount for row in ctx.rows},
         start_date=ctx.start_date,
-        end_date=ctx.end_date,
+        end_date=CompanySettings.financial_year_period_end_inclusive(ctx.end_date),
         total_debits=ctx.total_debits,
         total_credits=ctx.total_credits,
         tb_balanced=ctx.total_debits == ctx.total_credits,
@@ -209,7 +209,7 @@ class TestTheFinancialYearSelectorIsNotOffByOne:
             settings = CompanySettings.query.filter_by(user_id=user_id).first()
             dates = settings.get_financial_year(date=_fy_probe_date(2025, 12))
         assert dates['start_date'].date() == datetime(2025, 1, 1).date()
-        assert dates['end_date'].date() == datetime(2025, 12, 31).date()
+        assert dates['end_date'] == datetime(2026, 1, 1)
 
     @pytest.mark.parametrize('fy_end,expected_start,expected_end', [
         (2, (2025, 3, 1), (2026, 2, 28)),
@@ -224,7 +224,8 @@ class TestTheFinancialYearSelectorIsNotOffByOne:
             settings = CompanySettings.query.filter_by(user_id=user_id).first()
             dates = settings.get_financial_year(date=_fy_probe_date(2025, fy_end))
         assert dates['start_date'].date() == datetime(*expected_start).date()
-        assert dates['end_date'].date() == datetime(*expected_end).date()
+        assert CompanySettings.financial_year_period_end_inclusive(
+            dates['end_date']).date() == datetime(*expected_end).date()
 
     def test_the_probe_date_always_lands_inside_the_year_it_selects(self, app):
         """The property the fix rests on, across every possible year-end."""
@@ -234,6 +235,6 @@ class TestTheFinancialYearSelectorIsNotOffByOne:
                 settings = CompanySettings.query.filter_by(user_id=user_id).first()
                 probe = _fy_probe_date(2025, fy_end)
                 dates = settings.get_financial_year(date=probe)
-            assert dates['start_date'] <= probe <= dates['end_date'], (
+            assert dates['start_date'] <= probe < dates['end_date'], (
                 f'year-end {fy_end}: probe {probe} is outside '
                 f"{dates['start_date']}..{dates['end_date']}")
