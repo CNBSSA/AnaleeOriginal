@@ -35,6 +35,7 @@ from services.analyze_processing import (
     file_summaries_for_user,
     get_file_for_user,
     get_paginated_transactions,
+    has_real_account_assignment,
     process_transaction_batch,
     provenance_summary,
     save_analyze_form_transactions,
@@ -478,6 +479,7 @@ def analyze(file_id):
         transaction_insights = {
             transaction.id: {
                 'needs_processing': transaction_needs_processing(transaction),
+                'has_ledger_account': has_real_account_assignment(transaction),
             }
             for transaction in transactions
         }

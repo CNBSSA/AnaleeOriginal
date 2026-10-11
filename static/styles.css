@@ -90,6 +90,11 @@
     margin-bottom: 1rem;
 }
 
+.account-select.account-unassigned {
+    border-left: 4px solid var(--bs-warning);
+    color: var(--bs-secondary);
+}
+
 .explanation-input {
     transition: all 0.3s ease;
     background-color: #ffffff;
