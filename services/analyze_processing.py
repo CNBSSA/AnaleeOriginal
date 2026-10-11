@@ -301,7 +301,7 @@ def process_transaction_batch(
     # fresh guess: it is free, instant, and consistent month to month. Only the
     # rows with no precedent are sent to the model.
     history_index = build_history_index(user_id, exclude_file_id=file_id)
-    suggestions = match_rows(row_payloads, history_index)
+    suggestions = match_rows(row_payloads, history_index, accounts)
     from_history = set(suggestions)
 
     unknown_rows = [row for row in row_payloads if row['index'] not in suggestions]

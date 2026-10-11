@@ -170,21 +170,47 @@ def _account_names(user_id: int) -> Dict[int, str]:
     }
 
 
+def _account_lookup(
+    accounts: Optional[Sequence],
+    account_id: int,
+    cache: Dict[int, Any],
+) -> Any:
+    if account_id in cache:
+        return cache[account_id]
+    if accounts is not None:
+        for account in accounts:
+            if account.id == account_id:
+                cache[account_id] = account
+                return account
+    from models import Account
+    account = Account.query.get(account_id)
+    if account is not None:
+        cache[account_id] = account
+    return account
+
+
 def match_rows(
     rows: Sequence[Dict[str, Any]],
     index: Dict[str, HistoryEntry],
+    accounts: Optional[Sequence] = None,
 ):
     """Match rows against the history index.
 
     Returns ``{row index: RowSuggestion}`` using the same shape as the AI
     suggester, so the caller can merge the two without special-casing either.
     Rows with no history match are simply absent.
+
+    When the historical account would violate the same direction rule as the AI
+    path (work order #33), the match is skipped so the row can fall through to
+    ``suggest_for_rows``.
     """
-    from services.bulk_suggestions import RowSuggestion
+    from services.bulk_suggestions import RowSuggestion, _wrong_direction
 
     matches = {}
     if not index:
         return matches
+
+    account_cache: Dict[int, Any] = {}
 
     for row in rows:
         key = normalize_description(row.get('description'))
@@ -195,6 +221,13 @@ def match_rows(
             continue
         account_id, account_name, confidence = entry.verdict()
         if account_id is None:
+            continue
+        account = _account_lookup(accounts, account_id, account_cache)
+        if account is not None and _wrong_direction(row, account):
+            logger.info(
+                "History match refused for %r: wrong direction for amount %s",
+                account_name, row.get('amount'),
+            )
             continue
         matches[row['index']] = RowSuggestion(
             index=row['index'],
