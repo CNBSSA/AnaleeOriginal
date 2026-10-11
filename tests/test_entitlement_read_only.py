@@ -64,12 +64,6 @@ def test_a_get_that_grants_access_is_not_a_read():
     assert entitlement.read_only_allowed("GET", "main.analyze_client_link") is False
 
 
-def test_a_get_that_spends_money_is_not_a_read():
-    """This endpoint calls the AI on every request."""
-    assert entitlement.read_only_allowed(
-        "GET", "main.icountant_transaction_insights") is False
-
-
 # --- the gate, end to end ---------------------------------------------------
 
 def test_a_lapsed_member_can_still_see_their_dashboard(locked_out):

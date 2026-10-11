@@ -94,8 +94,6 @@ NON_READ_GET_ENDPOINTS = frozenset({
     # Mints a signed URL that lets a THIRD PARTY into this file without a
     # login. Handing out access is not reading your own work.
     "main.analyze_client_link",
-    # Calls the AI on every request, so it costs money per click.
-    "main.icountant_transaction_insights",
 })
 
 

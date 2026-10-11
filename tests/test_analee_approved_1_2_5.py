@@ -1,69 +1,22 @@
-"""Festus 2026-09-30: "approve 1, 2, 5" (Analee).
+"""Festus 2026-09-30: "approve 2, 5" (Analee).
 
-1. Ask Analee also lists lines still showing only the bank account. Both import
-   paths put the statement's bank on every line, so a queue of account-less
-   lines never showed an imported statement.
+Item 1 (Ask Analee /icountant queue) was superseded by Unit 4.1 — see
+tests/test_icountant_path_removed.py and test_analyze_processing.py.
+
 2. PDF import offers — and accepts — only bank-type accounts (bank, cash,
    credit card / overdraft); a statement can only come from one of those.
 5. Send TB carries the financial year on screen into the link it hands THE
    ACCOUNTANTS (Copy share link already did).
 TEST data only. Frozen engine and TB core only called.
 """
-from datetime import date, datetime
+from datetime import date
 from unittest import mock
 
 import pytest
 
 pytest.importorskip("flask_sqlalchemy")
 
-from test_asf_degradation_guard import _register_and_login
 from test_practice_send_tb_club import API, _FakeResponse, _club_workspace_client, _enable
-
-
-def _setup_chart(app, email):
-    from models import Account, User, db
-    with app.app_context():
-        u = User.query.filter_by(email=email).one()
-        bank = Account(link='ca.810.001', name='TEST Bank Cheque', category='Assets', user_id=u.id)
-        rent = Account(link='e.400.000', name='TEST Rent', category='Expenses', user_id=u.id)
-        db.session.add_all([bank, rent])
-        db.session.commit()
-        return u.id, bank.id, rent.id
-
-
-def _line(app, uid, account_id, desc):
-    from models import Transaction, UploadedFile, db
-    with app.app_context():
-        f = UploadedFile(filename='TEST.csv', user_id=uid, upload_date=datetime.utcnow())
-        db.session.add(f)
-        db.session.flush()
-        db.session.add(Transaction(date=datetime(2026, 3, 1), description=desc, amount=-50.0,
-                                   user_id=uid, account_id=account_id, file_id=f.id))
-        db.session.commit()
-
-
-# ---- 1 -----------------------------------------------------------------------
-
-def test_ask_analee_lists_a_line_still_on_the_bank(canary_app):
-    from test_asf_degradation_guard import EMAIL
-    client = canary_app.test_client()
-    _register_and_login(client)
-    uid, bank, rent = _setup_chart(canary_app, EMAIL)
-    _line(canary_app, uid, bank, 'TEST still on the bank')
-    _line(canary_app, uid, rent, 'TEST already decided')
-    page = client.get('/icountant').get_data(as_text=True)
-    assert 'TEST still on the bank' in page
-    assert 'Nothing is waiting here' not in page
-
-
-def test_ask_analee_is_empty_when_every_line_has_a_real_account(canary_app):
-    from test_asf_degradation_guard import EMAIL
-    client = canary_app.test_client()
-    _register_and_login(client)
-    uid, bank, rent = _setup_chart(canary_app, EMAIL)
-    _line(canary_app, uid, rent, 'TEST already decided')
-    page = client.get('/icountant').get_data(as_text=True)
-    assert 'Nothing is waiting here' in page
 
 
 # ---- 2 -----------------------------------------------------------------------
