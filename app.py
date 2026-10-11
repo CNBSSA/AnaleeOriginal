@@ -470,53 +470,60 @@ def create_app(env=None):
             # Friendly 413 handler for oversized uploads (MAX_CONTENT_LENGTH).
             app.register_error_handler(413, _request_entity_too_large)
 
-            # Ensure database tables exist
-            db.create_all()
-            logger.info("Database tables verified")
+            _schema_from_migrations = os.environ.get('ANALEE_SKIP_BOOT_SCHEMA') == '1'
+            if _schema_from_migrations:
+                logger.info(
+                    "Boot schema skipped (ANALEE_SKIP_BOOT_SCHEMA=1); expect "
+                    "flask db upgrade to have built tables"
+                )
+            else:
+                # Ensure database tables exist
+                db.create_all()
+                logger.info("Database tables verified")
 
-            # Defensive schema guard: heal any model columns missing from the
-            # live `user` / `account` / `transaction` tables before anything
-            # queries or seeds them. These are on the auth + OCR/bank-statement
-            # upload + client-explain paths, so a drifted production DB (deploy
-            # uses create_all(), not migrations) would otherwise 500 those pages.
-            # `transaction` is included because `explanation_source` (added with
-            # the client-explain feature via migration only) is a NOT-NULL mapped
-            # column — without it EVERY Transaction query 500s in production.
-            # Idempotent; never blocks startup.
-            try:
-                from models import (User as _User_heal, Account as _Account_heal,
-                                    Transaction as _Txn_heal,
-                                    UploadedFile as _File_heal)
-                # uploaded_file.bank_account_id (2026-09-28) is added here too.
-                _BOOT_REPORT['heal_added'] = [
-                    f"{t}.{c}" for t, c in
-                    _heal_missing_columns(db.engine, [_User_heal, _Account_heal, _Txn_heal,
-                                                      _File_heal])
-                ]
-            except Exception as _e:
-                logger.error(f"schema heal guard skipped: {_e}")
-                _BOOT_REPORT['heal_errors'].append(str(_e))
+                # Defensive schema guard: heal any model columns missing from the
+                # live `user` / `account` / `transaction` tables before anything
+                # queries or seeds them. These are on the auth + OCR/bank-statement
+                # upload + client-explain paths, so a drifted production DB (deploy
+                # uses create_all(), not migrations) would otherwise 500 those pages.
+                # `transaction` is included because `explanation_source` (added with
+                # the client-explain feature via migration only) is a NOT-NULL mapped
+                # column — without it EVERY Transaction query 500s in production.
+                # Idempotent; never blocks startup.
+                try:
+                    from models import (User as _User_heal, Account as _Account_heal,
+                                        Transaction as _Txn_heal,
+                                        UploadedFile as _File_heal)
+                    # uploaded_file.bank_account_id (2026-09-28) is added here too.
+                    _BOOT_REPORT['heal_added'] = [
+                        f"{t}.{c}" for t, c in
+                        _heal_missing_columns(db.engine, [_User_heal, _Account_heal, _Txn_heal,
+                                                          _File_heal])
+                    ]
+                except Exception as _e:
+                    logger.error(f"schema heal guard skipped: {_e}")
+                    _BOOT_REPORT['heal_errors'].append(str(_e))
 
-            # Defensive schema guard: alert_history.alert_config_id was added to
-            # the model after some databases were already created. create_all()
-            # never ALTERs an existing table and this app does not run migrations
-            # on deploy, so add the column if an existing alert_history table is
-            # missing it. Wrapped so a failure can never block startup. (A proper
-            # migration also exists for environments that run `flask db upgrade`.)
-            try:
-                from sqlalchemy import inspect as _sa_inspect, text as _sa_text
-                _insp = _sa_inspect(db.engine)
-                if 'alert_history' in _insp.get_table_names():
-                    _cols = [c['name'] for c in _insp.get_columns('alert_history')]
-                    if 'alert_config_id' not in _cols:
-                        with db.engine.begin() as _conn:
-                            _conn.execute(_sa_text(
-                                'ALTER TABLE alert_history '
-                                'ADD COLUMN alert_config_id INTEGER'
-                            ))
-                        logger.info("Added missing alert_history.alert_config_id column")
-            except Exception as _e:
-                logger.error(f"alert_history column guard skipped: {_e}")
+                # Defensive schema guard: alert_history.alert_config_id was added to
+                # the model after some databases were already created. create_all()
+                # never ALTERs an existing table and this app does not run migrations
+                # on deploy, so add the column if an existing alert_history table is
+                # missing it. Wrapped so a failure can never block startup. (A proper
+                # migration also exists for environments that run `flask db upgrade`.)
+                try:
+                    from sqlalchemy import inspect as _sa_inspect, text as _sa_text
+                    _insp = _sa_inspect(db.engine)
+                    if 'alert_history' in _insp.get_table_names():
+                        _cols = [c['name'] for c in _insp.get_columns('alert_history')]
+                        if 'alert_config_id' not in _cols:
+                            with db.engine.begin() as _conn:
+                                _conn.execute(_sa_text(
+                                    'ALTER TABLE alert_history '
+                                    'ADD COLUMN alert_config_id INTEGER'
+                                ))
+                            logger.info("Added missing alert_history.alert_config_id column")
+                except Exception as _e:
+                    logger.error(f"alert_history column guard skipped: {_e}")
 
             from services.entity_chart_schema import (
                 ensure_company_settings_schema,
@@ -558,16 +565,17 @@ def create_app(env=None):
                 created, skipped = seed_admin_charts()
                 print(f'Chart seed complete: {created} created, {skipped} skipped.')
 
-            try:
-                from services.chart_of_accounts import seed_entities, seed_admin_charts
-                if schema_ready:
-                    seed_entities()
-                    created, skipped = seed_admin_charts()
-                    logger.info(
-                        'Chart seed on boot: %s created, %s skipped', created, skipped
-                    )
-            except Exception as chart_seed_exc:
-                logger.error('Chart seed on boot failed: %s', chart_seed_exc)
+            if not _schema_from_migrations:
+                try:
+                    from services.chart_of_accounts import seed_entities, seed_admin_charts
+                    if schema_ready:
+                        seed_entities()
+                        created, skipped = seed_admin_charts()
+                        logger.info(
+                            'Chart seed on boot: %s created, %s skipped', created, skipped
+                        )
+                except Exception as chart_seed_exc:
+                    logger.error('Chart seed on boot failed: %s', chart_seed_exc)
 
             # Friendly 500 page + [ANALEE-500]-tagged traceback in the logs,
             # replacing the bare Werkzeug "Internal Server Error".
