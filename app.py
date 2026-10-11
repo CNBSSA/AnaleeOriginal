@@ -12,7 +12,7 @@ from sqlalchemy import text
 from flask_apscheduler import APScheduler
 from flask_wtf.csrf import CSRFProtect
 from flask_login import LoginManager, current_user
-from config import MAX_UPLOAD_BYTES, ProductionConfig
+from config import MAX_UPLOAD_BYTES, ProductionConfig, env_flag
 
 # Configure logging with detailed format
 logging.basicConfig(
@@ -342,6 +342,13 @@ def create_app(env=None):
         db.init_app(app)
         migrate.init_app(app, db)
         csrf.init_app(app)
+
+        if env_flag('ANALEE_BACKUP_SCHEDULER_ENABLED', default=False):
+            try:
+                from utils.backup_manager import init_backup_scheduler
+                init_backup_scheduler(app, scheduler)
+            except Exception as backup_sched_exc:
+                logger.error('Backup scheduler not started: %s', backup_sched_exc)
 
         # Configure login manager
         login_manager.init_app(app)

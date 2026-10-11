@@ -1,5 +1,28 @@
 # Operational scripts
 
+## `run_backup.py` — database backup (cron-friendly)
+
+Creates a PostgreSQL `pg_dump` or SQLite file copy under `ANALEE_BACKUP_DIR`
+(default `./backups`). Prefer this over in-process scheduling when you need
+exactly one backup per run across replicas.
+
+```bash
+DATABASE_URL='postgresql://...' ANALEE_BACKUP_DIR=/data/backups python scripts/run_backup.py
+```
+
+See `docs/BACKUP_RESTORE_RUNBOOK.md` for restore steps and the drill script.
+
+## `backup_restore_drill.py` — prove backup → restore (TEST URLs only)
+
+Requires **different** source and target URLs. Writes a marker table, backs up,
+restores, and verifies. Exit `0` only when `"ok": true` in JSON output.
+
+```bash
+SOURCE_DATABASE_URL=sqlite:////tmp/src.db \
+RESTORE_TARGET_DATABASE_URL=sqlite:////tmp/dst.db \
+python scripts/backup_restore_drill.py
+```
+
 ## `synthetic_monitor.py` — live uptime monitor
 
 Probes **GET /health** (DB-aware, no login), logs in as a dedicated monitoring
