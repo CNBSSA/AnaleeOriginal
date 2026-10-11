@@ -135,16 +135,17 @@ CONTEXT_LINE_CAP = 150
 
 
 def _period_for(user_id: int):
-    """The client's current financial year (CompanySettings), else the last
-    twelve months."""
+    """The workspace financial year (current when it has data, else the latest
+    year with transactions), else the last twelve months."""
     from models import CompanySettings
+    from services.workspace_fy import current_financial_year_period
+
     settings = CompanySettings.query.filter_by(user_id=user_id).first()
     if settings is not None:
         try:
-            fy = settings.get_financial_year()
-            end_inclusive = CompanySettings.financial_year_period_end_inclusive(
-                fy['end_date'])
-            return fy['start_date'], fy['end_date'], end_inclusive, 'financial year'
+            start_date, end_exclusive, end_inclusive, _start_year = (
+                current_financial_year_period(user_id, settings))
+            return start_date, end_exclusive, end_inclusive, 'financial year'
         except Exception:  # a settings row with no usable year-end
             pass
     end = datetime.now()
