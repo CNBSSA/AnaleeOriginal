@@ -16,13 +16,14 @@ export class AccountSuggestionHandler {
         const description = button.dataset.description;
         const explanationField = document.querySelector(`textarea[name="explanation_${transactionId}"]`);
         const explanation = explanationField?.value.trim() || button.dataset.explanation || '';
+        const amount = button.dataset.amount;
         const suggestionsDiv = document.getElementById(`suggestions-${transactionId}`);
 
         try {
             this.setLoadingState(button, suggestionsDiv);
             const suggestion = await apiFetch('/analyze/suggest-account', {
                 method: 'POST',
-                body: JSON.stringify({ description, explanation }),
+                body: JSON.stringify({ description, explanation, amount }),
             });
             this.displaySuggestion(suggestion, suggestionsDiv, transactionId);
         } catch (error) {
