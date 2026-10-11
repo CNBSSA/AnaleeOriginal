@@ -133,13 +133,53 @@ def test_index_learns_from_completed_rows_only(app, seeded):
 def test_a_recurring_payee_is_matched_without_any_ai(app, seeded):
     with app.app_context():
         index = build_history_index(seeded['user_id'], exclude_file_id=seeded['new_file'])
+        bank_charges = Account.query.get(seeded['account_id'])
         matches = match_rows(
-            [{'index': 0, 'description': 'FNB FEE 9999', 'amount': -59.0}], index)
+            [{'index': 0, 'description': 'FNB FEE 9999', 'amount': -59.0}],
+            index,
+            [bank_charges],
+        )
 
     assert 0 in matches, "a payee filed twice before was not recognised"
     assert matches[0].account_id == seeded['account_id']
     assert matches[0].confidence >= 0.95
     assert matches[0].explanation == 'Monthly bank fee'
+
+
+def test_history_refuses_expense_account_on_money_in(app, seeded):
+    """A past expense (e.g. bank fee) must not auto-apply to a money-in line."""
+    with app.app_context():
+        index = build_history_index(seeded['user_id'], exclude_file_id=seeded['new_file'])
+        bank_charges = Account.query.get(seeded['account_id'])
+        matches = match_rows(
+            [{'index': 0, 'description': 'FNB FEE 8888', 'amount': 59.0}],
+            index,
+            [bank_charges],
+        )
+
+    assert matches == {}, "money in must not reuse an Expenses precedent"
+
+
+def test_history_refuses_income_account_on_money_out(app, seeded):
+    with app.app_context():
+        sales = Account(link='i.100.000', name='Sales', category='Income',
+                        user_id=seeded['user_id'])
+        db.session.add(sales)
+        db.session.add(Transaction(
+            date=datetime(2026, 1, 8), description='CLIENT INVOICE PAYMENT 1001',
+            amount=5000.0, user_id=seeded['user_id'], file_id=seeded['old_file'],
+            account_id=sales.id, explanation='Client payment',
+            explanation_source='accountant'))
+        db.session.commit()
+
+        index = build_history_index(seeded['user_id'], exclude_file_id=seeded['new_file'])
+        matches = match_rows(
+            [{'index': 0, 'description': 'CLIENT INVOICE PAYMENT 1002', 'amount': -500.0}],
+            index,
+            [sales],
+        )
+
+    assert matches == {}
 
 
 def test_a_new_payee_gets_no_history_match(app, seeded):
