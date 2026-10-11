@@ -9,7 +9,7 @@ after running::
 import os
 
 import pytest
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 pytestmark = pytest.mark.skipif(
     os.environ.get('ANALEE_POSTGRES_MIGRATION_TEST') != '1',
@@ -50,15 +50,7 @@ def test_fresh_database_has_expected_tables_after_upgrade():
 
 
 def test_alembic_version_is_at_head():
-    from flask_migrate import current
-
-    os.environ.setdefault('ANALEE_SKIP_BOOT_SCHEMA', '1')
-    os.environ.setdefault('FLASK_APP', 'migrate_app.py')
-
-    from migrate_app import app
-
-    with app.app_context():
-        script = current()
-        assert script is not None
-        head = script.get_current_head()
-        assert head == 'd5e1f7a9c2b4', f'expected migration head d5e1f7a9c2b4, got {head}'
+    engine = create_engine(_postgres_url())
+    with engine.connect() as conn:
+        version = conn.execute(text('SELECT version_num FROM alembic_version')).scalar()
+    assert version == 'd5e1f7a9c2b4', f'expected migration head d5e1f7a9c2b4, got {version}'

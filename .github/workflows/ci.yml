@@ -54,7 +54,8 @@ jobs:
       DATABASE_URL: postgresql://analee:test@localhost:5432/analee_migration_test
       FLASK_SECRET_KEY: ci-migration-gate-secret
       ANALEE_SKIP_BOOT_SCHEMA: '1'
-      FLASK_APP: migrate_app.py
+      FLASK_APP: migrate_app:app
+      PYTHONPATH: ${{ github.workspace }}
       ANALEE_POSTGRES_MIGRATION_TEST: '1'
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +69,6 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
       - name: Apply migrations on empty PostgreSQL (production-equivalent path)
-        run: flask db upgrade
+        run: python -m flask db upgrade
       - name: Verify migrated schema
         run: pytest tests/test_postgres_migrations.py -q
