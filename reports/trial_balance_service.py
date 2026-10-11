@@ -119,7 +119,11 @@ SUSPENSE_NAME = 'Suspense Account'
 # one clearly named row rather than guessed onto one of the client's banks.
 UNRECORDED_BANK_LINK = 'ca.810.000'
 UNRECORDED_BANK_NAME = 'Bank (statement account not recorded)'
-RETAINED_LINKS = ('q.200.000', 'q.100.000')
+# Prior-year P&L rolls here only — never into Share Capital / Members' Contribution
+# (q.100.000). That link is a real equity account with its own postings; using it
+# as a fallback when q.200.000 is missing made the TB show the expense aggregate
+# on Capital while q.200.000 was absent from the chart.
+RETAINED_LINKS = ('q.200.000',)
 RETAINED_NAME = 'Retained Earnings'
 
 
