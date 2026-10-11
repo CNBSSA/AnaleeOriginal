@@ -774,11 +774,11 @@ def suggest_account():
                 'message': _ASF_OFFLINE_MESSAGE,
             })
 
-        predictor = PredictiveFeatures()
+        from nlp_utils import get_claude_client
+        from services.bulk_suggestions import suggest_for_rows
 
-        # Door 2 — a key is set but the client did not construct. The engine's
-        # own startup log claims success either way, so trust the object.
-        if getattr(predictor, 'client', None) is None:
+        # Door 2 — a key is set but the client did not construct.
+        if get_claude_client() is None:
             logger.error(
                 'ASF declined: ANTHROPIC_API_KEY is set but the AI client did '
                 'not initialise. Check the key is valid and that CLAUDE_MODEL '
@@ -790,20 +790,28 @@ def suggest_account():
                 'message': _ASF_OFFLINE_MESSAGE,
             })
 
-        suggestion = predictor.suggest_account(
-            description,
-            explanation,
-            user_id=current_user.id,
-        )
+        try:
+            amount = float(data.get('amount', 0) or 0)
+        except (TypeError, ValueError):
+            amount = 0.0
 
-        # Door 3 — the engine answered, but from the fallback, not the AI.
-        if _asf_is_degraded(suggestion):
+        accounts = Account.query.filter_by(
+            user_id=current_user.id,
+            is_active=True,
+        ).all()
+        rows = [{
+            'index': 0,
+            'date': '',
+            'description': description,
+            'amount': amount,
+        }]
+        # Same JSON batched suggester as auto-process — never the frozen engine's
+        # pipe parser or its text-matching fallback (Festus 2026-09-03).
+        suggestions = suggest_for_rows(rows, accounts)
+        if not suggestions:
             logger.error(
-                'ASF declined: the AI call failed and the engine fell back to '
-                'text matching (would have suggested %r at %s). Check the API '
-                'key and that CLAUDE_MODEL (%s) is available on it.',
-                suggestion.get('account'), suggestion.get('confidence'),
-                CLAUDE_MODEL,
+                'ASF declined: bulk suggester returned nothing (API unreachable '
+                'or call failed). CLAUDE_MODEL=%s', CLAUDE_MODEL,
             )
             return jsonify({
                 'success': False,
@@ -811,7 +819,23 @@ def suggest_account():
                 'message': _ASF_OFFLINE_MESSAGE,
             })
 
-        return jsonify(suggestion)
+        suggestion = suggestions[0]
+        if not suggestion.account_name:
+            return jsonify({
+                'success': False,
+                'ai_online': True,
+                'message': (
+                    'The AI could not match a ledger account for this line with '
+                    'enough confidence. Pick the account manually or use Recall.'
+                ),
+            })
+
+        return jsonify({
+            'success': True,
+            'account': suggestion.account_name,
+            'confidence': suggestion.confidence,
+            'reasoning': suggestion.explanation or explanation,
+        })
 
     except Exception as e:
         logger.error(f"Error suggesting account: {str(e)}")

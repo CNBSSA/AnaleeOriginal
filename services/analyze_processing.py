@@ -5,8 +5,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import func, or_
 
 from models import Account, Transaction, UploadedFile, db
+from reports.trial_balance_service import BANK_LINK_PREFIXES
 
 logger = logging.getLogger(__name__)
+
+_BATCH_AI_OFFLINE_MESSAGE = (
+    'AI account suggestions are offline right now, so accounts were not filled '
+    'automatically. Explanations from history may still apply. Try again later '
+    'or assign accounts manually.'
+)
 
 ANALYZE_PAGE_SIZE = 10
 #: Rows per auto-process request. Raised from 10 now that a batch is ONE AI
@@ -14,18 +21,56 @@ ANALYZE_PAGE_SIZE = 10
 ANALYZE_BATCH_SIZE = 25
 
 
-def transaction_needs_processing(transaction: Transaction) -> bool:
-    """True when a row still needs an account assignment OR an explanation.
+def bank_account_ids_for_user(user_id: int) -> List[int]:
+    """Ledger accounts that represent the statement bank, not a categorisation."""
+    if not BANK_LINK_PREFIXES:
+        return []
+    return [
+        account.id
+        for account in Account.query.filter(
+            Account.user_id == user_id,
+            or_(*[Account.link.like(f'{prefix}%') for prefix in BANK_LINK_PREFIXES]),
+        ).all()
+    ]
 
-    Previously this was an AND: a row counted as finished the moment it had
-    *either* one. That interacted badly with import — both import paths stamp
-    the chosen bank account onto every row (`bank_statements/services.py`, and
-    the "assign all rows to account" selector on the OCR review screen), so a
-    freshly imported statement was marked "All processed" before anything had
-    been categorised or explained, and its rows were invisible to the
-    exceptions view. A row is only done when both halves are present.
+
+def _account_link_is_bank(link: Optional[str]) -> bool:
+    prefix = (link or '').strip()
+    return any(prefix.startswith(bank_prefix) for bank_prefix in BANK_LINK_PREFIXES)
+
+
+def has_real_account_assignment(transaction: Transaction) -> bool:
+    """False when the row still carries only the import-stamped bank account."""
+    if transaction.account_id is None:
+        return False
+    account = transaction.account
+    if account is None:
+        account = Account.query.get(transaction.account_id)
+    if account is None:
+        return True
+    return not _account_link_is_bank(account.link)
+
+
+def account_slot_is_open(
+    transaction: Transaction,
+    bank_account_ids: Optional[set] = None,
+) -> bool:
+    """True when auto-process may write a categorised account onto this row."""
+    if transaction.account_id is None:
+        return True
+    if bank_account_ids is None:
+        return not has_real_account_assignment(transaction)
+    return transaction.account_id in bank_account_ids
+
+
+def transaction_needs_processing(transaction: Transaction) -> bool:
+    """True when a row still needs a real account assignment OR an explanation.
+
+    Both import paths stamp the statement's bank account onto every row, so
+    ``account_id is not None`` alone does not mean the line is categorised.
+    The iCountant queue was fixed the same way (Festus 2026-09-30, approve 1).
     """
-    has_account = transaction.account_id is not None
+    has_account = has_real_account_assignment(transaction)
     has_explanation = bool(transaction.explanation and transaction.explanation.strip())
     return not (has_account and has_explanation)
 
@@ -38,10 +83,14 @@ def count_file_transactions(file_id: int, user_id: int) -> int:
     return Transaction.query.filter_by(file_id=file_id, user_id=user_id).count()
 
 
-def _needs_processing_clause():
+def _needs_processing_clause(user_id: int):
     """SQL twin of :func:`transaction_needs_processing` — missing EITHER half."""
+    bank_ids = bank_account_ids_for_user(user_id)
+    missing_account = Transaction.account_id.is_(None)
+    if bank_ids:
+        missing_account = or_(missing_account, Transaction.account_id.in_(bank_ids))
     return or_(
-        Transaction.account_id.is_(None),
+        missing_account,
         Transaction.explanation.is_(None),
         Transaction.explanation == '',
     )
@@ -51,7 +100,7 @@ def count_unprocessed_transactions(file_id: int, user_id: int) -> int:
     return Transaction.query.filter(
         Transaction.file_id == file_id,
         Transaction.user_id == user_id,
-        _needs_processing_clause(),
+        _needs_processing_clause(user_id),
     ).count()
 
 
@@ -116,7 +165,7 @@ def get_paginated_transactions(
         user_id=user_id,
     )
     if only_unprocessed:
-        base_query = base_query.filter(_needs_processing_clause())
+        base_query = base_query.filter(_needs_processing_clause(user_id))
     if only_ai_written:
         # Spot-check what the machine decided. Automation writes at scale, so
         # the accountant needs a way to review exactly its output — not the
@@ -224,7 +273,7 @@ def process_transaction_batch(
     unprocessed_query = Transaction.query.filter(
         Transaction.file_id == file_id,
         Transaction.user_id == user_id,
-        _needs_processing_clause(),
+        _needs_processing_clause(user_id),
     ).order_by(Transaction.date, Transaction.id)
 
     total_unprocessed = unprocessed_query.count()
@@ -235,9 +284,11 @@ def process_transaction_batch(
             'next_offset': offset, 'applied': 0, 'explained': 0,
             'total_unprocessed': total_unprocessed, 'remaining': 0,
             'has_more': False, 'results': [],
+            'ai_online': True,
         }
 
     accounts = Account.query.filter_by(user_id=user_id, is_active=True).all()
+    bank_ids = set(bank_account_ids_for_user(user_id))
 
     row_payloads = [{
         'index': index,
@@ -254,8 +305,12 @@ def process_transaction_batch(
     from_history = set(suggestions)
 
     unknown_rows = [row for row in row_payloads if row['index'] not in suggestions]
+    ai_online = True
     if unknown_rows:
-        suggestions.update(suggest_for_rows(unknown_rows, accounts))
+        ai_suggestions = suggest_for_rows(unknown_rows, accounts)
+        if not ai_suggestions:
+            ai_online = False
+        suggestions.update(ai_suggestions)
 
     results: List[Dict[str, Any]] = []
     for index, transaction in enumerate(transactions):
@@ -267,7 +322,7 @@ def process_transaction_batch(
 
         if suggestion is not None:
             # Account: only into an empty slot, only above the gate.
-            if (transaction.account_id is None
+            if (account_slot_is_open(transaction, bank_ids)
                     and suggestion.account_id is not None
                     and suggestion.confidence >= auto_apply_threshold):
                 transaction.account_id = suggestion.account_id
@@ -310,12 +365,12 @@ def process_transaction_batch(
     # window must advance past exactly those rows that still need work.
     completed = sum(
         1 for index, txn in enumerate(transactions)
-        if txn.account_id is not None and (txn.explanation or '').strip()
+        if has_real_account_assignment(txn) and (txn.explanation or '').strip()
     )
     next_offset = offset + (processed_count - completed)
     remaining = max(0, total_unprocessed - completed - next_offset)
 
-    return {
+    payload = {
         'success': True,
         'processed': processed_count,
         'offset': offset,
@@ -327,7 +382,11 @@ def process_transaction_batch(
         'remaining': remaining,
         'has_more': remaining > 0,
         'results': results,
+        'ai_online': ai_online,
     }
+    if not ai_online:
+        payload['ai_message'] = _BATCH_AI_OFFLINE_MESSAGE
+    return payload
 
 
 def file_summaries_for_user(user_id: int) -> List[Dict[str, Any]]:

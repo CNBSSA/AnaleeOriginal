@@ -371,6 +371,7 @@
                                             data-transaction-id="{{ transaction.id }}"
                                             data-description="{{ transaction.description }}"
                                             data-explanation="{{ transaction.explanation or '' }}"
+                                            data-amount="{{ transaction.amount }}"
                                             title="Suggest an account for this line"
                                             {% if not ai_available %}disabled{% endif %}>
                                         <i class="fas fa-magic"></i> Suggest account
@@ -477,7 +478,8 @@
                                             class="btn btn-outline-secondary suggest-account-btn"
                                             data-transaction-id="{{ transaction.id }}"
                                             data-description="{{ transaction.description }}"
-                                            data-explanation="{{ transaction.explanation or '' }}">
+                                            data-explanation="{{ transaction.explanation or '' }}"
+                                            data-amount="{{ transaction.amount }}">
                                         <i class="fas fa-magic"></i> Suggest
                                     </button>
                                 </div>
