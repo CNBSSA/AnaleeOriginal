@@ -148,7 +148,7 @@ def test_a_real_ai_suggestion_still_passes_through(canary_app, monkeypatch):
 
     monkeypatch.setattr(
         'services.bulk_suggestions.suggest_for_rows',
-        lambda rows, accounts, client=None: {
+        lambda rows, accounts, client=None, **kwargs: {
             0: RowSuggestion(
                 index=0,
                 account_id=1,

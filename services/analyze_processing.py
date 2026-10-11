@@ -307,7 +307,8 @@ def process_transaction_batch(
     unknown_rows = [row for row in row_payloads if row['index'] not in suggestions]
     ai_online = True
     if unknown_rows:
-        ai_suggestions = suggest_for_rows(unknown_rows, accounts)
+        ai_suggestions = suggest_for_rows(
+            unknown_rows, accounts, history_index=history_index)
         if not ai_suggestions:
             ai_online = False
         suggestions.update(ai_suggestions)

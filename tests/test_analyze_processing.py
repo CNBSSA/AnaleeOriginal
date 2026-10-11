@@ -286,7 +286,7 @@ def test_batch_costs_one_ai_call_for_the_whole_batch(app, analyze_user, analyze_
 
     from services.bulk_suggestions import RowSuggestion
 
-    def _suggest(rows, accounts, client=None):
+    def _suggest(rows, accounts, client=None, **kwargs):
         calls.append(len(rows))
         return {r['index']: RowSuggestion(
             index=r['index'], account_id=account_id, account_name='Bank Fees',
@@ -325,7 +325,7 @@ def test_batch_sends_only_the_owning_users_accounts(app, analyze_user, analyze_f
 
     seen_charts = []
 
-    def _suggest(rows, accounts, client=None):
+    def _suggest(rows, accounts, client=None, **kwargs):
         seen_charts.append([a.name for a in accounts])
         return {}
 
@@ -347,7 +347,7 @@ def test_batch_does_not_skip_rows_it_could_not_complete(app, analyze_user, analy
 
     from services.bulk_suggestions import RowSuggestion
 
-    def _half_confident(rows, accounts, client=None):
+    def _half_confident(rows, accounts, client=None, **kwargs):
         out = {}
         for position, row in enumerate(rows):
             confident = position % 2 == 1
@@ -389,7 +389,7 @@ def _fake_bulk(mapping):
     """Patch the batched suggester with a canned index -> RowSuggestion map."""
     from services.bulk_suggestions import RowSuggestion
 
-    def _suggest(rows, accounts, client=None):
+    def _suggest(rows, accounts, client=None, **kwargs):
         out = {}
         for row in rows:
             spec = mapping.get(row['index'])
@@ -509,7 +509,7 @@ def test_batch_reports_ai_offline_when_suggester_returns_nothing(
         db.session.commit()
 
     monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows',
-                        lambda rows, accounts, client=None: {})
+                        lambda rows, accounts, client=None, **kwargs: {})
 
     with app.app_context():
         result = process_transaction_batch(analyze_file, analyze_user, offset=0)
@@ -543,7 +543,7 @@ def test_batch_offline_changes_nothing(app, analyze_user, analyze_file, monkeypa
     _add_transactions(app, analyze_user, analyze_file, count=3)
     _add_account(app, analyze_user)
     monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows',
-                        lambda rows, accounts, client=None: {})
+                        lambda rows, accounts, client=None, **kwargs: {})
 
     with app.app_context():
         result = process_transaction_batch(analyze_file, analyze_user, offset=0)
@@ -577,7 +577,7 @@ def test_a_payee_with_history_costs_no_ai_call(app, analyze_user, analyze_file, 
 
     asked = []
     monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows',
-                        lambda rows, accounts, client=None: asked.append(len(rows)) or {})
+                        lambda rows, accounts, client=None, **kwargs: asked.append(len(rows)) or {})
 
     with app.app_context():
         result = process_transaction_batch(analyze_file, analyze_user, offset=0)
@@ -612,7 +612,7 @@ def test_only_unknown_payees_are_sent_to_the_model(app, analyze_user, analyze_fi
 
     sent = []
 
-    def _spy(rows, accounts, client=None):
+    def _spy(rows, accounts, client=None, **kwargs):
         sent.extend(r['description'] for r in rows)
         return {}
 
