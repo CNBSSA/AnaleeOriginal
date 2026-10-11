@@ -773,6 +773,7 @@ def suggest_account():
 
         from nlp_utils import get_claude_client
         from services.bulk_suggestions import suggest_for_rows
+        from services.history_matching import build_history_index
 
         # Door 2 — a key is set but the client did not construct.
         if get_claude_client() is None:
@@ -804,7 +805,8 @@ def suggest_account():
         }]
         # Same JSON batched suggester as auto-process — never the frozen engine's
         # pipe parser or its text-matching fallback (Festus 2026-09-03).
-        suggestions = suggest_for_rows(rows, accounts)
+        history_index = build_history_index(current_user.id)
+        suggestions = suggest_for_rows(rows, accounts, history_index=history_index)
         if not suggestions:
             logger.error(
                 'ASF declined: bulk suggester returned nothing (API unreachable '
