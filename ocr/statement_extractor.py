@@ -20,6 +20,7 @@ from nlp_utils import get_claude_client
 from .pdf_text_extraction import PdfStatementError, extract_pdf_statement, extract_text
 from .pdf_chunking import needs_chunking, split_pdf_bytes, count_pdf_pages
 from .bank_profiles import detect_profile
+from services.extraction_junk_filter import JunkVerdict, classify_extraction_row, filter_review_rows
 from .statement_integrity import (
     ExtractionResult,
     ReportCard,
@@ -240,10 +241,14 @@ def _payload_to_result(
                 period_start=payload.get("period_start"),
                 period_end=payload.get("period_end"),
             )
+            description = str(raw.get("description") or "").strip()
+            amount = raw["amount"]
+            if classify_extraction_row(description, amount) == JunkVerdict.DROP:
+                continue
             lines.append(StatementLine(
                 date=iso_date,
-                description=str(raw.get("description") or "").strip(),
-                amount=raw["amount"],
+                description=description,
+                amount=amount,
                 balance=balance,
                 confidence=confidence,
             ))
@@ -530,7 +535,7 @@ def extract_bank_statement(
             )
 
     report = self_audit(result)
-    rows = _result_to_review_rows(result)
+    rows, _junk_dropped = filter_review_rows(_result_to_review_rows(result))
 
     return BankStatementExtraction(
         rows=rows,

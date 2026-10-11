@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Callable, List, Optional, Sequence
 
+from services.extraction_junk_filter import JunkVerdict, classify_extraction_row
 from .statement_integrity import (
     StatementLine, normalize_amount, normalize_date, resolve_date_with_period,
 )
@@ -286,5 +287,7 @@ def parse_transaction_lines(text: str, profile: Optional[BankProfile] = None) ->
             continue
         parsed = profile.parse_line(raw_line)
         if parsed is not None:
+            if classify_extraction_row(parsed.description, parsed.amount) == JunkVerdict.DROP:
+                continue
             lines.append(parsed)
     return lines
