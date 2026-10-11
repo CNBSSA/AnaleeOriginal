@@ -2,8 +2,9 @@
 
 Run automatically by Railway (``preDeployCommand`` in railway.json) before each
 new deployment starts serving. Prints exactly one status line to the deploy
-logs; never prints a password. Always exits 0 so a database hiccup here can
-never block a deploy — the line in the logs is the signal.
+logs; never prints a password. Exits non-zero when the legacy default admin
+cannot be neutralised (including when the guard cannot run), so a deploy never
+silently passes over a live known credential.
 
     python neutralise_default_admin.py
 
@@ -25,9 +26,11 @@ def main() -> int:
     from app import create_app
     app = create_app()
     if not app:
-        print("default-admin guard: could not create the application "
-              "(is DATABASE_URL set?) — nothing changed", file=sys.stderr)
-        return 0
+        print("default-admin guard: FATAL — could not create the application "
+              "(is DATABASE_URL set?). Cannot verify or neutralise the legacy "
+              "default admin; deploy blocked.",
+              file=sys.stderr)
+        return 1
 
     from models import db
     from security.default_admin_guard import (
@@ -40,11 +43,13 @@ def main() -> int:
                 db.session,
                 replacement_password=os.environ.get('ADMIN_PASSWORD') or None,
                 force=os.environ.get('ADMIN_PASSWORD_FORCE_RESET') == '1')
-        except Exception as exc:  # noqa: BLE001 — report, never block the deploy
+        except Exception as exc:  # noqa: BLE001 — fail closed; credential may be live
             db.session.rollback()
-            print(f"default-admin guard: check failed ({exc.__class__.__name__}) "
-                  "— nothing changed", file=sys.stderr)
-            return 0
+            print(f"default-admin guard: FATAL — check failed "
+                  f"({exc.__class__.__name__}). Cannot verify or neutralise the "
+                  f"legacy default admin; deploy blocked.",
+                  file=sys.stderr)
+            return 1
 
     _provision_admin(app, db)
 
