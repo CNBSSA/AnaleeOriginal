@@ -44,7 +44,7 @@ export class AccountSuggestionHandler {
 
     resetButtonState(button) {
         button.disabled = false;
-        button.innerHTML = '<i class="fas fa-magic"></i> ASF';
+        button.innerHTML = '<i class="fas fa-magic"></i> Suggest account';
     }
 
     displaySuggestion(suggestion, suggestionsDiv, transactionId) {

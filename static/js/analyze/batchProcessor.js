@@ -114,21 +114,12 @@ export class BatchProcessor {
                 return;
             }
 
+            // Only reflect accounts the server persisted (confidence gate).
+            // Low-confidence suggestions are returned for review but must not
+            // fill the dropdown — that looked saved until reload (QA D2).
             if (item.applied_account_id) {
                 select.value = String(item.applied_account_id);
                 select.classList.add('border-success');
-                return;
-            }
-
-            const suggestion = item.suggestion || {};
-            if (suggestion.success && suggestion.account) {
-                const match = Array.from(select.options).find((option) =>
-                    option.text.toLowerCase().includes(String(suggestion.account).toLowerCase())
-                );
-                if (match) {
-                    select.value = match.value;
-                    select.classList.add('border-info');
-                }
             }
         });
     }
