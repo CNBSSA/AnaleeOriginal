@@ -75,8 +75,12 @@ def _period_end_exclusive(end) -> datetime:
     raise TypeError(f'unsupported period end type: {type(end)!r}')
 
 
-def _financial_year_bounds(settings: CompanySettings, start_year: int) -> dict:
+def _financial_year_bounds(settings: CompanySettings | None, start_year: int) -> dict:
     """Bounds for a financial year that starts in ``start_year`` (dashboard convention)."""
+    if settings is None:
+        # Calendar-year default — matches ``_dashboard_financial_years`` when the
+        # user has not configured company settings yet.
+        settings = CompanySettings(company_name='', user_id=0, financial_year_end=12)
     fy_end = int(settings.financial_year_end or 12)
     bounds = settings.get_financial_year(date=_fy_probe_date(start_year, fy_end))
     last_day = CompanySettings.financial_year_period_end_inclusive(bounds['end_date'])
