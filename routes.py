@@ -162,8 +162,9 @@ def dashboard():
     financial_years, fy_end, start_year_of = _dashboard_financial_years(
         current_user.id, company_settings)
     selected_fy = request.args.get('financial_year', type=int)
-    if selected_fy not in financial_years:
-        selected_fy = start_year_of(datetime.now())
+    if selected_fy is None or selected_fy not in financial_years:
+        from services.workspace_fy import default_fy_start_year
+        selected_fy = default_fy_start_year(current_user.id, company_settings)
     from reports.routes import _financial_year_bounds
     from models import transaction_in_financial_period
 
@@ -1078,15 +1079,12 @@ def financial_insights():
             flash('Please configure company settings first.')
             return redirect(url_for('main.company_settings'))
 
-        # Get current financial year dates
         from models import transaction_in_financial_period
+        from services.workspace_fy import current_financial_year_period
 
-        fy_dates = company_settings.get_financial_year()
-        start_date = fy_dates['start_date']
-        end_exclusive = fy_dates['end_date']
-        end_date = CompanySettings.financial_year_period_end_inclusive(end_exclusive)
+        start_date, end_exclusive, end_date, _start_year = current_financial_year_period(
+            current_user.id, company_settings)
 
-        # Get transactions for analysis
         transactions = Transaction.query.filter(
             Transaction.user_id == current_user.id,
             transaction_in_financial_period(Transaction.date, start_date, end_exclusive),
@@ -1131,14 +1129,12 @@ def generate_insights():
             flash('Please configure company settings first.')
             return redirect(url_for('main.company_settings'))
 
-        # Get current financial year dates
         from models import transaction_in_financial_period
+        from services.workspace_fy import current_financial_year_period
 
-        fy_dates = company_settings.get_financial_year()
-        start_date = fy_dates['start_date']
-        end_exclusive = fy_dates['end_date']
+        start_date, end_exclusive, _end_inclusive, _start_year = (
+            current_financial_year_period(current_user.id, company_settings))
 
-        # Get transactions for analysis
         transactions = Transaction.query.filter(
             Transaction.user_id == current_user.id,
             transaction_in_financial_period(Transaction.date, start_date, end_exclusive),
