@@ -89,7 +89,7 @@ class AlertSystem:
                     anomalies.append({
                         'type': 'transaction',
                         'severity': 'high' if abs(transaction.amount) > config.threshold_value * 1.5 else 'medium',
-                        'message': f'Large transaction detected: ${abs(transaction.amount):,.2f}',
+                        'message': f'Large transaction detected: R{abs(transaction.amount):,.2f}',
                         'transaction_id': transaction.id
                     })
                     

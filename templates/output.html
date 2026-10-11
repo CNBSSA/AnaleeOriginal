@@ -65,7 +65,7 @@
                                         </div>
                                     </td>
                                     <td class="text-end {{ 'text-success' if item.amount > 0 else 'text-danger' }}">
-                                        ${{ "%.2f"|format(item.amount|abs) }}
+                                        R{{ "%.2f"|format(item.amount|abs) }}
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -74,7 +74,7 @@
                             <tr>
                                 <th>Total</th>
                                 <th class="text-end {{ 'text-success' if trial_balance|sum(attribute='amount') >= 0 else 'text-danger' }}">
-                                    ${{ "%.2f"|format(trial_balance|sum(attribute='amount')|abs) }}
+                                    R{{ "%.2f"|format(trial_balance|sum(attribute='amount')|abs) }}
                                 </th>
                             </tr>
                         </tfoot>

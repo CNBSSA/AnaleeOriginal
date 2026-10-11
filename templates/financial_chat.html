@@ -147,9 +147,9 @@ document.addEventListener('DOMContentLoaded', function() {
         summaryDiv.innerHTML = `
             <div class="mb-3">
                 <h6>Current Month Overview</h6>
-                <p class="mb-1">Income: $${context.income.toLocaleString()}</p>
-                <p class="mb-1">Expenses: $${context.expenses.toLocaleString()}</p>
-                <p class="mb-1">Balance: $${context.balance.toLocaleString()}</p>
+                <p class="mb-1">Income: R${context.income.toLocaleString()}</p>
+                <p class="mb-1">Expenses: R${context.expenses.toLocaleString()}</p>
+                <p class="mb-1">Balance: R${context.balance.toLocaleString()}</p>
                 ${context.unanalyzed_count ? `<p class="text-warning">Unanalyzed Transactions: ${context.unanalyzed_count}</p>` : ''}
             </div>
         `;
@@ -162,7 +162,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="d-flex justify-content-between">
                         <span>${tx.description}</span>
                         <span class="${tx.amount >= 0 ? 'text-success' : 'text-danger'}">
-                            $${Math.abs(tx.amount).toLocaleString()}
+                            R${Math.abs(tx.amount).toLocaleString()}
                         </span>
                     </div>
                     <div class="text-muted smaller">
