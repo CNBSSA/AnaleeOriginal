@@ -1612,12 +1612,16 @@ def init_upload_status(filename):
     
 def process_transaction_rows(df, uploaded_file, user):
     """Process transaction rows from dataframe."""
+    from services.extraction_junk_filter import JunkVerdict, classify_extraction_row
+
     processed_rows = 0
     error_rows = []
     
     try:
         for index, row in df.iterrows():
             try:
+                if classify_extraction_row(row.get('Description'), row.get('Amount')) == JunkVerdict.DROP:
+                    continue
                 transaction = Transaction(
                     date=parse_statement_date_or_raise(row['Date']).date(),
                     description=str(row['Description']),

@@ -122,10 +122,17 @@
     </p>
 
     {% set duplicate_count = rows | selectattr('duplicate') | list | length %}
+    {% set notice_count = rows | selectattr('statement_notice') | list | length %}
     {% if duplicate_count %}
         <div class="alert alert-warning">
             {{ duplicate_count }} row(s) look like possible duplicates and have been
             unticked. Review them before importing.
+        </div>
+    {% endif %}
+    {% if notice_count %}
+        <div class="alert alert-warning">
+            {{ notice_count }} zero-amount row(s) look like statement notices (not money
+            movement) and have been unticked. Tick only if you intend to keep them.
         </div>
     {% endif %}
 
@@ -160,10 +167,10 @@
                 </thead>
                 <tbody>
                     {% for row in rows %}
-                        <tr class="{% if row.duplicate or loop.index0 in suspect_indexes %}table-danger{% elif row.confidence < 0.6 %}table-warning{% endif %}">
+                        <tr class="{% if row.duplicate or row.statement_notice or loop.index0 in suspect_indexes %}table-danger{% elif row.confidence < 0.6 %}table-warning{% endif %}">
                             <td class="text-center">
                                 <input type="checkbox" class="form-check-input" name="include"
-                                       value="{{ loop.index0 }}" {% if not row.duplicate %}checked{% endif %}>
+                                       value="{{ loop.index0 }}" {% if not row.duplicate and not row.statement_notice %}checked{% endif %}>
                             </td>
                             <td>
                                 <input type="date" name="date" class="form-control"
@@ -184,6 +191,9 @@
                             <td>
                                 {% if row.duplicate %}
                                     <span class="badge bg-danger">Possible duplicate</span>
+                                {% endif %}
+                                {% if row.statement_notice %}
+                                    <span class="badge bg-secondary">Statement notice</span>
                                 {% endif %}
                                 {% if loop.index0 in suspect_indexes %}
                                     <span class="badge bg-danger">Check amount</span>

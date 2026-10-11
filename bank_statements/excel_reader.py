@@ -8,6 +8,7 @@ import logging
 from typing import List, Optional
 import pandas as pd
 
+from services.extraction_junk_filter import filter_normalized_rows
 from .format_detector import find_header_row, normalize_bank_statement_dataframe
 
 _CSV_DELIMITERS = (',', ';', '\t', '|')
@@ -75,6 +76,24 @@ class BankStatementExcelReader:
 
             logger.info('Raw sheet shape: %s', raw_df.shape)
             df = normalize_bank_statement_dataframe(raw_df)
+            filtered_rows, dropped, flagged = filter_normalized_rows(
+                df.to_dict('records'),
+            )
+            if dropped:
+                logger.info(
+                    'Dropped %d non-transaction notice row(s) during import',
+                    dropped,
+                )
+            if flagged:
+                logger.info(
+                    '%d zero-amount row(s) imported (possible statement notices)',
+                    flagged,
+                )
+            if not filtered_rows:
+                raise ValueError(
+                    'No valid transaction rows found after filtering statement notices.'
+                )
+            df = pd.DataFrame(filtered_rows, columns=['Date', 'Description', 'Amount'])
             logger.info('Successfully normalized %s transaction rows', len(df))
             return df
 
