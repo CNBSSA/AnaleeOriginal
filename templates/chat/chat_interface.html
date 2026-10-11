@@ -60,6 +60,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const chatForm = document.getElementById('chat-form');
     const messageInput = document.getElementById('message-input');
     const chatMessages = document.getElementById('chat-messages');
+    const urlParams = new URLSearchParams(window.location.search);
+    const statementFileId = urlParams.get('file_id');
 
     // Load initial chat history and financial context
     loadChatHistory();
@@ -81,7 +83,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     'Content-Type': 'application/json',
                     'X-CSRFToken': '{{ csrf_token() }}'
                 },
-                body: JSON.stringify({ message: message })
+                body: JSON.stringify({
+                    message: message,
+                    file_id: statementFileId ? parseInt(statementFileId, 10) : null
+                })
             });
 
             const data = await response.json();
@@ -128,7 +133,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function loadFinancialContext() {
         try {
-            const response = await fetch('/chat/context');
+            const contextUrl = statementFileId
+                ? `/chat/context?file_id=${encodeURIComponent(statementFileId)}`
+                : '/chat/context';
+            const response = await fetch(contextUrl);
             const data = await response.json();
             if (data.success) {
                 updateFinancialContext(data.context);
@@ -147,10 +155,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Update summary
         summaryDiv.innerHTML = `
             <div class="mb-3">
-                <h6>Current Month Overview</h6>
-                <p class="mb-1">Income: $${context.income.toLocaleString()}</p>
-                <p class="mb-1">Expenses: $${context.expenses.toLocaleString()}</p>
-                <p class="mb-1">Balance: $${context.balance.toLocaleString()}</p>
+                <h6>${context.period_label ? context.period_label : 'Period'} overview</h6>
+                <p class="mb-1 small text-muted">${context.period_start || ''} – ${context.period_end || ''}</p>
+                <p class="mb-1">Money in: R${context.income.toLocaleString()}</p>
+                <p class="mb-1">Money out: R${context.expenses.toLocaleString()}</p>
+                <p class="mb-1">Net: R${context.balance.toLocaleString()}</p>
+                ${context.statement ? `<p class="mb-1"><strong>Statement:</strong> ${context.statement.filename} (${context.statement.transaction_count} lines)</p>` : ''}
                 ${context.unanalyzed_count ? `<p class="text-warning">Unanalyzed Transactions: ${context.unanalyzed_count}</p>` : ''}
             </div>
         `;
@@ -164,7 +174,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div class="d-flex justify-content-between">
                             <span>${tx.description}</span>
                             <span class="${tx.amount >= 0 ? 'text-success' : 'text-danger'}">
-                                $${Math.abs(tx.amount).toLocaleString()}
+                                R${Math.abs(tx.amount).toLocaleString()}
                             </span>
                         </div>
                         <div class="text-muted smaller">
