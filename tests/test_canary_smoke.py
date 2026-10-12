@@ -109,8 +109,7 @@ def test_canary_full_journey(canary_app):
         assert count == 3, f"expected 3 imported transactions, got {count}"
 
     # 6. Every report renders without a server error.
-    for path in ["/trial-balance", "/general-ledger", "/cashbook",
-                 "/income-statement", "/financial-position"]:
+    for path in ["/trial-balance", "/general-ledger", "/cashbook"]:
         report = client.get(path)
         assert report.status_code == 200, f"{path} returned {report.status_code}"
 

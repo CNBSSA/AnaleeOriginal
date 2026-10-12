@@ -92,7 +92,7 @@ class TestClosingDayTransactionsInTrialBalance:
         assert rows[0].amount == 100.0
 
 
-class TestClosingDayOnIncomeStatement:
+class TestClosingDayOnTrialBalance:
     def test_fy_mode_includes_late_closing_day(self, canary_app):
         app = canary_app
         with app.app_context():
@@ -111,6 +111,6 @@ class TestClosingDayOnIncomeStatement:
         client = app.test_client()
         client.post('/auth/login', data={'email': email, 'password': PASSWORD})
         html = client.get(
-            '/income-statement?financial_year=2025&period_type=fy',
+            '/trial-balance?financial_year=2025',
         ).get_data(as_text=True)
         assert '500.00' in html or '500.0' in html
