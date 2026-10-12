@@ -25,11 +25,11 @@ logger = logging.getLogger(__name__)
 # Import the blueprint instance from __init__.py
 from . import reports
 from . import tb_approval
+from .tb_page_excel import build_trial_balance_page_xlsx
 from .trial_balance_service import (
     PROFIT_AND_LOSS_CATEGORIES,
     SUSPENSE_LINK,
     SUSPENSE_NAME,
-    build_booksxperts_trial_balance_xlsx,
     build_trial_balance_payload,
     export_filename,
     load_trial_balance,
@@ -441,7 +441,8 @@ def trial_balance_request_approval():
 @reports.route('/trial-balance/export')
 @login_required
 def trial_balance_export():
-    """Download trial balance as BooksXperts-compatible Excel."""
+    """Download trial balance Excel matching the on-screen table."""
+    period_qs = _period_query_string()
     try:
         company_settings = CompanySettings.query.filter_by(user_id=current_user.id).first()
         if not company_settings:
@@ -449,14 +450,15 @@ def trial_balance_export():
             return redirect(url_for('main.company_settings'))
 
         ctx = load_trial_balance(current_user.id, **_requested_period(current_user.id))
-        if not ctx.rows:
-            flash('No trial balance amounts to export for this period.')
-            return redirect(url_for('reports.trial_balance'))
+        if not ctx.accounts:
+            flash('No trial balance to export for this period yet.')
+            return redirect(url_for('reports.trial_balance', **period_qs))
 
-        xlsx = build_booksxperts_trial_balance_xlsx(
-            ctx.rows,
+        xlsx = build_trial_balance_page_xlsx(
+            ctx,
             company_name=company_settings.company_name,
-            period_end=ctx.end_date,
+            period_end_inclusive=CompanySettings.financial_year_period_end_inclusive(
+                ctx.end_date),
         )
         return send_file(
             BytesIO(xlsx),
@@ -466,11 +468,11 @@ def trial_balance_export():
         )
     except BadPeriodError as exc:
         flash(str(exc))
-        return redirect(url_for('reports.trial_balance'))
+        return redirect(url_for('reports.trial_balance', **period_qs))
     except Exception as e:
         logger.error(f"Error exporting trial balance: {str(e)}, Stack trace: {str(e.__traceback__)}")
         flash('Could not export trial balance. Please try again.')
-        return redirect(url_for('reports.trial_balance'))
+        return redirect(url_for('reports.trial_balance', **period_qs))
 
 
 def _trial_balance_payload_for_user(user_id: int, *, for_transmission: bool = True,

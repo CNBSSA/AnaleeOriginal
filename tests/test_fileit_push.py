@@ -130,12 +130,24 @@ def test_happy_path_files_the_same_workbook_as_download_excel(canary_app, monkey
     name, content, ctype = up.kwargs["files"]["file"]
     assert name.endswith(".xlsx") and ctype.endswith("spreadsheetml.sheet")
 
-    exported = client.get("/trial-balance/export").data
+    from models import CompanySettings, User
+    from provisioning import WORKSPACE_EMAIL_DOMAIN
+    from reports.trial_balance_service import build_booksxperts_trial_balance_xlsx, load_trial_balance
 
     def cells(raw):
         wb = openpyxl.load_workbook(io.BytesIO(raw))
         return [[c.value for c in row] for ws in wb.worksheets for row in ws.iter_rows()]
-    assert cells(content) == cells(exported)
+
+    with canary_app.app_context():
+        ws = User.query.filter_by(email=f"client+{REF}@{WORKSPACE_EMAIL_DOMAIN}").one()
+        settings = CompanySettings.query.filter_by(user_id=ws.id).first()
+        ctx = load_trial_balance(ws.id)
+        expected = build_booksxperts_trial_balance_xlsx(
+            ctx.rows,
+            company_name=settings.company_name,
+            period_end=ctx.end_date,
+        )
+    assert cells(content) == cells(expected)
 
 
 def test_the_same_trial_balance_is_never_filed_twice(canary_app, monkeypatch):
