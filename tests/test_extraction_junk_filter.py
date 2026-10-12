@@ -17,6 +17,8 @@ from services.extraction_junk_filter import (
     "description",
     [
         "Schd Trxn No Av Bal",
+        "Schd Trxn No Av Bal Pmt To Payroll",
+        "Schd Trxn No Av Bal Pmt To Festus",
         "SCHEDULED TRXN",
         "Available balance",
         "No Av Bal",
