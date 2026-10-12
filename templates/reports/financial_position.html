@@ -96,7 +96,28 @@
                             <th class="text-end">{{ '%.2f'|format(total_liabilities|default(0)) }}</th>
                         </tr>
                     </tbody>
+                    <thead>
+                        <tr>
+                            <th colspan="2">Equity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for account in equity_accounts %}
+                        <tr>
+                            <td>{{ account.name }}</td>
+                            <td class="text-end">{{ '%.2f'|format(account.balance|default(0)) }}</td>
+                        </tr>
+                        {% endfor %}
+                        <tr class="table-secondary">
+                            <th>Total Equity</th>
+                            <th class="text-end">{{ '%.2f'|format(total_equity|default(0)) }}</th>
+                        </tr>
+                    </tbody>
                     <tfoot>
+                        <tr class="table-secondary">
+                            <th>Total Liabilities plus Equity</th>
+                            <th class="text-end">{{ '%.2f'|format((total_liabilities + total_equity)|default(0)) }}</th>
+                        </tr>
                         <tr class="table-dark">
                             <th>Net Assets</th>
                             <th class="text-end">{{ '%.2f'|format((total_assets - total_liabilities)|default(0)) }}</th>

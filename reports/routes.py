@@ -55,6 +55,7 @@ INCOME_CATEGORY = 'Income'
 EXPENSE_CATEGORY = 'Expenses'
 ASSET_CATEGORY = 'Assets'
 LIABILITY_CATEGORY = 'Liabilities'
+EQUITY_CATEGORY = 'Equity'
 
 # Cross-check against the chart/TB core, which owns the same vocabulary. Read
 # only — the frozen service is called, never changed.
@@ -302,7 +303,8 @@ def _requested_period(user_id: int | None = None, args=None) -> dict:
     Both are resolved to an ``as_at`` date, so one code path decides the year
     (#11). ``financial_year`` still wins when both are supplied, as before.
 
-    Nothing given → the client's current financial year, exactly as before.
+    Nothing given → the workspace default financial year (same helper as the
+    dashboard — Unit 1.6), not the empty current calendar year.
     """
     period: dict = {}
     args = request.args if args is None else args  # Send TB posts them as a form
@@ -331,6 +333,14 @@ def _requested_period(user_id: int | None = None, args=None) -> dict:
         else:
             period['as_at'] = _fy_probe_date(
                 year, int(settings.financial_year_end or 12))
+    elif not raw_as_at and user_id is not None:
+        settings = CompanySettings.query.filter_by(user_id=user_id).first()
+        if settings is not None:
+            from services.workspace_fy import default_fy_start_year
+
+            start_year = default_fy_start_year(user_id, settings)
+            period['as_at'] = _fy_probe_date(
+                start_year, int(settings.financial_year_end or 12))
     return period
 
 
@@ -650,6 +660,8 @@ def financial_position():
         liability_accounts = []
         total_assets = 0
         total_liabilities = 0
+        equity_accounts = []
+        total_equity = 0
 
         # Cumulative to the period end — a bank balance carries forward.
         movements = _account_totals([a.id for a in accounts], to_date)
@@ -674,9 +686,10 @@ def financial_position():
                 # Show what is owed as a positive figure.
                 liability_accounts.append({'name': account.name, 'balance': -balance})
                 total_liabilities += -balance
-            # Equity accounts are deliberately NOT listed: this template states
-            # assets, liabilities and net assets, and has no equity section.
-            # Adding one is a new feature, not part of the #15 correction.
+            elif _account_category(account) == EQUITY_CATEGORY:
+                # Credit-normal equity: show as a positive figure (same rule as liabilities).
+                equity_accounts.append({'name': account.name, 'balance': -balance})
+                total_equity += -balance
 
         return render_template('reports/financial_position.html',
                              start_date=display_start,
@@ -687,8 +700,10 @@ def financial_position():
                              current_fy=selected_fy,
                              asset_accounts=asset_accounts,
                              liability_accounts=liability_accounts,
+                             equity_accounts=equity_accounts,
                              total_assets=total_assets,
-                             total_liabilities=total_liabilities)
+                             total_liabilities=total_liabilities,
+                             total_equity=total_equity)
 
     except Exception as e:
         logger.error(f"Error generating financial position: {str(e)}")

@@ -90,14 +90,15 @@ def test_send_tb_carries_the_year_on_screen(canary_app, monkeypatch):
     assert f"as_at={today}" in post.call_args.kwargs["json"]["share_url"]
 
 
-def test_send_tb_without_a_year_is_unchanged(canary_app, monkeypatch):
+def test_send_tb_without_a_year_pins_workspace_default(canary_app, monkeypatch):
+    """Bare Send TB uses the workspace FY default (same as trial balance / dashboard)."""
     client = _club_workspace_client(canary_app, monkeypatch)
     _enable(monkeypatch)
     with mock.patch("practice_layer.requests.post",
                     return_value=_FakeResponse(body={"received": True})) as post:
         client.post("/practice/send-tb", follow_redirects=True)
     url = post.call_args.kwargs["json"]["share_url"]
-    assert "as_at=" not in url and "financial_year=" not in url
+    assert "as_at=" in url or "financial_year=" in url
 
 
 def test_the_send_tb_form_keeps_the_year_from_the_page():

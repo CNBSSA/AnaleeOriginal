@@ -266,7 +266,7 @@ def send_tb():
     from reports.trial_balance_service import load_trial_balance
     try:
         # The financial year shown on the page (Festus 2026-09-30, "approve 5");
-        # none given → the current year, exactly as before.
+        # none given → workspace default FY (dashboard / trial balance helper).
         period = _requested_period(current_user.id, request.form)
         ctx = load_trial_balance(current_user.id, **period)
         tb_approval.require_approval(current_user.id, ctx)
