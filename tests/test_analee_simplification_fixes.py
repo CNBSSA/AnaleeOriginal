@@ -34,7 +34,8 @@ def test_error_messages_get_the_red_style():
 
 
 def test_messages_are_shown_once():
-    for rel in ('templates/ocr/review.html', 'templates/ocr/statement_upload.html'):
+    for rel in ('templates/icountant.html', 'templates/ocr/review.html',
+                'templates/ocr/statement_upload.html'):
         assert 'get_flashed_messages' not in _read(rel), rel
 
 

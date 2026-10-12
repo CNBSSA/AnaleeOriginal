@@ -1391,20 +1391,207 @@ def upload_progress():
 @main.route('/icountant', methods=['GET', 'POST'])
 @login_required
 def icountant_interface():
-    """Legacy URL — transaction processing lives on Analyze Data."""
-    return redirect(url_for('main.analyze_list'))
+    """Handle the iCountant interface — AI insights load asynchronously per transaction."""
+    logger.info(f"Starting iCountant interface for user {current_user.id}")
+
+    try:
+        total_count = Transaction.query.filter_by(user_id=current_user.id).count()
+
+        # Festus 2026-09-30 ("approve 1"): a line still carrying only the bank
+        # account the statement came from is waiting too. Both import paths
+        # stamp that bank on every line, so a queue of account-less lines only
+        # never showed a single imported statement. Only the queue changed.
+        from sqlalchemy import or_
+        from reports.trial_balance_service import BANK_LINK_PREFIXES
+        bank_ids = [a.id for a in Account.query.filter(
+            Account.user_id == current_user.id,
+            or_(*[Account.link.like(f'{p}%') for p in BANK_LINK_PREFIXES]),
+        ).all()]
+        waiting = or_(Transaction.account_id.is_(None),
+                      Transaction.account_id.in_(bank_ids)) if bank_ids \
+            else Transaction.account_id.is_(None)
+        decided = ~waiting
+
+        transactions = Transaction.query.filter(
+            Transaction.user_id == current_user.id,
+            waiting,
+        ).order_by(Transaction.date).all()
+
+        accounts = Account.query.filter_by(
+            user_id=current_user.id,
+            is_active=True,
+        ).order_by(Account.category, Account.name).all()
+
+        if request.method == 'POST':
+            transaction_id = request.form.get('transaction_id', type=int)
+            selected_account = request.form.get('selected_account', type=int)
+
+            if transaction_id and selected_account is not None:
+                transaction = Transaction.query.get(transaction_id)
+                if transaction and transaction.user_id == current_user.id:
+                    if 0 <= selected_account < len(accounts):
+                        transaction.account_id = accounts[selected_account].id
+                        db.session.commit()
+                        flash('Transaction processed successfully')
+                        return redirect(url_for('main.icountant_interface'))
+
+        current_transaction = next((t for t in transactions), None)
+        if current_transaction:
+            transaction_info = {
+                'insights': {
+                    'amount_formatted': f"R{abs(current_transaction.amount):,.2f}",
+                    # Plain words for a bank line (the old labels had the signs
+                    # backwards against the PDF page's own convention).
+                    'transaction_type': 'money out' if current_transaction.amount < 0 else 'money in',
+                    'ai_insights': (
+                        '<p class="text-muted mb-0">'
+                        '<span class="spinner-border spinner-border-sm me-2" role="status"></span>'
+                        'Loading AI insights...</p>'
+                    ),
+                    'suggested_accounts': [],
+                    'loading': True,
+                }
+            }
+            message = None
+        else:
+            current_transaction = None
+            transaction_info = None
+            message = ("Nothing is waiting here — every line has an account. To review "
+                       "explanations too, open "
+                       f'<a href="{url_for("main.analyze_list")}">Analyze Data</a>.')
+
+        recently_processed = Transaction.query.filter(
+            Transaction.user_id == current_user.id,
+            decided,
+        ).order_by(Transaction.date.desc()).limit(5).all()
+
+        processed_count = Transaction.query.filter(
+            Transaction.user_id == current_user.id,
+            decided,
+        ).count()
+
+        return render_template(
+            'icountant.html',
+            transaction=current_transaction,
+            transaction_info=transaction_info,
+            accounts=accounts,
+            message=message,
+            recently_processed=recently_processed,
+            processed_count=processed_count,
+            total_count=total_count,
+        )
+
+    except Exception as e:
+        logger.error(f"Error in iCountant interface: {str(e)}")
+        db.session.rollback()
+        flash('Error processing transaction')
+        return redirect(url_for('main.dashboard'))
 
 
 @main.route('/api/icountant/<int:transaction_id>/insights', methods=['GET'])
 @login_required
 def icountant_transaction_insights(transaction_id):
-    """Removed duplicate of Analyze Data / chat insight paths."""
-    return jsonify({
-        'error': 'This endpoint has been removed. Use Analyze Data for transactions '
-                 'or AI Assistant Chat for conversation.',
-    }), 404
+    """Load AI insights for a single transaction without blocking the page."""
+    try:
+        transaction = Transaction.query.filter_by(
+            id=transaction_id,
+            user_id=current_user.id,
+        ).first()
+        if not transaction:
+            return jsonify({'error': 'Transaction not found'}), 404
 
+        accounts = Account.query.filter_by(
+            user_id=current_user.id,
+            is_active=True,
+        ).order_by(Account.category, Account.name).all()
 
+        insights_generator = FinancialInsightsGenerator()
+        insights = insights_generator.generate_transaction_insights([{
+            'date': transaction.date.isoformat(),
+            'description': transaction.description,
+            'amount': float(transaction.amount),
+            'category': transaction.account.category if transaction.account else None,
+        }])
+
+        transaction.ai_category = insights['category_suggestion']['category']
+        transaction.ai_confidence = insights['category_suggestion']['confidence']
+        transaction.ai_explanation = insights['category_suggestion']['explanation']
+        db.session.commit()
+
+        suggested_accounts = []
+        category = insights['category_suggestion'].get('category')
+        if category:
+            matching_accounts = [
+                acc for acc in accounts
+                if acc.category.lower() == category.lower()
+            ]
+            suggested_accounts = [{
+                'account_id': acc.id,
+                'account_name': acc.name,
+                'account_category': acc.category,
+                'confidence': insights['category_suggestion']['confidence'],
+                'reason': insights['category_suggestion']['explanation'],
+            } for acc in matching_accounts[:3]]
+
+        # NO fabricated fallback. This used to hand back the first three
+        # accounts in the chart with an invented confidence of 0.5 and the
+        # reason "Alternative suggestion based on available accounts" whenever
+        # the category did not map to anything.
+        #
+        # It fired almost always: the category vocabulary is nlp_utils'
+        # personal-finance list (groceries, dining, personal_care, ...) while
+        # Account.category only ever holds Assets / Liabilities / Equity /
+        # Income / Expenses, so only "income" can ever match. The first three
+        # accounts in a seeded chart are Bank Cheque Account 1/2/3 — and
+        # icountant.html AUTO-SELECTS suggestion[0] into the account dropdown,
+        # so an accountant clicking through was being steered into posting
+        # transactions to a bank account.
+        #
+        # Same rule as the ASF guard (57ee9a9): decline rather than guess.
+        suggestion_message = ''
+        if not suggested_accounts:
+            suggestion_message = (
+                'No account could be matched with confidence — please choose '
+                'the account yourself.'
+            )
+
+        return jsonify({
+            'success': True,
+            'transaction_id': transaction.id,
+            'ai_insights': insights.get('insights', ''),
+            'suggested_accounts': suggested_accounts,
+            'suggestion_message': suggestion_message,
+            'category': category,
+            'confidence': insights['category_suggestion'].get('confidence', 0),
+        })
+
+    except Exception as e:
+        logger.error(f"Error loading icountant insights: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+        
+class ICountant:
+    def __init__(self, accounts):
+        self.accounts = accounts
+        
+    def process_transaction(self, transaction_data):
+        # Placeholder for actual iCountant logic
+        message = "Analee is processing this transaction. Please select an account."
+        transaction_info = {}
+        return message, transaction_info
+        
+    def complete_transaction(self, selected_account_index):
+        # Placeholder for actual iCountant logic
+        if 0 <= selected_account_index < len(self.accounts):
+            message = "Transaction completed successfully!"
+            success = True
+            completed = True
+        else:
+            message = "Invalid account selection."
+            success = False
+            completed = False
+        return success, message, completed
+        
 def process_uploaded_file(file, status):
     """Process the uploaded file and return dataframe and total rows."""
     import pandas as pd
