@@ -44,6 +44,13 @@ _AMOUNT_RE = re.compile(
     r'(?:(?<![\d,.])|(?<=\.\d\d))'
     r'(?:\d{1,3}(?:[ ,]\d{3})+|\d+)\.\d{2}'
     r'-?\)?'
+    # A trailing Dr / Cr marker ("2,000.00Dr", "5,000.00 CR"). normalize_amount
+    # already reads one - Dr is money out - but the pattern cut it off first, so
+    # the direction was lost on amounts, running balances and the opening and
+    # closing balances alike (work-orders #103). The word boundary keeps a word
+    # that merely starts with Dr / Cr ("Credit Note", "Driver") out of it.
+    r'(?:\s?(?:dr|cr)\b)?',
+    re.IGNORECASE,
 )
 
 # Column-heading words. They mark a HEADER row only when the line does not
