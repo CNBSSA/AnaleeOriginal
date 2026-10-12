@@ -55,7 +55,6 @@ INCOME_CATEGORY = 'Income'
 EXPENSE_CATEGORY = 'Expenses'
 ASSET_CATEGORY = 'Assets'
 LIABILITY_CATEGORY = 'Liabilities'
-EQUITY_CATEGORY = 'Equity'
 
 # Cross-check against the chart/TB core, which owns the same vocabulary. Read
 # only — the frozen service is called, never changed.
@@ -660,8 +659,6 @@ def financial_position():
         liability_accounts = []
         total_assets = 0
         total_liabilities = 0
-        equity_accounts = []
-        total_equity = 0
 
         # Cumulative to the period end — a bank balance carries forward.
         movements = _account_totals([a.id for a in accounts], to_date)
@@ -686,10 +683,9 @@ def financial_position():
                 # Show what is owed as a positive figure.
                 liability_accounts.append({'name': account.name, 'balance': -balance})
                 total_liabilities += -balance
-            elif _account_category(account) == EQUITY_CATEGORY:
-                # Credit-normal equity: show as a positive figure (same rule as liabilities).
-                equity_accounts.append({'name': account.name, 'balance': -balance})
-                total_equity += -balance
+            # Equity accounts are deliberately NOT listed: this template states
+            # assets, liabilities and net assets, and has no equity section.
+            # Adding one is a new feature, not part of the #15 correction.
 
         return render_template('reports/financial_position.html',
                              start_date=display_start,
@@ -700,10 +696,8 @@ def financial_position():
                              current_fy=selected_fy,
                              asset_accounts=asset_accounts,
                              liability_accounts=liability_accounts,
-                             equity_accounts=equity_accounts,
                              total_assets=total_assets,
-                             total_liabilities=total_liabilities,
-                             total_equity=total_equity)
+                             total_liabilities=total_liabilities)
 
     except Exception as e:
         logger.error(f"Error generating financial position: {str(e)}")
