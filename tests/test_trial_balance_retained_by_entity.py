@@ -229,3 +229,42 @@ def test_a_single_year_client_is_identical_for_every_entity(app):
         rows = _rows(ctx)
         assert set(rows) == {'ca.810.001', 'e.400.000'}, (entity, rows)
         assert sum(rows.values()) == 0
+
+
+# ---- the rule is tied to the seeded charts, not only to literals in these tests --------
+#
+# The choice of equity line reads the entity's display name. If a (locked) seed rename
+# or a chart change ever broke the assumption behind the rule, these fail loudly instead
+# of the rule quietly switching itself off (independent review of this work order).
+
+def _seeded_links(entity_name):
+    from services.chart_seed_data import ENTITY_SPECIFIC
+    return {row[2] for row in ENTITY_SPECIFIC[entity_name]}
+
+
+def test_the_named_entities_exist_in_the_seed_under_exactly_those_names():
+    from reports.trial_balance_service import CAPITAL_IS_RETAINED_ENTITIES
+    from services.chart_seed_data import ENTITY_NAMES
+    assert CAPITAL_IS_RETAINED_ENTITIES <= {n.strip().lower() for n in ENTITY_NAMES}
+
+
+def test_the_entities_that_use_q100_as_retained_have_it_and_no_q200_in_their_seeded_chart():
+    from reports.trial_balance_service import (CAPITAL_IS_RETAINED_ENTITIES,
+                                               CAPITAL_IS_RETAINED_LINK)
+    from services.chart_seed_data import ENTITY_NAMES
+    for name in ENTITY_NAMES:
+        if name.strip().lower() in CAPITAL_IS_RETAINED_ENTITIES:
+            links = _seeded_links(name)
+            assert CAPITAL_IS_RETAINED_LINK in links, name
+            assert 'q.200.000' not in links, name
+
+
+def test_every_other_entity_is_not_on_the_q100_list_and_q100_is_not_its_retained_line():
+    from reports.trial_balance_service import CAPITAL_IS_RETAINED_ENTITIES
+    from services.chart_seed_data import ENTITY_NAMES
+    for name in ENTITY_NAMES:
+        if name.strip().lower() not in CAPITAL_IS_RETAINED_ENTITIES:
+            # Private Company and Close Corporation carry share capital / members'
+            # contribution on q.100.000 and a real Retained Earnings on q.200.000;
+            # Partnership has q.200.000. None may be sent to q.100.000.
+            assert 'q.200.000' in _seeded_links(name), name

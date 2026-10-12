@@ -803,6 +803,42 @@ Tests: `tests/test_wo33_direction_guard.py` (12; 3 fail without the guard).
 
 **THE ENGINE IS RE-FROZEN.**
 
+### Scoped re-open + re-freeze record (Festus, 2026-10-12) — WHERE AN EARLIER YEAR'S RESULT GOES (work order #115 item 4)
+
+The Chairman's named OK (A, option (a), 2026-10-12) with Festie's gate-1 approval
+(`CNBSSA/work-orders` #115, comment 6129437136) re-opened ONE thing in the frozen
+`reports/trial_balance_service.py`: which equity line carries earlier years'
+income and expenses. **This supersedes the 2026-09-28 wording above** ("Retained
+Earnings (`q.200.000`, else `q.100.000`)") and Cursor's #145 (`5a74351`, which
+removed the `q.100.000` fallback for every entity and was committed without a
+re-lock, leaving `develop`'s lock test red). The rule now:
+
+- `q.200.000` when the client's chart has it (Private Company, Close Corporation,
+  Partnership — unchanged);
+- else, for a **Sole Proprietor** (`q.100.000` Capital Account) or an **NPO**
+  (`q.100.000` Accumulated Funds): `q.100.000`;
+- else a synthetic "Retained Earnings" line on `q.200.000` — **never** Share Capital
+  or Members' Contribution.
+
+No totals change and the rows still sum to zero; only the carrying line moves.
+The choice is `_retained_account()`, keyed on the entity's display name
+(`CAPITAL_IS_RETAINED_ENTITIES`); `tests/test_trial_balance_retained_by_entity.py`
+(12) also ties it to the seeded charts, so a seed rename fails the build instead of
+quietly switching the rule off. The lock was re-frozen with `--authorized-by`
+recording this approval and ratifying #145's change; only the trial-balance file's
+hash moved. **Untouched:** the analysis engine, the chart seed/rules/schema,
+`utils/chart_of_accounts.py`, `build_booksxperts_trial_balance_xlsx`,
+`build_trial_balance_payload` and the share tokens.
+
+**Known, deliberate:** for THE ACCOUNTANTS a Sole Proprietor's earlier-years result
+lands on its `q.100.000` "Owner's capital account" (capital role) rather than
+"Accumulated profit" — Equity either way, nothing goes to suspense; only the
+capital-versus-retained presentation in the equity statement differs. Noted, NOT
+changed: the `load_trial_balance` docstring still says "Retained Earnings" (editing
+the frozen file again just to reword it would need another re-lock).
+
+**THE ENGINE IS RE-FROZEN.**
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)
