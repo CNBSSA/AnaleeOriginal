@@ -119,12 +119,19 @@ SUSPENSE_NAME = 'Suspense Account'
 # one clearly named row rather than guessed onto one of the client's banks.
 UNRECORDED_BANK_LINK = 'ca.810.000'
 UNRECORDED_BANK_NAME = 'Bank (statement account not recorded)'
-# Prior-year P&L rolls here only — never into Share Capital / Members' Contribution
-# (q.100.000). That link is a real equity account with its own postings; using it
-# as a fallback when q.200.000 is missing made the TB show the expense aggregate
-# on Capital while q.200.000 was absent from the chart.
+# Where an earlier year's income and expenses roll to (work order #115 item 4,
+# Festus' named re-open 2026-10-12; rule first set 2026-09-28):
+#   1. q.200.000 Retained Earnings, whenever the chart has it (every entity);
+#   2. Sole Proprietor and NPO charts have NO q.200.000 by design, and their
+#      q.100.000 IS the accumulated equity ("Capital Account" /
+#      "Accumulated Funds"), so the roll goes there (the Chairman, option (a));
+#   3. anything else without q.200.000 gets a clearly named "Retained Earnings"
+#      line - never Share Capital / Members' Contribution (q.100.000), a real
+#      equity account with its own postings (Cursor #145's correct finding).
 RETAINED_LINKS = ('q.200.000',)
 RETAINED_NAME = 'Retained Earnings'
+CAPITAL_IS_RETAINED_LINK = 'q.100.000'
+CAPITAL_IS_RETAINED_ENTITIES = frozenset({'sole proprietor', 'npo'})
 
 
 @dataclass(frozen=True)
@@ -193,6 +200,18 @@ def _first_by_link(accounts_by_link: dict, links, name: str, category: str):
     return _SyntheticAccount(link=links[0], name=name, category=category)
 
 
+def _retained_account(accounts_by_link: dict, entity_name: str | None):
+    """The account an earlier year's result rolls into (see RETAINED_LINKS)."""
+    for link in RETAINED_LINKS:
+        if link in accounts_by_link:
+            return accounts_by_link[link]
+    if ((entity_name or '').strip().lower() in CAPITAL_IS_RETAINED_ENTITIES
+            and CAPITAL_IS_RETAINED_LINK in accounts_by_link):
+        return accounts_by_link[CAPITAL_IS_RETAINED_LINK]
+    return _SyntheticAccount(link=RETAINED_LINKS[0], name=RETAINED_NAME,
+                             category='Equity')
+
+
 def load_trial_balance(
     user_id: int,
     *,
@@ -230,7 +249,8 @@ def load_trial_balance(
     accounts_by_link = {a.link: a for a in accounts_by_id.values()}
     banks = _statement_banks(user_id, transactions)
     suspense = _first_by_link(accounts_by_link, (SUSPENSE_LINK,), SUSPENSE_NAME, 'Assets')
-    retained = _first_by_link(accounts_by_link, RETAINED_LINKS, RETAINED_NAME, 'Equity')
+    entity = getattr(company_settings, 'entity', None)
+    retained = _retained_account(accounts_by_link, getattr(entity, 'name', None))
     unrecorded_bank = _SyntheticAccount(
         link=UNRECORDED_BANK_LINK, name=UNRECORDED_BANK_NAME, category='Assets')
 
