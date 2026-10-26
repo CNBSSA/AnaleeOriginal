@@ -88,7 +88,9 @@ export class BatchProcessor {
         this.applyBatchResults(result.results || []);
         this.updateProgress(result);
 
-        if (result.processed > 0) {
+        if (result.ai_online === false && result.ai_message) {
+            this.updateStatus(result.ai_message);
+        } else if (result.processed > 0) {
             const applied = result.applied || 0;
             const explained = result.explained || 0;
             const fromHistory = result.from_history || 0;
@@ -141,7 +143,7 @@ export class BatchProcessor {
             this.progressBar.textContent = `${percent}%`;
         }
         if (this.progressText) {
-            this.progressText.textContent = `${done} / ${total} reviewed`;
+            this.progressText.textContent = `${done} of ${total} processed in this run`;
         }
         // Mirror progress onto the whole-statement hero bar.
         if (this.wholeBar) {

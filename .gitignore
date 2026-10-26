@@ -40,6 +40,9 @@ log/
 *.sqlite3
 *.db
 
+# Local database backups (use ANALEE_BACKUP_DIR on durable storage in prod)
+backups/
+
 # Virtual Environment
 venv/
 ENV/

@@ -47,18 +47,24 @@ def _add_transactions(app, user_id, file_id, count=15):
         db.session.commit()
 
 
-def _add_account(app, user_id):
+def _add_account(app, user_id, link='ca.100', name='Bank Fees', category='Expenses'):
     with app.app_context():
         account = Account(
-            link='ca.100',
-            name='Bank Fees',
-            category='Expenses',
+            link=link,
+            name=name,
+            category=category,
             user_id=user_id,
             is_active=True,
         )
         db.session.add(account)
         db.session.commit()
         return account.id
+
+
+def _add_bank_account(app, user_id):
+    return _add_account(
+        app, user_id, link='ca.810.001', name='TEST Bank Cheque', category='Assets',
+    )
 
 
 def test_transaction_needs_processing():
@@ -79,10 +85,15 @@ def test_transaction_needs_processing():
     # Account only (the import-stamped bank account) — still needs explaining.
     pending.explanation = ''
     pending.account_id = 5
+    pending.account = Account(link='ca.810.001', name='Bank', category='Assets')
     assert transaction_needs_processing(pending) is True
 
-    # Both present — done.
+    # Bank stamp plus explanation is still not categorised.
     pending.explanation = 'Monthly fee'
+    assert transaction_needs_processing(pending) is True
+
+    # Real ledger account plus explanation — done.
+    pending.account = Account(link='e.400.000', name='Rent', category='Expenses')
     assert transaction_needs_processing(pending) is False
 
     # Whitespace is not an explanation.
@@ -275,7 +286,7 @@ def test_batch_costs_one_ai_call_for_the_whole_batch(app, analyze_user, analyze_
 
     from services.bulk_suggestions import RowSuggestion
 
-    def _suggest(rows, accounts, client=None):
+    def _suggest(rows, accounts, client=None, **kwargs):
         calls.append(len(rows))
         return {r['index']: RowSuggestion(
             index=r['index'], account_id=account_id, account_name='Bank Fees',
@@ -314,7 +325,7 @@ def test_batch_sends_only_the_owning_users_accounts(app, analyze_user, analyze_f
 
     seen_charts = []
 
-    def _suggest(rows, accounts, client=None):
+    def _suggest(rows, accounts, client=None, **kwargs):
         seen_charts.append([a.name for a in accounts])
         return {}
 
@@ -336,7 +347,7 @@ def test_batch_does_not_skip_rows_it_could_not_complete(app, analyze_user, analy
 
     from services.bulk_suggestions import RowSuggestion
 
-    def _half_confident(rows, accounts, client=None):
+    def _half_confident(rows, accounts, client=None, **kwargs):
         out = {}
         for position, row in enumerate(rows):
             confident = position % 2 == 1
@@ -378,7 +389,7 @@ def _fake_bulk(mapping):
     """Patch the batched suggester with a canned index -> RowSuggestion map."""
     from services.bulk_suggestions import RowSuggestion
 
-    def _suggest(rows, accounts, client=None):
+    def _suggest(rows, accounts, client=None, **kwargs):
         out = {}
         for row in rows:
             spec = mapping.get(row['index'])
@@ -439,14 +450,13 @@ def test_batch_never_overwrites_a_human_explanation(app, analyze_user, analyze_f
 
 
 def test_batch_never_overwrites_an_existing_account(app, analyze_user, analyze_file, monkeypatch):
-    """Import stamps the bank account onto every row; a suggestion must not
-    silently replace it."""
+    """A row already coded to a real ledger account must not be replaced."""
     _add_transactions(app, analyze_user, analyze_file, count=1)
-    bank_id = _add_account(app, analyze_user)
+    expense_id = _add_account(app, analyze_user, link='e.400.000', name='Rent')
 
     with app.app_context():
         txn = Transaction.query.filter_by(file_id=analyze_file).first()
-        txn.account_id = bank_id
+        txn.account_id = expense_id
         db.session.commit()
 
     monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows', _fake_bulk({
@@ -458,9 +468,55 @@ def test_batch_never_overwrites_an_existing_account(app, analyze_user, analyze_f
         process_transaction_batch(analyze_file, analyze_user, offset=0)
         txn = Transaction.query.filter_by(file_id=analyze_file).first()
 
-        assert txn.account_id == bank_id, "an existing assignment was overwritten"
-        # ...but the empty explanation slot was still filled.
+        assert txn.account_id == expense_id, "an existing assignment was overwritten"
         assert txn.explanation == 'Reclassified'
+
+
+def test_batch_fills_account_over_import_bank_stamp(app, analyze_user, analyze_file, monkeypatch):
+    """Import stamps the bank account; auto-process must still place the ledger code."""
+    _add_transactions(app, analyze_user, analyze_file, count=1)
+    expense_id = _add_account(app, analyze_user)
+    bank_id = _add_bank_account(app, analyze_user)
+
+    with app.app_context():
+        txn = Transaction.query.filter_by(file_id=analyze_file).first()
+        txn.account_id = bank_id
+        db.session.commit()
+
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows', _fake_bulk({
+        0: {'account_id': expense_id, 'account_name': 'Bank Fees',
+            'confidence': 0.95, 'explanation': 'Monthly bank charge'},
+    }))
+
+    with app.app_context():
+        result = process_transaction_batch(analyze_file, analyze_user, offset=0)
+        txn = Transaction.query.filter_by(file_id=analyze_file).first()
+
+        assert result['applied'] == 1
+        assert txn.account_id == expense_id
+        assert txn.explanation == 'Monthly bank charge'
+
+
+def test_batch_reports_ai_offline_when_suggester_returns_nothing(
+        app, analyze_user, analyze_file, monkeypatch):
+    _add_transactions(app, analyze_user, analyze_file, count=1)
+    bank_id = _add_bank_account(app, analyze_user)
+    _add_account(app, analyze_user)
+
+    with app.app_context():
+        txn = Transaction.query.filter_by(file_id=analyze_file).first()
+        txn.account_id = bank_id
+        db.session.commit()
+
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows',
+                        lambda rows, accounts, client=None, **kwargs: {})
+
+    with app.app_context():
+        result = process_transaction_batch(analyze_file, analyze_user, offset=0)
+
+    assert result['ai_online'] is False
+    assert 'offline' in result['ai_message'].lower()
+    assert result['applied'] == 0
 
 
 def test_batch_applies_nothing_below_the_confidence_gate(app, analyze_user, analyze_file, monkeypatch):
@@ -487,7 +543,7 @@ def test_batch_offline_changes_nothing(app, analyze_user, analyze_file, monkeypa
     _add_transactions(app, analyze_user, analyze_file, count=3)
     _add_account(app, analyze_user)
     monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows',
-                        lambda rows, accounts, client=None: {})
+                        lambda rows, accounts, client=None, **kwargs: {})
 
     with app.app_context():
         result = process_transaction_batch(analyze_file, analyze_user, offset=0)
@@ -521,7 +577,7 @@ def test_a_payee_with_history_costs_no_ai_call(app, analyze_user, analyze_file, 
 
     asked = []
     monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows',
-                        lambda rows, accounts, client=None: asked.append(len(rows)) or {})
+                        lambda rows, accounts, client=None, **kwargs: asked.append(len(rows)) or {})
 
     with app.app_context():
         result = process_transaction_batch(analyze_file, analyze_user, offset=0)
@@ -556,7 +612,7 @@ def test_only_unknown_payees_are_sent_to_the_model(app, analyze_user, analyze_fi
 
     sent = []
 
-    def _spy(rows, accounts, client=None):
+    def _spy(rows, accounts, client=None, **kwargs):
         sent.extend(r['description'] for r in rows)
         return {}
 

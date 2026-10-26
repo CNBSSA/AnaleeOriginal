@@ -160,8 +160,8 @@
             </div>
             <div class="metric-item">
                 <strong>Observed monthly range:</strong>
-                ${{ "%.2f"|format(forecast.confidence_metrics.variance_range.min) }} -
-                ${{ "%.2f"|format(forecast.confidence_metrics.variance_range.max) }}
+                R{{ "%.2f"|format(forecast.confidence_metrics.variance_range.min) }} -
+                R{{ "%.2f"|format(forecast.confidence_metrics.variance_range.max) }}
             </div>
             <div class="metric-item">
                 <small>
@@ -187,8 +187,8 @@
                 {% for label, amount, upper, lower in zip(monthly_labels, monthly_amounts, confidence_upper, confidence_lower) %}
                 <tr>
                     <td>{{ label }}</td>
-                    <td>${{ "%.2f"|format(amount) }}</td>
-                    <td>${{ "%.2f"|format(lower) }} - ${{ "%.2f"|format(upper) }}</td>
+                    <td>R{{ "%.2f"|format(amount) }}</td>
+                    <td>R{{ "%.2f"|format(lower) }} - R{{ "%.2f"|format(upper) }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -208,7 +208,7 @@
                 {% for label, amount in zip(category_labels, category_amounts) %}
                 <tr>
                     <td>{{ label }}</td>
-                    <td>${{ "%.2f"|format(amount) }}</td>
+                    <td>R{{ "%.2f"|format(amount) }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

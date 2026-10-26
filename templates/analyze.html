@@ -295,7 +295,7 @@
                 <div class="progress mb-2" style="height: 24px;">
                     <div id="batchProgressBar" class="progress-bar progress-bar-striped" role="progressbar" style="width: 0%">0%</div>
                 </div>
-                <p class="small text-muted mb-2" id="batchProgressText">0 / {{ unprocessed_count }} reviewed</p>
+                <p class="small text-muted mb-2" id="batchProgressText">0 of {{ unprocessed_count }} processed in this run</p>
                 <p class="mb-3" id="batchStatusText">Ready to process.</p>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-primary" id="startBatchProcess">
@@ -353,12 +353,21 @@
                                 </div>
                             </td>
                             <td>
-                                <select class="form-select account-select" name="account_{{ transaction.id }}" data-transaction-id="{{ transaction.id }}">
-                                    <option value="">Select Account</option>
+                                {% set row_insights = transaction_insights.get(transaction.id, {}) %}
+                                {% set has_ledger_account = row_insights.get('has_ledger_account', false) %}
+                                {% if not has_ledger_account and transaction.account %}
+                                <span class="badge bg-light text-dark border mb-1"
+                                      title="Statement bank line — not a ledger categorisation">Bank: {{ transaction.account.name }}</span>
+                                {% endif %}
+                                <select class="form-select account-select{% if not has_ledger_account %} account-unassigned{% endif %}"
+                                        name="account_{{ transaction.id }}"
+                                        data-transaction-id="{{ transaction.id }}"
+                                        data-ledger-assigned="{{ '1' if has_ledger_account else '0' }}">
+                                    <option value="" {% if not has_ledger_account %}selected{% endif %}>— Select account —</option>
                                     {% for account in accounts %}
                                     <option value="{{ account.id }}"
                                             data-link="{{ account.link }}"
-                                            {% if transaction.account_id == account.id %}selected{% endif %}>
+                                            {% if has_ledger_account and transaction.account_id == account.id %}selected{% endif %}>
                                         {{ account.name }} ({{ account.category }})
                                     </option>
                                     {% endfor %}
@@ -371,6 +380,7 @@
                                             data-transaction-id="{{ transaction.id }}"
                                             data-description="{{ transaction.description }}"
                                             data-explanation="{{ transaction.explanation or '' }}"
+                                            data-amount="{{ transaction.amount }}"
                                             title="Suggest an account for this line"
                                             {% if not ai_available %}disabled{% endif %}>
                                         <i class="fas fa-magic"></i> Suggest account
@@ -461,14 +471,16 @@
                             </td>
                             <td>
                                 <div class="input-group">
+                                    {% set row_insights = transaction_insights.get(transaction.id, {}) %}
+                                    {% set has_ledger_account = row_insights.get('has_ledger_account', false) %}
                                     <select class="form-select analysis-select" 
                                             name="analysis_{{ transaction.id }}"
                                             data-transaction-id="{{ transaction.id }}"
                                             id="select-{{ transaction.id }}">
-                                        <option value="">Select Account</option>
+                                        <option value="" {% if not has_ledger_account %}selected{% endif %}>— Select account —</option>
                                         {% for account in accounts %}
                                         <option value="{{ account.id }}" 
-                                                {% if transaction.account_id == account.id %}selected{% endif %}>
+                                                {% if has_ledger_account and transaction.account_id == account.id %}selected{% endif %}>
                                             {{ account.link }}:{{ account.name }} {% if account.sub_category %}({{ account.sub_category }}){% endif %}
                                         </option>
                                         {% endfor %}
@@ -477,7 +489,8 @@
                                             class="btn btn-outline-secondary suggest-account-btn"
                                             data-transaction-id="{{ transaction.id }}"
                                             data-description="{{ transaction.description }}"
-                                            data-explanation="{{ transaction.explanation or '' }}">
+                                            data-explanation="{{ transaction.explanation or '' }}"
+                                            data-amount="{{ transaction.amount }}">
                                         <i class="fas fa-magic"></i> Suggest
                                     </button>
                                 </div>

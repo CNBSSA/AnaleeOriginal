@@ -5,13 +5,13 @@ context management, and financial insights generation.
 """
 
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 from flask import Blueprint, jsonify, request, render_template
 from flask_login import login_required, current_user
-from sqlalchemy import desc, or_
+from sqlalchemy import or_
 
-from models import db, Transaction, Account
+from models import Transaction
+from services.chat_statement_context import build_chat_context
 from ai_insights import FinancialInsightsGenerator
 from nlp_utils import get_claude_client as get_openai_client
 from config import CLAUDE_MODEL
@@ -66,8 +66,14 @@ def send_message():
                 'error': 'AI service temporarily unavailable'
             })
 
-        # Get user's financial context
-        context = get_financial_context(current_user.id)
+        file_id = data.get('file_id')
+        if file_id is not None:
+            try:
+                file_id = int(file_id)
+            except (TypeError, ValueError):
+                file_id = None
+
+        context = get_financial_context(current_user.id, file_id=file_id)
         logger.info(f"Processing chat message for user {current_user.id}")
 
         # Generate AI response with context
@@ -114,7 +120,8 @@ def get_chat_history():
 def get_context():
     """Get current financial context for the chat."""
     try:
-        context = get_financial_context(current_user.id)
+        file_id = request.args.get('file_id', type=int)
+        context = get_financial_context(current_user.id, file_id=file_id)
         logger.info(f"Retrieved financial context for user {current_user.id}")
         return jsonify({
             'success': True,
@@ -127,98 +134,27 @@ def get_context():
             'error': str(e)
         })
 
-# The assistant sees the client's whole FINANCIAL YEAR, not five lines.
-# Before 2026-09-28 the context was the current calendar month's totals plus
-# the five latest transactions — so a question about last quarter's rent was
-# answered from five lines that did not contain it (QA, 2026-09-28).
-CONTEXT_LINE_CAP = 150
-
-
-def _period_for(user_id: int):
-    """The client's current financial year (CompanySettings), else the last
-    twelve months."""
-    from models import CompanySettings
-    settings = CompanySettings.query.filter_by(user_id=user_id).first()
-    if settings is not None:
-        try:
-            fy = settings.get_financial_year()
-            return fy['start_date'], fy['end_date'], 'financial year'
-        except Exception:  # a settings row with no usable year-end
-            pass
-    end = datetime.now()
-    return end - timedelta(days=365), end, 'last 12 months'
-
-
-def get_financial_context(user_id: int) -> Dict:
-    """
-    The assistant's view of the books: the financial year's totals, a total
-    per account, and the period's transactions (newest first, capped at
-    CONTEXT_LINE_CAP with the cap stated), all in rand.
-    """
+def get_financial_context(user_id: int, file_id: Optional[int] = None) -> Dict:
+    """Read-only books + current bank statement for the assistant."""
     try:
-        start_date, end_date, period_label = _period_for(user_id)
-
-        transactions = Transaction.query.filter(
-            Transaction.user_id == user_id,
-            Transaction.date.between(start_date, end_date)
-        ).order_by(desc(Transaction.date), desc(Transaction.id)).all()
-
-        income = sum(t.amount for t in transactions if t.amount > 0)
-        expenses = abs(sum(t.amount for t in transactions if t.amount < 0))
-        balance = income - expenses
-
-        by_account: Dict[str, Dict] = {}
-        uncategorised = 0
-        for t in transactions:
-            name = t.account.name if t.account else 'Not yet categorised'
-            if not t.account:
-                uncategorised += 1
-            row = by_account.setdefault(name, {'count': 0, 'total': 0.0})
-            row['count'] += 1
-            row['total'] += float(t.amount)
-        account_totals = sorted(
-            ({'account': k, 'count': v['count'], 'total': round(v['total'], 2)}
-             for k, v in by_account.items()),
-            key=lambda r: abs(r['total']), reverse=True)
-
-        recent_transactions = [{
-            'date': tx.date.strftime('%Y-%m-%d'),
-            'description': tx.description,
-            'amount': float(tx.amount),
-            'category': tx.account.name if tx.account else 'Not yet categorised',
-            'analyzed': bool(tx.account_id and tx.explanation)
-        } for tx in transactions[:CONTEXT_LINE_CAP]]
-
-        context = {
-            'period_label': period_label,
-            'period_start': start_date.strftime('%Y-%m-%d'),
-            'period_end': end_date.strftime('%Y-%m-%d'),
-            'income': float(income),
-            'expenses': float(expenses),
-            'balance': float(balance),
-            'account_totals': account_totals,
-            'uncategorised': uncategorised,
-            'recent_transactions': recent_transactions,
-            'total_transactions': len(transactions),
-            'lines_shown': len(recent_transactions),
-        }
-
+        context = build_chat_context(user_id, file_id=file_id)
         logger.info(f"Financial context generated for user {user_id}")
         return context
-
     except Exception as e:
         logger.error(f"Error getting financial context: {str(e)}")
-        # Return a safe fallback context
         return {
             'period_label': '', 'period_start': '', 'period_end': '',
             'income': 0,
             'expenses': 0,
             'balance': 0,
             'account_totals': [],
+            'account_balances': [],
+            'balance_accounts_shown': 0,
             'uncategorised': 0,
             'recent_transactions': [],
             'total_transactions': 0,
             'lines_shown': 0,
+            'statement': None,
             'error': str(e)
         }
 
@@ -237,15 +173,20 @@ Summary for the period:
 - Net: R{context['balance']:,.2f}
 - Transactions in the period: {context['total_transactions']} ({context.get('uncategorised', 0)} not yet categorised)
 
-Totals by account (money in positive, money out negative):
+Totals by account in the period (money in positive, money out negative):
 {format_account_totals_for_prompt(context.get('account_totals', []))}
 
-Transactions (newest first{', the latest ' + str(context['lines_shown']) + ' of ' + str(context['total_transactions']) if context.get('lines_shown', 0) < context['total_transactions'] else ''}):
+Trial balance account balances for the same financial year (debit positive, credit negative):
+{format_account_balances_for_prompt(context.get('account_balances', []))}
+
+{format_statement_block_for_prompt(context.get('statement'))}
+
+Financial-year transactions (newest first{', the latest ' + str(context['lines_shown']) + ' of ' + str(context['total_transactions']) if context.get('lines_shown', 0) < context['total_transactions'] else ''}):
 {format_transactions_for_prompt(context['recent_transactions'])}
 
 User Query: {message}
 
-Answer from the figures above. Do not call the data dummy or inconsistent; if something is not in the period shown, say so."""
+Answer from the figures above — especially the current bank statement when the question is about imported lines. Do not call the data dummy or inconsistent; if something is not in the data shown, say so. You cannot change accounts or explanations; only describe what is there."""
 
         response = client.messages.create(
             model=CLAUDE_MODEL,
@@ -273,3 +214,55 @@ def format_account_totals_for_prompt(rows: List[Dict]) -> str:
         f"- {r['account']}: R{r['total']:,.2f} ({r['count']} transactions)"
         for r in rows
     ]) or "- nothing categorised yet"
+
+
+def format_account_balances_for_prompt(rows: List[Dict]) -> str:
+    return "\n".join([
+        f"- {r['account']} ({r.get('link', '')}): R{r['balance']:,.2f}"
+        for r in rows
+    ]) or "- no trial balance figures for this workspace yet"
+
+
+def format_statement_block_for_prompt(statement: Optional[Dict]) -> str:
+    if not statement:
+        return (
+            "Current bank statement: none uploaded yet — only the financial-year "
+            "summary above is available."
+        )
+    cat = statement.get('categorization') or {}
+    prov = statement.get('provenance') or {}
+    cap_note = ''
+    if statement.get('lines_shown', 0) < statement.get('transaction_count', 0):
+        cap_note = (
+            f", showing the latest {statement['lines_shown']} of "
+            f"{statement['transaction_count']}"
+        )
+    lines = [
+        "Current bank statement (read-only):",
+        f"- File: {statement.get('filename', '')} "
+        f"(uploaded {statement.get('upload_date', 'unknown')})",
+        f"- Lines on this statement: {statement.get('transaction_count', 0)}",
+        f"- Still needing account and/or explanation: "
+        f"{statement.get('unprocessed_count', 0)}",
+        "- Categorisation on this statement: "
+        f"{cat.get('complete', 0)} complete, "
+        f"{cat.get('needs_account', 0)} need an account, "
+        f"{cat.get('needs_explanation', 0)} need an explanation, "
+        f"{cat.get('needs_account_and_explanation', 0)} need both",
+        "- Explanations by author on this statement: "
+        f"accountant {prov.get('accountant', 0)}, "
+        f"client {prov.get('client', 0)}, "
+        f"Analee {prov.get('ai', 0)}, "
+        f"other/unattributed {prov.get('unattributed', 0)}",
+        f"Statement lines (newest first{cap_note}):",
+    ]
+    tx_lines = statement.get('transactions') or []
+    if not tx_lines:
+        lines.append("- no lines on this statement")
+    else:
+        for tx in tx_lines:
+            lines.append(
+                f"- {tx['date']}: {tx['description']} (R{tx['amount']:,.2f}) — "
+                f"{tx.get('account', '')} [{tx.get('status', '')}]"
+            )
+    return "\n".join(lines)

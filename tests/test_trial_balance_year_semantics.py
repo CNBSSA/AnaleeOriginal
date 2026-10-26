@@ -147,7 +147,8 @@ class TestIncomeAndExpensesCarryTheYearsMovementOnly:
             income_statement_figure = db.session.query(
                 func.sum(Transaction.amount)).filter(
                 Transaction.account_id == sales.id,
-                Transaction.date.between(ctx.start_date, ctx.end_date)).scalar()
+                Transaction.date >= ctx.start_date,
+                Transaction.date < ctx.end_date).scalar()
 
         # The income statement sums bank-signed lines (money in +); the trial
         # balance states the same figure as a credit.

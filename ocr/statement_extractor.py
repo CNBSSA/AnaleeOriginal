@@ -20,6 +20,7 @@ from nlp_utils import get_claude_client
 from .pdf_text_extraction import PdfStatementError, extract_pdf_statement, extract_text
 from .pdf_chunking import needs_chunking, split_pdf_bytes, count_pdf_pages
 from .bank_profiles import detect_profile
+from services.extraction_junk_filter import JunkVerdict, classify_extraction_row, filter_review_rows
 from .statement_integrity import (
     ExtractionResult,
     ReportCard,
@@ -240,10 +241,14 @@ def _payload_to_result(
                 period_start=payload.get("period_start"),
                 period_end=payload.get("period_end"),
             )
+            description = str(raw.get("description") or "").strip()
+            amount = raw["amount"]
+            if classify_extraction_row(description, amount) == JunkVerdict.DROP:
+                continue
             lines.append(StatementLine(
                 date=iso_date,
-                description=str(raw.get("description") or "").strip(),
-                amount=raw["amount"],
+                description=description,
+                amount=amount,
                 balance=balance,
                 confidence=confidence,
             ))
@@ -425,6 +430,35 @@ def _extract_via_claude(
     return _payload_to_result(payload, opening_override, closing_override)
 
 
+def _infer_money_out_signs(result: ExtractionResult) -> ExtractionResult:
+    """Give a payment its minus sign when the statement's own balances prove it.
+
+    A PDF with separate Debit / Credit columns, or a Dr / Cr marker, can reach
+    us as a plain positive figure (work-orders #103). The running balance says
+    which way the money went: a row whose balance fell by exactly its amount is
+    money out. A row is changed only when that holds to the cent; anything the
+    figures cannot explain is left as read, and the integrity check still flags
+    it. The chain walks the lines exactly as ``self_audit`` does, so a row with
+    no balance restarts it. Returns a new result; the input is not modified.
+    """
+    prev: Optional[Decimal] = result.header.opening_balance
+    lines = []
+    changed = False
+    for ln in result.lines:
+        if ln.balance is None:
+            prev = None
+            lines.append(ln)
+            continue
+        if prev is not None and ln.amount > 0 and (ln.balance - prev) == -ln.amount:
+            ln = ln.model_copy(update={"amount": -ln.amount})
+            changed = True
+        prev = ln.balance
+        lines.append(ln)
+    if not changed:
+        return result
+    return result.model_copy(update={"lines": lines})
+
+
 def _result_to_review_rows(result: ExtractionResult) -> List[Dict[str, Any]]:
     """Convert ExtractionResult lines to the review-screen row dicts."""
     return [
@@ -529,8 +563,9 @@ def extract_bank_statement(
                 error_code="EXTRACTION_FAILED",
             )
 
+    result = _infer_money_out_signs(result)
     report = self_audit(result)
-    rows = _result_to_review_rows(result)
+    rows, _junk_dropped = filter_review_rows(_result_to_review_rows(result))
 
     return BankStatementExtraction(
         rows=rows,

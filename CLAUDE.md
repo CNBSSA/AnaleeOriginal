@@ -769,6 +769,40 @@ on screen) are ingress/egress, outside the freeze. Tests:
 
 **THE ENGINE IS RE-FROZEN.**
 
+### Scoped re-open + re-freeze record (Festus, 2026-10-07) — MONEY IN IS NEVER AN EXPENSE (work order #33)
+
+Festus: *"Reopen Analee"* — for ONE scope: work order #33. The plan passed gate 1
+with both approvers (Festus and Festie, 2026-10-07).
+
+**The defect.** The rule "a receipt is never filed to an expense, a payment never
+to income" lived only as a sentence in the AI prompt. Nothing checked the
+answer, so a **+15,000** line came back **Salaries at 0.95**. That clears the 0.85
+auto-apply gate, so "Auto-process next 10" would post it.
+
+**What changed (the scope):** `services/bulk_suggestions.py` only.
+- A new `_wrong_direction(row, account)` helper.
+- After a suggested name is matched to the chart, money in meeting an
+  **Expenses** account, or money out meeting an **Income** account, drops the
+  account. The confidence becomes 0, the explanation is kept, the line stays open
+  for a person, and one log line is written.
+- Assets, Liabilities and Equity go either way (transfers, loans, owner money)
+  and are never refused. Neither is a zero or unreadable amount. The category is
+  matched ignoring case.
+
+**Untouched:** `history_matching.py`, `auto_process.py`, `accountant_fanout.py`,
+`analyze_processing.py`, `predictive_features.py`, `ai_utils.py`, the chart seed,
+rules and schema, and `reports/trial_balance_service.py`.
+`protected_assets.py --check` is clean, and no re-lock is needed
+(`bulk_suggestions.py` is policy-frozen, not in the machine lock).
+
+**Noted, NOT changed:** the history path can still apply a payee's past expense
+account to a refund (money in). That is a separate, smaller risk inside the
+freeze, and needs its own ruling.
+
+Tests: `tests/test_wo33_direction_guard.py` (12; 3 fail without the guard).
+
+**THE ENGINE IS RE-FROZEN.**
+
 ---
 
 ## PROTECTED ASSETS — FROZEN (do not touch without Festus's explicit approval)

@@ -15,7 +15,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from sqlalchemy import and_
 
-from models import Account, CompanySettings, Transaction
+from models import Account, CompanySettings, Transaction, in_financial_period
 
 BOOKSXPERTS_TB_COLUMNS = ('Link', 'Account Name', 'Amount')
 
@@ -63,7 +63,8 @@ def _account_balance(account: Account, start_date: datetime,
     """The account's trial-balance amount for the financial year (QA #13).
 
     **Balance-sheet accounts (Assets / Liabilities / Equity)** are cumulative up
-    to and including ``end_date``. A bank balance is the sum of everything that
+    to strictly before ``end_date`` (exclusive; the closing calendar day is
+    included). A bank balance is the sum of everything that
     ever happened to it, so it must carry forward.
 
     **Income-statement accounts (Income / Expenses)** carry the MOVEMENT inside
@@ -89,10 +90,10 @@ def _account_balance(account: Account, start_date: datetime,
     """
     if _is_profit_or_loss(account):
         total = sum((t.amount for t in account.transactions
-                     if start_date <= t.date <= end_date), 0.0)
+                     if in_financial_period(t.date, start_date, end_date)), 0.0)
     else:
         total = sum((t.amount for t in account.transactions
-                     if t.date <= end_date), 0.0)
+                     if t.date < end_date), 0.0)
     return _quantize(Decimal(str(total)))
 
 
@@ -118,7 +119,11 @@ SUSPENSE_NAME = 'Suspense Account'
 # one clearly named row rather than guessed onto one of the client's banks.
 UNRECORDED_BANK_LINK = 'ca.810.000'
 UNRECORDED_BANK_NAME = 'Bank (statement account not recorded)'
-RETAINED_LINKS = ('q.200.000', 'q.100.000')
+# Prior-year P&L rolls here only — never into Share Capital / Members' Contribution
+# (q.100.000). That link is a real equity account with its own postings; using it
+# as a fallback when q.200.000 is missing made the TB show the expense aggregate
+# on Capital while q.200.000 was absent from the chart.
+RETAINED_LINKS = ('q.200.000',)
 RETAINED_NAME = 'Retained Earnings'
 
 
@@ -217,7 +222,7 @@ def load_trial_balance(
 
     transactions = (
         Transaction.query.filter(
-            and_(Transaction.user_id == user_id, Transaction.date <= end_date))
+            and_(Transaction.user_id == user_id, Transaction.date < end_date))
         .order_by(Transaction.id)
         .all()
     )
@@ -241,7 +246,7 @@ def load_trial_balance(
 
     for t in transactions:
         amount = Decimal(str(t.amount))
-        in_period = start_date <= t.date <= end_date
+        in_period = in_financial_period(t.date, start_date, end_date)
         category = accounts_by_id.get(t.account_id)
         bank = banks.get(t.file_id)
         if bank is None:
@@ -325,8 +330,9 @@ def build_booksxperts_trial_balance_xlsx(
     return buf.getvalue()
 
 
-def export_filename(period_end: datetime) -> str:
-    return f'analee-trial-balance-{period_end.strftime("%Y-%m-%d")}.xlsx'
+def export_filename(period_end_exclusive: datetime) -> str:
+    label = CompanySettings.financial_year_period_end_inclusive(period_end_exclusive)
+    return f'analee-trial-balance-{label.strftime("%Y-%m-%d")}.xlsx'
 
 
 def build_trial_balance_payload(
@@ -355,9 +361,11 @@ def build_trial_balance_payload(
         'company_id': user_id,
         'company_name': company_name,
         'registration_number': registration_number or '',
-        'as_at': ctx.end_date.strftime('%Y-%m-%d'),
+        'as_at': CompanySettings.financial_year_period_end_inclusive(
+            ctx.end_date).strftime('%Y-%m-%d'),
         'period_start': ctx.start_date.strftime('%Y-%m-%d'),
-        'period_end': ctx.end_date.strftime('%Y-%m-%d'),
+        'period_end': CompanySettings.financial_year_period_end_inclusive(
+            ctx.end_date).strftime('%Y-%m-%d'),
         'rows': rows,
         'balanced': ctx.total_debits == ctx.total_credits,
         'total_debits': float(ctx.total_debits),

@@ -53,6 +53,16 @@ is (one sentence, no more than 200 characters).
 Chart of accounts (choose ONLY from these exact names):
 {chart}
 
+Amount and direction (read every line — do not ignore)
+------------------------------------------------------
+Each transaction shows: date | description | amount in ZAR | direction.
+Direction comes from the bank sign on the statement:
+  • positive amount → money IN (receipt / credit to this account)
+  • negative amount → money OUT (payment / debit from this account)
+
+Prior practice for payees in this batch (prefer when direction still fits):
+{history}
+
 Transactions:
 {rows}
 
@@ -66,8 +76,12 @@ Respond with JSON ONLY — no markdown fences, no commentary — exactly this sh
 
 Rules:
 - Use the exact account name as printed in the chart. Never invent one.
-- A negative amount is money OUT, a positive amount is money IN. Never file a
-  payment to an income account or a receipt to an expense account.
+- Respect direction when choosing the account category:
+  • money IN → Income or Assets (or Liabilities / Equity for loans, owner money).
+    Never an Expenses account.
+  • money OUT → Expenses or Assets (or Liabilities / Equity). Never an Income account.
+- When prior practice is listed for a payee and matches the line's direction, lean
+  on that account unless the description clearly contradicts it.
 - If you are genuinely unsure of the account, set "account" to null and give a
   low confidence — do not guess. Still write the explanation.
 - Return one object for EVERY transaction number listed.
@@ -91,15 +105,67 @@ def _format_chart(accounts: Sequence) -> str:
     return "\n".join(lines)
 
 
+def _direction_label(amount) -> str:
+    """Human-readable direction for the model (bank sign convention)."""
+    try:
+        value = float(amount or 0)
+    except (TypeError, ValueError):
+        return 'direction unknown'
+    if value > 0:
+        return 'money IN (receipt/credit)'
+    if value < 0:
+        return 'money OUT (payment/debit)'
+    return 'zero amount'
+
+
 def _format_rows(rows: Sequence[Dict[str, Any]]) -> str:
     lines = []
     for row in rows:
         date = row.get('date') or ''
         amount = row.get('amount')
+        direction = _direction_label(amount)
         lines.append(
-            f"{row['index']}. {date} | {row.get('description', '')} | {amount}"
+            f"{row['index']}. {date} | {row.get('description', '')} | "
+            f"amount={amount} ZAR | {direction}"
         )
     return "\n".join(lines)
+
+
+def _format_history_for_batch(
+    rows: Sequence[Dict[str, Any]],
+    history_index: Optional[Dict[str, Any]],
+) -> str:
+    """Summarise prior filings for payees appearing in this batch."""
+    if not history_index:
+        return 'No prior practice on file for these payees.'
+
+    from services.history_matching import normalize_description
+
+    lines: List[str] = []
+    seen_keys: set[str] = set()
+    for row in rows:
+        key = normalize_description(row.get('description'))
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        entry = history_index.get(key)
+        if entry is None:
+            continue
+        account_id, account_name, _confidence = entry.verdict()
+        if not account_name:
+            continue
+        snippet = (entry.explanation or '').strip()
+        if snippet:
+            snippet = f' — "{snippet[:120]}"'
+        lines.append(
+            f"- Payee «{key}»: filed {entry.total} time(s), usually "
+            f"«{account_name}»{snippet} "
+            f"(this line: {_direction_label(row.get('amount'))})"
+        )
+
+    if not lines:
+        return 'No prior practice on file for these payees.'
+    return '\n'.join(lines)
 
 
 def _salvage_objects(text: str) -> List[dict]:
@@ -169,17 +235,38 @@ def _clamp_confidence(raw) -> float:
     return max(0.0, min(1.0, value))
 
 
+def _wrong_direction(row: Dict[str, Any], account) -> bool:
+    """True when money in meets an Expenses account, or money out an Income one.
+
+    Assets, Liabilities and Equity go either way (transfers, loans, owner
+    money) and are never refused; nor is a zero or unreadable amount.
+    """
+    try:
+        amount = float(row.get('amount') or 0)
+    except (TypeError, ValueError):
+        return False
+    category = str(getattr(account, 'category', '') or '').strip().lower()
+    if amount > 0 and category == 'expenses':
+        return True
+    if amount < 0 and category == 'income':
+        return True
+    return False
+
+
 def suggest_for_rows(
     rows: Sequence[Dict[str, Any]],
     accounts: Sequence,
     client=None,
+    history_index: Optional[Dict[str, Any]] = None,
 ) -> Dict[int, RowSuggestion]:
     """Suggest an account + explanation for each row in ONE AI call.
 
     ``rows`` are dicts with ``index``, ``description``, ``amount`` and
     optionally ``date``. ``accounts`` are this user's Account rows — the caller
     is responsible for scoping them, and only names present here can ever be
-    returned.
+    returned. ``history_index`` is the optional payee index from
+    :func:`services.history_matching.build_history_index` — when supplied,
+    relevant precedents are included in the prompt (BX-AN-1).
 
     Returns a mapping of row index -> :class:`RowSuggestion`. An empty mapping
     means "no suggestions" — never a guess. The caller decides what confidence
@@ -201,7 +288,11 @@ def suggest_for_rows(
 
     by_name = {account.name.lower(): account for account in accounts}
 
-    prompt = _PROMPT.format(chart=_format_chart(accounts), rows=_format_rows(rows))
+    prompt = _PROMPT.format(
+        chart=_format_chart(accounts),
+        history=_format_history_for_batch(rows, history_index),
+        rows=_format_rows(rows),
+    )
 
     try:
         response = client.messages.create(
@@ -216,6 +307,7 @@ def suggest_for_rows(
         return {}
 
     valid_indexes = {row['index'] for row in rows}
+    rows_by_index = {row['index']: row for row in rows}
     suggestions: Dict[int, RowSuggestion] = {}
 
     for item in _parse_reply(text):
@@ -234,7 +326,16 @@ def suggest_for_rows(
         raw_name = item.get('account')
         if raw_name not in (None, '', 'null'):
             matched = by_name.get(str(raw_name).strip().lower())
-            if matched is not None:
+            if matched is not None and _wrong_direction(rows_by_index[index], matched):
+                # Work order #33: the prompt asks the model to respect the
+                # sign, but nothing checked it — a +15,000 receipt came back
+                # "Salaries" at 0.95. Drop the account (a person decides),
+                # keep the explanation.
+                logger.info(
+                    "Bulk suggestion %r refused: wrong direction for amount %s",
+                    matched.name, rows_by_index[index].get('amount'))
+                confidence = 0.0
+            elif matched is not None:
                 account_id = matched.id
                 account_name = matched.name
             else:

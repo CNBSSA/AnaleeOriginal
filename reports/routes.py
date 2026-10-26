@@ -6,11 +6,14 @@ general ledger, and trial balance.
 
 import logging
 import calendar
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, jsonify, current_app
 from flask_login import login_required, current_user
-from models import db, Transaction, Account, CompanySettings
+from models import (
+    db, Transaction, Account, CompanySettings,
+    transaction_in_financial_period,
+)
 from sqlalchemy import text, and_
 from sqlalchemy.sql import func
 from sqlalchemy.orm import contains_eager
@@ -24,6 +27,8 @@ from . import reports
 from . import tb_approval
 from .trial_balance_service import (
     PROFIT_AND_LOSS_CATEGORIES,
+    SUSPENSE_LINK,
+    SUSPENSE_NAME,
     build_booksxperts_trial_balance_xlsx,
     build_trial_balance_payload,
     export_filename,
@@ -63,6 +68,31 @@ def _account_category(account):
     return (getattr(account, 'category', '') or '').strip()
 
 
+def _period_end_exclusive(end) -> datetime:
+    """Normalize a period end to the exclusive bound ``get_financial_year`` uses."""
+    if isinstance(end, datetime):
+        return end
+    if isinstance(end, date):
+        return datetime.combine(end, datetime.min.time()) + timedelta(days=1)
+    raise TypeError(f'unsupported period end type: {type(end)!r}')
+
+
+def _financial_year_bounds(settings: CompanySettings | None, start_year: int) -> dict:
+    """Bounds for a financial year that starts in ``start_year`` (dashboard convention)."""
+    if settings is None:
+        # Calendar-year default — matches ``_dashboard_financial_years`` when the
+        # user has not configured company settings yet.
+        settings = CompanySettings(company_name='', user_id=0, financial_year_end=12)
+    fy_end = int(settings.financial_year_end or 12)
+    bounds = settings.get_financial_year(date=_fy_probe_date(start_year, fy_end))
+    last_day = CompanySettings.financial_year_period_end_inclusive(bounds['end_date'])
+    return {
+        'start': bounds['start_date'],
+        'end_exclusive': bounds['end_date'],
+        'end_inclusive': last_day,
+    }
+
+
 def _account_totals(account_ids, end_date, start_date=None):
     """``{account_id: (signed_total, entry_count)}`` in ONE query.
 
@@ -70,24 +100,30 @@ def _account_totals(account_ids, end_date, start_date=None):
     thousand queries per page view on a seeded chart. Same arithmetic, one
     round trip.
 
-    ``start_date`` omitted means cumulative to ``end_date`` (balance-sheet
-    behaviour); supplied means movement within the period (income-statement
-    behaviour). That mirrors ``trial_balance_service._account_balance``.
+    ``start_date`` omitted means cumulative to strictly before ``end_date``
+    (balance-sheet behaviour); supplied means movement within the period
+    (income-statement behaviour). ``end_date`` may be an exclusive ``datetime``
+    (as from ``get_financial_year``) or an inclusive calendar ``date`` (custom
+    range), which is normalised to the same exclusive rule.
 
     The count is returned so a caller can tell "no activity" from "nets to
     zero" without a second query.
     """
     if not account_ids:
         return {}
+    end_exclusive = _period_end_exclusive(end_date)
     query = db.session.query(
         Transaction.account_id,
         func.sum(Transaction.amount),
         func.count(Transaction.id),
     ).filter(Transaction.account_id.in_(account_ids))
     if start_date is not None:
-        query = query.filter(Transaction.date.between(start_date, end_date))
+        start = start_date if isinstance(start_date, datetime) else datetime.combine(
+            start_date, datetime.min.time())
+        query = query.filter(
+            transaction_in_financial_period(Transaction.date, start, end_exclusive))
     else:
-        query = query.filter(Transaction.date <= end_date)
+        query = query.filter(Transaction.date < end_exclusive)
     return {
         account_id: (total or 0, count)
         for account_id, total, count in query.group_by(Transaction.account_id).all()
@@ -148,6 +184,7 @@ def cashbook():
         # Determine filtering mode and dates
         period_type = request.args.get('period_type', 'fy')
         selected_fy = None
+        end_exclusive = None
 
         if period_type == 'custom':
             # Custom period filtering
@@ -171,26 +208,35 @@ def cashbook():
             else:
                 selected_fy = max(financial_years)
 
-            # Calculate FY dates based on settings
-            fy_end_month = company_settings.financial_year_end
-            if fy_end_month == 12:
-                from_date = datetime(selected_fy, 1, 1).date()
-                to_date = datetime(selected_fy, 12, 31).date()
-            else:
-                from_date = datetime(selected_fy, fy_end_month + 1, 1).date()
-                last_day = get_last_day_of_month(selected_fy + 1, fy_end_month)
-                to_date = datetime(selected_fy + 1, fy_end_month, last_day).date()
+            fy_bounds = _financial_year_bounds(company_settings, selected_fy)
+            from_date = fy_bounds['start']
+            to_date = fy_bounds['end_inclusive']
+            end_exclusive = fy_bounds['end_exclusive']
 
         # Get transactions for the specified period
-        transactions = Transaction.query.filter(
-            Transaction.user_id == current_user.id,
-            Transaction.date.between(from_date, to_date)
-        ).order_by(Transaction.date).all()
+        if end_exclusive is not None:
+            transactions = Transaction.query.filter(
+                Transaction.user_id == current_user.id,
+                transaction_in_financial_period(
+                    Transaction.date, from_date, end_exclusive),
+            ).order_by(Transaction.date).all()
+            display_end = to_date.date() if isinstance(to_date, datetime) else to_date
+            display_start = from_date.date() if isinstance(from_date, datetime) else from_date
+        else:
+            transactions = Transaction.query.filter(
+                Transaction.user_id == current_user.id,
+                transaction_in_financial_period(
+                    Transaction.date,
+                    datetime.combine(from_date, datetime.min.time()),
+                    _period_end_exclusive(to_date),
+                ),
+            ).order_by(Transaction.date).all()
+            display_start, display_end = from_date, to_date
 
         return render_template('reports/cashbook.html',
                              transactions=transactions,
-                             start_date=from_date,
-                             end_date=to_date,
+                             start_date=display_start,
+                             end_date=display_end,
                              min_date=min_date,
                              max_date=max_date,
                              financial_years=financial_years,
@@ -319,11 +365,12 @@ def _period_options(user_id: int, selected_end: datetime, *, back: int = 5) -> l
     options = []
     for year in range(current_start_year, current_start_year - back - 1, -1):
         dates = settings.get_financial_year(date=_fy_probe_date(year, fy_end))
+        last_day = CompanySettings.financial_year_period_end_inclusive(dates['end_date'])
         options.append({
             'value': year,
             'label': (f"{dates['start_date'].strftime('%d %b %Y')} – "
-                      f"{dates['end_date'].strftime('%d %b %Y')}"),
-            'selected': dates['end_date'].date() == selected_end.date(),
+                      f"{last_day.strftime('%d %b %Y')}"),
+            'selected': dates['end_date'] == selected_end,
         })
     return options
 
@@ -342,14 +389,18 @@ def trial_balance():
         # user (ix_account_user_link). Accounts absent from it have a zero balance
         # and still render as 0.00, so the row set is unchanged.
         amounts_by_link = {row.link: row.amount for row in ctx.rows}
+        suspense_balance = abs(amounts_by_link.get(SUSPENSE_LINK, 0) or 0)
         approval = tb_approval.status_for(current_user.id, ctx)
         return render_template(
             'reports/trial_balance.html',
             approval=approval,
             accounts=ctx.accounts,
             amounts_by_link=amounts_by_link,
+            suspense_balance=suspense_balance,
+            suspense_name=SUSPENSE_NAME,
+            analyze_list_url=url_for('main.analyze_list'),
             start_date=ctx.start_date,
-            end_date=ctx.end_date,
+            end_date=CompanySettings.financial_year_period_end_inclusive(ctx.end_date),
             total_debits=ctx.total_debits,
             total_credits=ctx.total_credits,
             tb_balanced=ctx.total_debits == ctx.total_credits,
@@ -577,6 +628,7 @@ def financial_position():
                 to_date = datetime.strptime(to_date, '%Y-%m-%d').date()
             else:
                 to_date = max_date
+            display_start, display_end = from_date, to_date
         else:
             # Financial year filtering
             selected_fy = request.args.get('financial_year')
@@ -585,15 +637,10 @@ def financial_position():
             else:
                 selected_fy = max(financial_years)
 
-            # Calculate FY dates based on settings
-            fy_end_month = company_settings.financial_year_end
-            if fy_end_month == 12:
-                from_date = datetime(selected_fy, 1, 1).date()
-                to_date = datetime(selected_fy, 12, 31).date()
-            else:
-                from_date = datetime(selected_fy, fy_end_month + 1, 1).date()
-                last_day = get_last_day_of_month(selected_fy + 1, fy_end_month)
-                to_date = datetime(selected_fy + 1, fy_end_month, last_day).date()
+            fy_bounds = _financial_year_bounds(company_settings, selected_fy)
+            to_date = fy_bounds['end_exclusive']
+            display_start = fy_bounds['start'].date()
+            display_end = fy_bounds['end_inclusive'].date()
 
         # Get accounts with their transactions for the period
         accounts = Account.query.filter_by(user_id=current_user.id).all()
@@ -632,8 +679,8 @@ def financial_position():
             # Adding one is a new feature, not part of the #15 correction.
 
         return render_template('reports/financial_position.html',
-                             start_date=from_date,
-                             end_date=to_date,
+                             start_date=display_start,
+                             end_date=display_end,
                              min_date=min_date,
                              max_date=max_date,
                              financial_years=financial_years,
@@ -704,6 +751,7 @@ def income_statement():
                 to_date = datetime.strptime(to_date, '%Y-%m-%d').date()
             else:
                 to_date = max_date
+            display_start, display_end = from_date, to_date
         else:
             # Financial year filtering
             selected_fy = request.args.get('financial_year')
@@ -712,15 +760,11 @@ def income_statement():
             else:
                 selected_fy = max(financial_years)
 
-            # Calculate FY dates based on settings
-            fy_end_month = company_settings.financial_year_end
-            if fy_end_month == 12:
-                from_date = datetime(selected_fy, 1, 1).date()
-                to_date = datetime(selected_fy, 12, 31).date()
-            else:
-                from_date = datetime(selected_fy, fy_end_month + 1, 1).date()
-                last_day = get_last_day_of_month(selected_fy + 1, fy_end_month)
-                to_date = datetime(selected_fy + 1, fy_end_month, last_day).date()
+            fy_bounds = _financial_year_bounds(company_settings, selected_fy)
+            from_date = fy_bounds['start']
+            to_date = fy_bounds['end_exclusive']
+            display_start = from_date.date()
+            display_end = fy_bounds['end_inclusive'].date()
 
         # Get accounts with their transactions for the period
         accounts = Account.query.filter_by(user_id=current_user.id).all()
@@ -758,8 +802,8 @@ def income_statement():
                 total_expenses += -balance
 
         return render_template('reports/income_statement.html',
-                            start_date=from_date,
-                            end_date=to_date,
+                            start_date=display_start,
+                            end_date=display_end,
                             min_date=min_date,
                             max_date=max_date,
                             financial_years=financial_years,

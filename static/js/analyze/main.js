@@ -7,7 +7,6 @@ import { ExplanationHandler } from './explanationHandler.js';
 import { AccountSuggestionHandler } from './accountSuggestions.js';
 import { ExplanationSuggestionHandler } from './explanationSuggestions.js';
 import { SimilarTransactionHandler } from './similarTransactions.js';
-import TutorialManager from './tutorial.js';
 import { bindCashBasisGuardrails } from './cashBasisGuardrails.js';
 
 class AnalyzeApplication {

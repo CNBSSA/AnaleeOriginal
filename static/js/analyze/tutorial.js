@@ -25,11 +25,7 @@ export class TutorialManager {
      * Initialize the tutorial system
      */
     initializeTutorial() {
-        // Show tutorial for first-time visitors
-        if (!localStorage.getItem('analyzeTutorialSeen')) {
-            this.showTutorial();
-        }
-        
+        // Tutorial is opt-in only — do not block the Analyze screen on first visit.
         this.initializeTooltips();
         this.setupEventListeners();
     }
@@ -270,5 +266,5 @@ export class TutorialManager {
     }
 }
 
-// Export a singleton instance
-export default new TutorialManager();
+export { TutorialManager };
+export default TutorialManager;

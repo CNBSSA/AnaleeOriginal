@@ -35,6 +35,7 @@ from services.analyze_processing import (
     file_summaries_for_user,
     get_file_for_user,
     get_paginated_transactions,
+    has_real_account_assignment,
     process_transaction_batch,
     provenance_summary,
     save_analyze_form_transactions,
@@ -145,16 +146,6 @@ def _dashboard_financial_years(user_id, company_settings):
     return sorted(years), fy_end, start_year
 
 
-def _dashboard_fy_range(start, fy_end):
-    """First and last day of the financial year that starts in ``start``."""
-    if fy_end == 12:
-        return datetime(start, 1, 1), datetime(start, 12, 31, 23, 59, 59)
-    from calendar import monthrange
-    last_day = monthrange(start + 1, fy_end)[1]
-    return (datetime(start, fy_end + 1, 1),
-            datetime(start + 1, fy_end, last_day, 23, 59, 59))
-
-
 @main.route('/dashboard')
 @login_required
 def dashboard():
@@ -171,14 +162,20 @@ def dashboard():
     financial_years, fy_end, start_year_of = _dashboard_financial_years(
         current_user.id, company_settings)
     selected_fy = request.args.get('financial_year', type=int)
-    if selected_fy not in financial_years:
-        selected_fy = start_year_of(datetime.now())
-    fy_start, fy_finish = _dashboard_fy_range(selected_fy, fy_end)
+    if selected_fy is None or selected_fy not in financial_years:
+        from services.workspace_fy import default_fy_start_year
+        selected_fy = default_fy_start_year(current_user.id, company_settings)
+    from reports.routes import _financial_year_bounds
+    from models import transaction_in_financial_period
+
+    fy_bounds = _financial_year_bounds(company_settings, selected_fy)
+    fy_start = fy_bounds['start']
+    fy_finish = fy_bounds['end_exclusive']
+    fy_end_date = fy_bounds['end_inclusive']
 
     fy_transactions = Transaction.query.filter(
         Transaction.user_id == current_user.id,
-        Transaction.date >= fy_start,
-        Transaction.date <= fy_finish,
+        transaction_in_financial_period(Transaction.date, fy_start, fy_finish),
     ).order_by(Transaction.date.desc()).all()
 
     total_income = sum(t.amount for t in fy_transactions if t.amount > 0)
@@ -280,7 +277,13 @@ def settings():
             is_active=True
         ).all()
 
-        return render_template('settings.html', accounts=accounts)
+        from utils.chart_form_choices import CHART_CATEGORIES, CHART_SUBCATEGORIES
+        return render_template(
+            'settings.html',
+            accounts=accounts,
+            chart_categories=CHART_CATEGORIES,
+            chart_subcategories=CHART_SUBCATEGORIES,
+        )
     except Exception as e:
         logger.exception('Error in settings route: %s', e)
         db.session.rollback()
@@ -483,6 +486,7 @@ def analyze(file_id):
         transaction_insights = {
             transaction.id: {
                 'needs_processing': transaction_needs_processing(transaction),
+                'has_ledger_account': has_real_account_assignment(transaction),
             }
             for transaction in transactions
         }
@@ -774,11 +778,12 @@ def suggest_account():
                 'message': _ASF_OFFLINE_MESSAGE,
             })
 
-        predictor = PredictiveFeatures()
+        from nlp_utils import get_claude_client
+        from services.bulk_suggestions import suggest_for_rows
+        from services.history_matching import build_history_index
 
-        # Door 2 — a key is set but the client did not construct. The engine's
-        # own startup log claims success either way, so trust the object.
-        if getattr(predictor, 'client', None) is None:
+        # Door 2 — a key is set but the client did not construct.
+        if get_claude_client() is None:
             logger.error(
                 'ASF declined: ANTHROPIC_API_KEY is set but the AI client did '
                 'not initialise. Check the key is valid and that CLAUDE_MODEL '
@@ -790,20 +795,29 @@ def suggest_account():
                 'message': _ASF_OFFLINE_MESSAGE,
             })
 
-        suggestion = predictor.suggest_account(
-            description,
-            explanation,
-            user_id=current_user.id,
-        )
+        try:
+            amount = float(data.get('amount', 0) or 0)
+        except (TypeError, ValueError):
+            amount = 0.0
 
-        # Door 3 — the engine answered, but from the fallback, not the AI.
-        if _asf_is_degraded(suggestion):
+        accounts = Account.query.filter_by(
+            user_id=current_user.id,
+            is_active=True,
+        ).all()
+        rows = [{
+            'index': 0,
+            'date': '',
+            'description': description,
+            'amount': amount,
+        }]
+        # Same JSON batched suggester as auto-process — never the frozen engine's
+        # pipe parser or its text-matching fallback (Festus 2026-09-03).
+        history_index = build_history_index(current_user.id)
+        suggestions = suggest_for_rows(rows, accounts, history_index=history_index)
+        if not suggestions:
             logger.error(
-                'ASF declined: the AI call failed and the engine fell back to '
-                'text matching (would have suggested %r at %s). Check the API '
-                'key and that CLAUDE_MODEL (%s) is available on it.',
-                suggestion.get('account'), suggestion.get('confidence'),
-                CLAUDE_MODEL,
+                'ASF declined: bulk suggester returned nothing (API unreachable '
+                'or call failed). CLAUDE_MODEL=%s', CLAUDE_MODEL,
             )
             return jsonify({
                 'success': False,
@@ -811,7 +825,23 @@ def suggest_account():
                 'message': _ASF_OFFLINE_MESSAGE,
             })
 
-        return jsonify(suggestion)
+        suggestion = suggestions[0]
+        if not suggestion.account_name:
+            return jsonify({
+                'success': False,
+                'ai_online': True,
+                'message': (
+                    'The AI could not match a ledger account for this line with '
+                    'enough confidence. Pick the account manually or use Recall.'
+                ),
+            })
+
+        return jsonify({
+            'success': True,
+            'account': suggestion.account_name,
+            'confidence': suggestion.confidence,
+            'reasoning': suggestion.explanation or explanation,
+        })
 
     except Exception as e:
         logger.error(f"Error suggesting account: {str(e)}")
@@ -906,7 +936,13 @@ def edit_account(account_id):
                 flash(f'Error updating account: {str(e)}', 'error')
                 db.session.rollback()
 
-        return render_template('edit_account.html', account=account)
+        from utils.chart_form_choices import CHART_CATEGORIES, CHART_SUBCATEGORIES
+        return render_template(
+            'edit_account.html',
+            account=account,
+            chart_categories=CHART_CATEGORIES,
+            chart_subcategories=CHART_SUBCATEGORIES,
+        )
     except Exception as e:
         logger.error(f'Error in edit_account route: {str(e)}')
         flash('Error accessing account', 'error')
@@ -1057,15 +1093,15 @@ def financial_insights():
             flash('Please configure company settings first.')
             return redirect(url_for('main.company_settings'))
 
-        # Get current financial year dates
-        fy_dates = company_settings.get_financial_year()
-        start_date = fy_dates['start_date']
-        end_date = fy_dates['end_date']
+        from models import transaction_in_financial_period
+        from services.workspace_fy import current_financial_year_period
 
-        # Get transactions for analysis
+        start_date, end_exclusive, end_date, _start_year = current_financial_year_period(
+            current_user.id, company_settings)
+
         transactions = Transaction.query.filter(
             Transaction.user_id == current_user.id,
-            Transaction.date.between(start_date, end_date)
+            transaction_in_financial_period(Transaction.date, start_date, end_exclusive),
         ).order_by(Transaction.date.desc()).all()
 
         # Initialize financial insights generator
@@ -1077,6 +1113,7 @@ def financial_insights():
             'risk_factors': [],
             'optimization_opportunities': [],
             'strategic_recommendations': [],
+            'statement_analysis': None,
             'cash_flow_analysis': {
                 'current_status': '',
                 'projected_trend': '',
@@ -1107,22 +1144,32 @@ def generate_insights():
             flash('Please configure company settings first.')
             return redirect(url_for('main.company_settings'))
 
-        # Get current financial year dates
-        fy_dates = company_settings.get_financial_year()
+        from models import transaction_in_financial_period
+        from services.workspace_fy import current_financial_year_period
 
-        # Get transactions for analysis
+        start_date, end_exclusive, _end_inclusive, _start_year = (
+            current_financial_year_period(current_user.id, company_settings))
+
         transactions = Transaction.query.filter(
             Transaction.user_id == current_user.id,
-            Transaction.date.between(fy_dates['start_date'], fy_dates['end_date'])
+            transaction_in_financial_period(Transaction.date, start_date, end_exclusive),
         ).order_by(Transaction.date.desc()).all()
+
+        from services.statement_insights import (
+            analyze_statement_transactions,
+            cash_flow_analysis_from_statement,
+        )
 
         # Convert transactions to dictionary format for AI processing
         transaction_data = [{
             'date': t.date.isoformat(),
             'description': t.description,
             'amount': float(t.amount),
-            'category': t.account.category if t.account else 'Uncategorized'
+            'category': t.account.category if t.account else 'Uncategorized',
+            'account_name': t.account.name if t.account else '',
         } for t in transactions]
+
+        statement_analysis = analyze_statement_transactions(transaction_data)
 
         # Generate insights using AI
         insights_generator = FinancialInsightsGenerator()
@@ -1139,7 +1186,10 @@ def generate_insights():
                 'risk_factors': _extract_risk_factors(insights['insights']),
                 'optimization_opportunities': _extract_opportunities(insights['insights']),
                 'strategic_recommendations': _extract_recommendations(insights['insights']),
-                'cash_flow_analysis': _analyze_cash_flow(transaction_data)
+                'statement_analysis': insights.get('statement_analysis') or statement_analysis,
+                'analysis_type': insights.get('analysis_type', 'ai_powered'),
+                'cash_flow_analysis': cash_flow_analysis_from_statement(
+                    transaction_data, statement_analysis),
             }
             session['financial_advice'] = financial_advice
             flash('Financial insights generated successfully', 'success')
@@ -1227,21 +1277,11 @@ def _extract_recommendations(insights_text):
         return []
 
 def _analyze_cash_flow(transaction_data):
-    """Analyze cash flow patterns from transaction data"""
-    try:
-        total_inflow = sum(t['amount'] for t in transaction_data if t['amount'] > 0)
-        total_outflow = abs(sum(t['amount'] for t in transaction_data if t['amount']< 0))
-        net_flow = total_inflow - total_outflow
+    """Analyze cash flow patterns from statement transaction data."""
+    from services.statement_insights import cash_flow_analysis_from_statement
 
-        return {
-            'current_status': f"Net cash flow: ${net_flow:,.2f}",
-            'projected_trend': "Trend analysis will be available in the next update",
-            'key_drivers': [
-                f"Total inflow: ${total_inflow:,.2f}",
-                f"Total outflow: ${total_outflow:,.2f}"
-            ],
-            'improvement_suggestions': ["Cash flow optimization suggestions will be available in the next update"]
-        }
+    try:
+        return cash_flow_analysis_from_statement(transaction_data)
     except Exception as e:
         logger.error(f"Error analyzing cash flow: {str(e)}")
         return {
@@ -1584,12 +1624,16 @@ def init_upload_status(filename):
     
 def process_transaction_rows(df, uploaded_file, user):
     """Process transaction rows from dataframe."""
+    from services.extraction_junk_filter import JunkVerdict, classify_extraction_row
+
     processed_rows = 0
     error_rows = []
     
     try:
         for index, row in df.iterrows():
             try:
+                if classify_extraction_row(row.get('Description'), row.get('Amount')) == JunkVerdict.DROP:
+                    continue
                 transaction = Transaction(
                     date=parse_statement_date_or_raise(row['Date']).date(),
                     description=str(row['Description']),
@@ -1622,10 +1666,15 @@ def generate_insights_api():
         if not company_settings:
             return jsonify({'error': 'Please configure company settings first.'}), 400
             
-        fy_dates = company_settings.get_financial_year()
+        from models import transaction_in_financial_period
+        from services.workspace_fy import current_financial_year_period
+
+        start_date, end_exclusive, _end_inclusive, _start_year = (
+            current_financial_year_period(current_user.id, company_settings))
+
         transactions = Transaction.query.filter(
             Transaction.user_id == current_user.id,
-            Transaction.date.between(fy_dates['start_date'], fy_dates['end_date'])
+            transaction_in_financial_period(Transaction.date, start_date, end_exclusive),
         ).order_by(Transaction.date.desc()).all()
         
         # Format transactions for response
@@ -1634,7 +1683,8 @@ def generate_insights_api():
             'date': t.date.strftime('%Y-%m-%d'),
             'description': t.description,
             'amount': float(t.amount),
-            'category': t.account.category if t.account else 'Uncategorized'
+            'category': t.account.category if t.account else 'Uncategorized',
+            'account_name': t.account.name if t.account else '',
         } for t in transactions]
         
         # Generate insights using AI

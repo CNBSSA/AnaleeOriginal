@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Callable, List, Optional, Sequence
 
+from services.extraction_junk_filter import JunkVerdict, classify_extraction_row
 from .statement_integrity import (
     StatementLine, normalize_amount, normalize_date, resolve_date_with_period,
 )
@@ -43,6 +44,13 @@ _AMOUNT_RE = re.compile(
     r'(?:(?<![\d,.])|(?<=\.\d\d))'
     r'(?:\d{1,3}(?:[ ,]\d{3})+|\d+)\.\d{2}'
     r'-?\)?'
+    # A trailing Dr / Cr marker ("2,000.00Dr", "5,000.00 CR"). normalize_amount
+    # already reads one - Dr is money out - but the pattern cut it off first, so
+    # the direction was lost on amounts, running balances and the opening and
+    # closing balances alike (work-orders #103). The word boundary keeps a word
+    # that merely starts with Dr / Cr ("Credit Note", "Driver") out of it.
+    r'(?:\s?(?:dr|cr)\b)?',
+    re.IGNORECASE,
 )
 
 # Column-heading words. They mark a HEADER row only when the line does not
@@ -286,5 +294,7 @@ def parse_transaction_lines(text: str, profile: Optional[BankProfile] = None) ->
             continue
         parsed = profile.parse_line(raw_line)
         if parsed is not None:
+            if classify_extraction_row(parsed.description, parsed.amount) == JunkVerdict.DROP:
+                continue
             lines.append(parsed)
     return lines

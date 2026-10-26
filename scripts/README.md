@@ -1,10 +1,35 @@
 # Operational scripts
 
+## `run_backup.py` — database backup (cron-friendly)
+
+Creates a PostgreSQL `pg_dump` or SQLite file copy under `ANALEE_BACKUP_DIR`
+(default `./backups`). Prefer this over in-process scheduling when you need
+exactly one backup per run across replicas.
+
+```bash
+DATABASE_URL='postgresql://...' ANALEE_BACKUP_DIR=/data/backups python scripts/run_backup.py
+```
+
+See `docs/BACKUP_RESTORE_RUNBOOK.md` for restore steps and the drill script.
+
+## `backup_restore_drill.py` — prove backup → restore (TEST URLs only)
+
+Requires **different** source and target URLs. Writes a marker table, backs up,
+restores, and verifies. Exit `0` only when `"ok": true` in JSON output.
+
+```bash
+SOURCE_DATABASE_URL=sqlite:////tmp/src.db \
+RESTORE_TARGET_DATABASE_URL=sqlite:////tmp/dst.db \
+python scripts/backup_restore_drill.py
+```
+
 ## `synthetic_monitor.py` — live uptime monitor
 
-Logs in as a dedicated monitoring user and checks the **dashboard** and one
-**report**, measuring latency. Exits non-zero (so a scheduler/CI run fails and
-alerts) on any non-200, a bounce back to the login page, or a slow response.
+Probes **GET /health** (DB-aware, no login), logs in as a dedicated monitoring
+user, and checks the **dashboard** and one **report**, measuring latency. Exits
+non-zero (so a scheduler/CI run fails and alerts) when secrets are missing (zero
+probes ran), on any non-200, a degraded /health, a bounce back to the login
+page, or a slow response.
 
 ### Run locally
 ```bash

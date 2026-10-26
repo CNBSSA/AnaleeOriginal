@@ -103,22 +103,15 @@ def test_no_api_key_declines_without_calling_the_engine(canary_app, monkeypatch)
 # ---- door 2: key set, client did not construct -----------------------------
 
 def test_key_set_but_client_none_declines(canary_app, monkeypatch):
-    """The engine logs 'AI client initialized successfully' even when the
-    helper returned None, so the guard checks the client, not the log."""
+    """A key in the environment is not enough — the client must construct."""
     monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-looks-real-but-is-not')
-
-    import predictive_features
-
-    def _no_client(self):
-        self.text_similarity_threshold = 0.70
-        self.semantic_similarity_threshold = 0.95
-        self.client = None
-
-    monkeypatch.setattr(predictive_features.PredictiveFeatures, '__init__', _no_client)
+    monkeypatch.setattr('nlp_utils.get_claude_client', lambda: None)
 
     called = []
-    monkeypatch.setattr(predictive_features.PredictiveFeatures, 'suggest_account',
-                        lambda self, *a, **k: called.append(1))
+    monkeypatch.setattr(
+        'services.bulk_suggestions.suggest_for_rows',
+        lambda *a, **k: called.append(1) or {},
+    )
 
     client = canary_app.test_client()
     _register_and_login(client)
@@ -126,54 +119,45 @@ def test_key_set_but_client_none_declines(canary_app, monkeypatch):
 
     assert body['success'] is False
     assert body['ai_online'] is False
-    assert called == [], "engine must not be called when the client is None"
+    assert called == [], "suggester must not be called when the client is None"
 
 
 # ---- door 3: the engine answered, but from the fallback --------------------
 
 def test_engine_fallback_result_is_declined_not_shown(canary_app, monkeypatch):
-    """Festus's exact screenshot must never reach the user again."""
+    """When the AI path returns nothing, decline honestly — never a text guess."""
     monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-present')
-
-    import predictive_features
-
-    def _has_client(self):
-        self.client = object()
-
-    monkeypatch.setattr(predictive_features.PredictiveFeatures, '__init__', _has_client)
-    monkeypatch.setattr(
-        predictive_features.PredictiveFeatures, 'suggest_account',
-        lambda self, *a, **k: {
-            'success': True,
-            'account': 'Patents and Trademarks - Amortisation',
-            'confidence': 0.42,
-            'reasoning': (f'{_ASF_FALLBACK_MARKER} | Similarity score: 0.42 | '
-                          'Matched against: Patents and Trademarks - '
-                          'Amortisation (Non-Current Assets)'),
-        })
+    monkeypatch.setattr('nlp_utils.get_claude_client', lambda: object())
+    monkeypatch.setattr('services.bulk_suggestions.suggest_for_rows', lambda *a, **k: {})
 
     client = canary_app.test_client()
     _register_and_login(client)
     body = client.post(URL, json=PAYLOAD).get_json()
 
-    assert body['success'] is False, "a text-match guess must not be served"
+    assert body['success'] is False
     assert body['ai_online'] is False
-    assert 'Patents' not in str(body), "the wrong account must not reach the user"
+    assert 'Patents' not in str(body)
 
 
 def test_a_real_ai_suggestion_still_passes_through(canary_app, monkeypatch):
     """The guard must not break the working path."""
     monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-present')
+    monkeypatch.setattr('nlp_utils.get_claude_client', lambda: object())
 
-    import predictive_features
-    monkeypatch.setattr(predictive_features.PredictiveFeatures, '__init__',
-                        lambda self: setattr(self, 'client', object()))
+    from services.bulk_suggestions import RowSuggestion
+
     monkeypatch.setattr(
-        predictive_features.PredictiveFeatures, 'suggest_account',
-        lambda self, *a, **k: {
-            'success': True, 'account': 'Bank Charges', 'confidence': 0.95,
-            'reasoning': 'Bank fees are an operating expense.',
-        })
+        'services.bulk_suggestions.suggest_for_rows',
+        lambda rows, accounts, client=None, **kwargs: {
+            0: RowSuggestion(
+                index=0,
+                account_id=1,
+                account_name='Bank Charges',
+                confidence=0.95,
+                explanation='Bank fees are an operating expense.',
+            ),
+        },
+    )
 
     client = canary_app.test_client()
     _register_and_login(client)

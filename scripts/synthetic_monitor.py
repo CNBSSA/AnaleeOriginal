@@ -2,11 +2,12 @@
 """
 Synthetic uptime monitor for the live Analee app.
 
-Logs in as a dedicated monitoring user (handling the CSRF token), then fetches the
-dashboard and one report, measuring response time. Exits non-zero (so a cron /
-GitHub Action / Railway job fails and alerts) if any request is non-200, bounces
-back to the login page, or exceeds the latency budget. Optionally posts to a
-Slack-compatible webhook.
+Probes GET /health (DB-aware, no login), then logs in as a dedicated monitoring
+user (handling the CSRF token), fetches the dashboard and one report, and
+measures response time. Exits non-zero (so a cron / GitHub Action / Railway job
+fails and alerts) if monitoring is not configured, any probe is non-200, /health
+is degraded, a page bounces back to login, or a response exceeds the latency
+budget. Optionally posts to a Slack-compatible webhook on failure.
 
 Configuration (environment variables):
   MONITOR_BASE_URL      required  e.g. https://your-app.up.railway.app
@@ -52,27 +53,59 @@ def _extract_csrf(html):
 
 def _alert(webhook, message):
     if not webhook:
-        return
+        return True
     try:
-        requests.post(webhook, json={"text": message}, timeout=10)
+        resp = requests.post(webhook, json={"text": message}, timeout=10)
+        if resp.status_code >= 400:
+            print(
+                f"synthetic_monitor: alert webhook -> {resp.status_code}",
+                file=sys.stderr,
+            )
+            return False
+        return True
     except Exception as exc:  # pragma: no cover - best effort
         print(f"synthetic_monitor: alert webhook failed: {exc}", file=sys.stderr)
+        return False
+
+
+def _probe_health(session, base, timeout, failures):
+    path = "/health"
+    try:
+        start = time.monotonic()
+        resp = session.get(base + path, timeout=timeout)
+        elapsed = time.monotonic() - start
+    except Exception as exc:
+        failures.append(f"GET /health failed: {exc}")
+        return
+    if resp.status_code != 200:
+        failures.append(f"/health -> {resp.status_code}")
+        return
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        failures.append(f"/health returned invalid JSON: {exc}")
+        return
+    health_ok = True
+    if data.get("status") != "ok":
+        failures.append(f"/health status={data.get('status')!r}")
+        health_ok = False
+    if not data.get("db_ok"):
+        detail = data.get("db_error") or "db_ok false"
+        failures.append(f"/health database unhealthy ({detail})")
+        health_ok = False
+    if health_ok:
+        print(f"OK   {path} ({resp.status_code}, {elapsed:.2f}s, db_ok)")
 
 
 def check():
-    # Skip cleanly (exit 0) when the monitor is not yet configured, instead of
-    # hard-failing. A scheduled monitor that goes red purely because its secrets
-    # are unset emits a constant stream of false "alerts" (alert fatigue) that
-    # trains operators to ignore it — the opposite of a monitor's purpose. The
-    # industry-standard behaviour is to no-op until configured. Set the repo
-    # secrets MONITOR_BASE_URL / MONITOR_EMAIL / MONITOR_PASSWORD to activate
-    # real probing; once set, the checks below run unchanged and a genuine
-    # outage still fails the job.
     if not all(os.environ.get(k) for k in
                ("MONITOR_BASE_URL", "MONITOR_EMAIL", "MONITOR_PASSWORD")):
-        print("synthetic_monitor: SKIPPED — not configured "
-              "(set MONITOR_BASE_URL, MONITOR_EMAIL, MONITOR_PASSWORD to enable).")
-        return 0
+        message = (
+            "synthetic_monitor: NOT CONFIGURED — zero probes ran "
+            "(set MONITOR_BASE_URL, MONITOR_EMAIL, MONITOR_PASSWORD)."
+        )
+        print(message, file=sys.stderr)
+        return 1
 
     base = _env("MONITOR_BASE_URL", required=True).rstrip("/")
     email = _env("MONITOR_EMAIL", required=True)
@@ -86,7 +119,10 @@ def check():
     session = requests.Session()
     session.headers["User-Agent"] = "analee-synthetic-monitor/1"
 
-    # 1. Fetch the login page and its CSRF token.
+    # 1. DB-aware health (no login).
+    _probe_health(session, base, timeout, failures)
+
+    # 2. Fetch the login page and its CSRF token.
     try:
         resp = session.get(base + "/auth/login", timeout=timeout)
     except Exception as exc:
@@ -96,7 +132,7 @@ def check():
         failures.append(f"/auth/login -> {resp.status_code}")
     csrf = _extract_csrf(resp.text)
 
-    # 2. Log in.
+    # 3. Log in.
     data = {"email": email, "password": password}
     if csrf:
         data["csrf_token"] = csrf
@@ -110,7 +146,7 @@ def check():
         failures.append("login failed (still on login page / invalid credentials)")
         return _finish(failures, webhook)
 
-    # 3. Probe authenticated pages: dashboard + one report.
+    # 4. Probe authenticated pages: dashboard + one report.
     for path in ["/dashboard", report_path]:
         try:
             start = time.monotonic()
