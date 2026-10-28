@@ -50,5 +50,47 @@ def test_process_transaction_rows_persists_rows():
         assert Transaction.query.filter_by(file_id=uf.id).count() == 2
 
 
+def test_process_transaction_rows_skips_definite_junk_zero_amount_notices():
+    """Fresh import (QA D1): scheduled-transaction notice lines are not persisted."""
+    import pandas as pd
+    from datetime import datetime
+
+    app = _app()
+    with app.app_context():
+        db.create_all()
+        user = User(username="junk", email="junk@e.com", password_hash="x")
+        db.session.add(user)
+        db.session.commit()
+        uf = UploadedFile(filename="stmt.pdf", user_id=user.id, upload_date=datetime.utcnow())
+        db.session.add(uf)
+        db.session.commit()
+
+        df = pd.DataFrame(
+            [
+                {
+                    "Date": datetime(2026, 3, 1),
+                    "Description": "Schd Trxn No Av Bal Pmt To Payroll",
+                    "Amount": 0.0,
+                },
+                {
+                    "Date": datetime(2026, 3, 1),
+                    "Description": "Schd Trxn No Av Bal Pmt To Festus",
+                    "Amount": 0.0,
+                },
+                {
+                    "Date": datetime(2026, 3, 2),
+                    "Description": "EFT Payment",
+                    "Amount": -100.0,
+                },
+            ]
+        )
+        processed, errors = routes.process_transaction_rows(df, uf, user)
+        assert processed == 1, f"expected 1 real row, got {processed} (errors={errors})"
+        assert errors == []
+        rows = Transaction.query.filter_by(file_id=uf.id).all()
+        assert len(rows) == 1
+        assert rows[0].description == "EFT Payment"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
