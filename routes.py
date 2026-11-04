@@ -12,6 +12,7 @@ from wtforms import FileField, SelectField, SubmitField
 from wtforms.validators import DataRequired
 from datetime import datetime
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from models import Transaction
 from bank_statements.services import BankStatementService
 from utils.date_parsing import parse_statement_date_or_raise
@@ -28,11 +29,11 @@ from models import (
     BankStatementUpload, HistoricalData,
 )
 from forms.company import CompanySettingsForm
+from services.analyze_list_page import file_summaries_for_analyze_list
 from services.analyze_processing import (
     ANALYZE_PAGE_SIZE,
     count_file_transactions,
     count_unprocessed_transactions,
-    file_summaries_for_user,
     get_file_for_user,
     get_paginated_transactions,
     has_real_account_assignment,
@@ -173,13 +174,17 @@ def dashboard():
     fy_finish = fy_bounds['end_exclusive']
     fy_end_date = fy_bounds['end_inclusive']
 
+    from services.tb_workspace_metrics import trial_balance_metrics_for_fy
+    tb_metrics = trial_balance_metrics_for_fy(
+        current_user.id, company_settings, selected_fy)
+
     fy_transactions = Transaction.query.filter(
         Transaction.user_id == current_user.id,
         transaction_in_financial_period(Transaction.date, fy_start, fy_finish),
     ).order_by(Transaction.date.desc()).all()
 
-    total_income = sum(t.amount for t in fy_transactions if t.amount > 0)
-    total_expenses = sum(abs(t.amount) for t in fy_transactions if t.amount < 0)
+    total_income = tb_metrics['total_income']
+    total_expenses = tb_metrics['total_expenses']
     financial_year_labels = {
         y: (f'FY {y}' if fy_end == 12 else f'FY {y}/{y + 1}') for y in financial_years
     }
@@ -231,13 +236,14 @@ def dashboard():
         financial_year_labels=financial_year_labels,
         current_year=selected_fy,
         fy_start=fy_start,
-        fy_end_date=fy_finish,
+        fy_end_date=fy_end_date,
     )
 
 @main.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():
     """Protected Chart of Accounts management"""
+    form_values = {}
     try:
         if not prepare_subscriber_chart_access():
             flash(
@@ -247,18 +253,45 @@ def settings():
             return redirect(url_for('main.dashboard'))
 
         if request.method == 'POST':
+            form_values = {
+                'link': request.form.get('link', ''),
+                'name': request.form.get('name', ''),
+                'category': request.form.get('category', ''),
+                'sub_category': request.form.get('sub_category', ''),
+                'account_code': request.form.get('account_code', ''),
+            }
             account = Account(
-                link=request.form['link'],
-                name=request.form['name'],
-                category=request.form['category'],
-                sub_category=request.form.get('sub_category', ''),
-                account_code=request.form.get('account_code', ''),
+                link=form_values['link'],
+                name=form_values['name'],
+                category=form_values['category'],
+                sub_category=form_values.get('sub_category', ''),
+                account_code=form_values.get('account_code', ''),
                 user_id=current_user.id
             )
-            db.session.add(account)
-            db.session.commit()
-            flash('Account added successfully', 'success')
-            logger.info(f'New account added: {account.name}')
+            try:
+                db.session.add(account)
+                db.session.commit()
+                flash('Account added successfully', 'success')
+                logger.info(f'New account added: {account.name}')
+                form_values = {}
+            except IntegrityError:
+                db.session.rollback()
+                flash(
+                    f"An account with link {form_values['link']} already exists",
+                    'error',
+                )
+                accounts = Account.query.filter_by(
+                    user_id=current_user.id,
+                    is_active=True
+                ).all()
+                from utils.chart_form_choices import CHART_CATEGORIES, CHART_SUBCATEGORIES
+                return render_template(
+                    'settings.html',
+                    accounts=accounts,
+                    chart_categories=CHART_CATEGORIES,
+                    chart_subcategories=CHART_SUBCATEGORIES,
+                    form_values=form_values,
+                ), 200
 
         # Auto-provision when user has an entity but no accounts yet (post-deploy).
         company = CompanySettings.query.filter_by(user_id=current_user.id).first()
@@ -283,6 +316,7 @@ def settings():
             accounts=accounts,
             chart_categories=CHART_CATEGORIES,
             chart_subcategories=CHART_SUBCATEGORIES,
+            form_values=form_values,
         )
     except Exception as e:
         logger.exception('Error in settings route: %s', e)
@@ -425,7 +459,7 @@ def company_settings():
 def analyze_list():
     """Show list of files available for analysis"""
     try:
-        file_summaries = file_summaries_for_user(current_user.id)
+        file_summaries = file_summaries_for_analyze_list(current_user.id)
         return render_template('analyze_list.html', file_summaries=file_summaries)
     except Exception as e:
         logger.error(f"Error loading files for analysis: {str(e)}")
@@ -1632,7 +1666,8 @@ def process_transaction_rows(df, uploaded_file, user):
     try:
         for index, row in df.iterrows():
             try:
-                if classify_extraction_row(row.get('Description'), row.get('Amount')) == JunkVerdict.DROP:
+                verdict = classify_extraction_row(row.get('Description'), row.get('Amount'))
+                if verdict == JunkVerdict.DROP:
                     continue
                 transaction = Transaction(
                     date=parse_statement_date_or_raise(row['Date']).date(),

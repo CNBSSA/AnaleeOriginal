@@ -35,7 +35,11 @@
                                 {{ '%.2f'|format(credits) }}
                             </td>
                             <td class="text-end">
+                                {% if account.link in tb_bank_balances %}
+                                {{ '%.2f'|format(tb_bank_balances[account.link]) }}
+                                {% else %}
                                 {{ '%.2f'|format(debits - credits) }}
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}

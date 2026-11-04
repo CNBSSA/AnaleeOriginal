@@ -6,7 +6,7 @@ Enhanced with user-friendly error notifications
 import logging
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Tuple, Dict, Any, List, Optional
 from werkzeug.utils import secure_filename
 from sqlalchemy.exc import SQLAlchemyError
@@ -15,6 +15,7 @@ from .excel_reader import BankStatementExcelReader
 from models import db
 import pandas as pd
 from utils.date_parsing import parse_statement_date_or_raise
+from ocr.service import mark_duplicates
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +116,9 @@ class BankStatementService:
         self,
         file,
         account_id: int,
-        user_id: int
+        user_id: int,
+        *,
+        confirm_duplicates: bool = False,
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Process a bank statement upload with enhanced error handling and validation
@@ -172,6 +175,8 @@ class BankStatementService:
             # Process file and create transactions
             try:
                 df = self.excel_reader.read_excel(temp_path)
+                rows_skipped = len(self.excel_reader.last_rows_skipped)
+                processing_notes = list(self.excel_reader.last_processing_notes)
 
                 if df is None or df.empty:
                     reader_errors = self.excel_reader.get_errors()
@@ -188,6 +193,48 @@ class BankStatementService:
                         'error_type': error_type,
                         'details': reader_errors,
                     }
+
+                candidate_rows = [
+                    {
+                        'date': row['Date'].strftime('%Y-%m-%d')
+                        if hasattr(row['Date'], 'strftime')
+                        else str(row['Date']),
+                        'description': str(row['Description']),
+                        'amount': float(row['Amount']),
+                    }
+                    for _, row in df.iterrows()
+                ]
+                dup_flags = self._flag_spreadsheet_duplicates(
+                    candidate_rows, user_id, account_id)
+                duplicate_count = sum(1 for r in dup_flags if r.get('duplicate'))
+
+                if duplicate_count and not confirm_duplicates:
+                    error_msg = (
+                        f'{duplicate_count} row(s) match existing transactions '
+                        '(same date, amount and description). Submit again with '
+                        '"Import anyway" to add only the non-duplicate rows, '
+                        'or cancel to leave your books unchanged.'
+                    )
+                    upload.set_error(error_msg)
+                    db.session.commit()
+                    return False, {
+                        'success': False,
+                        'duplicate_warning': True,
+                        'requires_confirmation': True,
+                        'duplicate_count': duplicate_count,
+                        'error': error_msg,
+                        'rows_skipped': rows_skipped,
+                        'processing_notes': processing_notes,
+                    }
+
+                if duplicate_count and confirm_duplicates:
+                    keep_indexes = {
+                        i for i, row in enumerate(dup_flags) if not row.get('duplicate')
+                    }
+                    df = df.iloc[sorted(keep_indexes)].reset_index(drop=True)
+                    processing_notes.append(
+                        f'Skipped {duplicate_count} duplicate row(s) on confirmed import.'
+                    )
 
                 uploaded_file = self.create_uploaded_file_record(
                     file.filename, user_id, bank_account_id=account_id)
@@ -222,7 +269,9 @@ class BankStatementService:
                     'message': 'File processed successfully',
                     'transactions_processed': len(transactions),
                     'upload_id': upload.id,
-                    'file_id': uploaded_file.id
+                    'file_id': uploaded_file.id,
+                    'rows_skipped': rows_skipped,
+                    'processing_notes': processing_notes,
                 }
 
             except ValueError as e:
@@ -260,3 +309,35 @@ class BankStatementService:
             if temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)
                 logger.info("Cleaned up temporary file")
+
+    def _flag_spreadsheet_duplicates(
+        self,
+        rows: List[Dict[str, Any]],
+        user_id: int,
+        account_id: int,
+    ) -> List[Dict[str, Any]]:
+        """Flag rows that match existing transactions (same semantics as PDF OCR)."""
+        if not rows:
+            return rows
+        try:
+            date_strings = {r['date'] for r in rows if r.get('date')}
+            if not date_strings:
+                for r in rows:
+                    r['duplicate'] = False
+                return rows
+            date_objs = [datetime.strptime(d, '%Y-%m-%d') for d in date_strings]
+            existing_q = Transaction.query.filter(
+                Transaction.user_id == user_id,
+                Transaction.date >= min(date_objs),
+                Transaction.date < max(date_objs) + timedelta(days=1),
+            ).all()
+            existing = [
+                (t.date.strftime('%Y-%m-%d'), t.amount, (t.description or ''))
+                for t in existing_q
+            ]
+            return mark_duplicates(rows, existing)
+        except Exception as exc:
+            logger.error('Spreadsheet duplicate check skipped: %s', exc)
+            for r in rows:
+                r.setdefault('duplicate', False)
+            return rows
