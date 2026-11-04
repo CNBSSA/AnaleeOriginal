@@ -2,7 +2,6 @@
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from flask import g, has_request_context
 from sqlalchemy import func, or_
 
 from models import Account, Transaction, UploadedFile, db
@@ -24,24 +23,15 @@ ANALYZE_BATCH_SIZE = 25
 
 def bank_account_ids_for_user(user_id: int) -> List[int]:
     """Ledger accounts that represent the statement bank, not a categorisation."""
-    cache_key = f'_analee_bank_account_ids_{user_id}'
-    if has_request_context():
-        cached = getattr(g, cache_key, None)
-        if cached is not None:
-            return cached
     if not BANK_LINK_PREFIXES:
-        ids: List[int] = []
-    else:
-        ids = [
-            account.id
-            for account in Account.query.filter(
-                Account.user_id == user_id,
-                or_(*[Account.link.like(f'{prefix}%') for prefix in BANK_LINK_PREFIXES]),
-            ).all()
-        ]
-    if has_request_context():
-        setattr(g, cache_key, ids)
-    return ids
+        return []
+    return [
+        account.id
+        for account in Account.query.filter(
+            Account.user_id == user_id,
+            or_(*[Account.link.like(f'{prefix}%') for prefix in BANK_LINK_PREFIXES]),
+        ).all()
+    ]
 
 
 def _account_link_is_bank(link: Optional[str]) -> bool:
@@ -93,10 +83,9 @@ def count_file_transactions(file_id: int, user_id: int) -> int:
     return Transaction.query.filter_by(file_id=file_id, user_id=user_id).count()
 
 
-def _needs_processing_clause(user_id: int, bank_ids: Optional[List[int]] = None):
+def _needs_processing_clause(user_id: int):
     """SQL twin of :func:`transaction_needs_processing` — missing EITHER half."""
-    if bank_ids is None:
-        bank_ids = bank_account_ids_for_user(user_id)
+    bank_ids = bank_account_ids_for_user(user_id)
     missing_account = Transaction.account_id.is_(None)
     if bank_ids:
         missing_account = or_(missing_account, Transaction.account_id.in_(bank_ids))
@@ -403,7 +392,6 @@ def process_transaction_batch(
 
 def file_summaries_for_user(user_id: int) -> List[Dict[str, Any]]:
     """Uploaded files with transaction counts for the analyze list page."""
-    bank_ids = bank_account_ids_for_user(user_id)
     files = (
         UploadedFile.query.filter_by(user_id=user_id)
         .order_by(UploadedFile.upload_date.desc())
@@ -417,20 +405,10 @@ def file_summaries_for_user(user_id: int) -> List[Dict[str, Any]]:
         .all()
     )
 
-    unprocessed_map = dict(
-        db.session.query(Transaction.file_id, func.count(Transaction.id))
-        .filter(
-            Transaction.user_id == user_id,
-            _needs_processing_clause(user_id, bank_ids),
-        )
-        .group_by(Transaction.file_id)
-        .all()
-    )
-
     summaries = []
     for uploaded_file in files:
         transaction_count = counts.get(uploaded_file.id, 0)
-        unprocessed = unprocessed_map.get(uploaded_file.id, 0)
+        unprocessed = count_unprocessed_transactions(uploaded_file.id, user_id)
         summaries.append({
             'file': uploaded_file,
             'transaction_count': transaction_count,

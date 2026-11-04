@@ -29,11 +29,11 @@ from models import (
     BankStatementUpload, HistoricalData,
 )
 from forms.company import CompanySettingsForm
+from services.analyze_list_page import file_summaries_for_analyze_list
 from services.analyze_processing import (
     ANALYZE_PAGE_SIZE,
     count_file_transactions,
     count_unprocessed_transactions,
-    file_summaries_for_user,
     get_file_for_user,
     get_paginated_transactions,
     has_real_account_assignment,
@@ -459,7 +459,7 @@ def company_settings():
 def analyze_list():
     """Show list of files available for analysis"""
     try:
-        file_summaries = file_summaries_for_user(current_user.id)
+        file_summaries = file_summaries_for_analyze_list(current_user.id)
         return render_template('analyze_list.html', file_summaries=file_summaries)
     except Exception as e:
         logger.error(f"Error loading files for analysis: {str(e)}")
