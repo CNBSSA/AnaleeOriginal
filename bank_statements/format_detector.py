@@ -162,7 +162,19 @@ def find_header_row(rows: list[list[Any]]) -> int | None:
     return _find_header_row(rows)
 
 
-def normalize_bank_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+def _strip_description_artifacts(description: str) -> str:
+    """Remove leading/trailing pipe characters from extracted narrations."""
+    text = str(description or '').strip()
+    if len(text) >= 2 and text.startswith('|') and text.endswith('|'):
+        text = text[1:-1].strip()
+    return text
+
+
+def normalize_bank_statement_dataframe(
+    df: pd.DataFrame,
+    *,
+    collect_skips: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, list[dict[str, str]]]:
     """Return a DataFrame with Date, Description, Amount columns."""
     if df is None or df.empty:
         return pd.DataFrame(columns=['Date', 'Description', 'Amount'])
@@ -221,9 +233,12 @@ def normalize_bank_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     normalized_rows: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
     for _, row in working.iterrows():
         date_val = row.iloc[date_col] if date_col is not None else None
         if pd.isna(date_val) or str(date_val).strip() == '':
+            if collect_skips:
+                skipped.append({'reason': 'missing or blank date'})
             continue
 
         if desc_col is not None:
@@ -235,12 +250,16 @@ def normalize_bank_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         else:
             description = 'Bank transaction'
 
+        description = _strip_description_artifacts(description)
+
         debit_raw = row.iloc[debit_col] if debit_col is not None else None
         credit_raw = row.iloc[credit_col] if credit_col is not None else None
         amount_raw = row.iloc[amount_col] if amount_col is not None else None
         fee_raw = row.iloc[fee_col] if fee_col is not None else None
         amount = _signed_amount(debit_raw, credit_raw, amount_raw, fee_raw)
         if amount is None:
+            if collect_skips:
+                skipped.append({'reason': 'unreadable or missing amount'})
             continue
 
         # Day-first for DD/MM, as written for ISO. dayfirst=True alone read
@@ -248,6 +267,8 @@ def normalize_bank_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         # a string (dtype=str), so real Excel date cells came through here.
         parsed_date = parse_statement_date(date_val)
         if parsed_date is None:
+            if collect_skips:
+                skipped.append({'reason': f'invalid date: {date_val!s}'})
             continue
 
         if not description:
@@ -265,4 +286,6 @@ def normalize_bank_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             'No valid transaction rows found. Check the file has Date and Amount '
             'or Debit/Credit columns with data below the header row.'
         )
+    if collect_skips:
+        return result, skipped
     return result

@@ -166,11 +166,35 @@ def upload():
 
                 # Process upload using service
                 service = BankStatementService()
+                confirm_duplicates = request.form.get('confirm_duplicates', '').lower() in (
+                    '1', 'true', 'yes', 'on')
                 success, response = service.process_upload(
                     file=file,
                     account_id=account_id,
-                    user_id=current_user.id
+                    user_id=current_user.id,
+                    confirm_duplicates=confirm_duplicates,
                 )
+
+                if not success and response.get('requires_confirmation'):
+                    logger.info(
+                        'Upload paused for duplicate confirmation (user %s)',
+                        current_user.id,
+                    )
+                    if is_ajax:
+                        return jsonify(response), 409
+                    flash(response.get('error', 'Possible duplicate rows detected.'), 'warning')
+                    for note in response.get('processing_notes') or []:
+                        flash(note, 'info')
+                    return render_template(
+                        'bank_statements/upload.html',
+                        form=form,
+                        bank_accounts=bank_accounts,
+                        recent_uploads=BankStatementUpload.query.filter_by(
+                            user_id=current_user.id
+                        ).order_by(BankStatementUpload.upload_date.desc()).limit(10).all(),
+                        pending_duplicate_upload=True,
+                        duplicate_message=response.get('error'),
+                    )
 
                 if success:
                     logger.info(f"Successfully processed upload for user {current_user.id}")
@@ -190,6 +214,14 @@ def upload():
                     if is_ajax:
                         return jsonify(response)
                     flash('Bank statement uploaded and processed successfully!', 'success')
+                    for note in response.get('processing_notes') or []:
+                        flash(note, 'info')
+                    if response.get('rows_skipped'):
+                        flash(
+                            f"Imported {response.get('transactions_processed', 0)} row(s); "
+                            f"skipped {response['rows_skipped']} invalid row(s).",
+                            'warning',
+                        )
                     if started:
                         flash('Analee is categorising and explaining the rows now — '
                               'refresh this page in a minute to see what needs '

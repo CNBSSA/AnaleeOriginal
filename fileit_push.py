@@ -158,7 +158,8 @@ def send_trial_balance():
         except tb_approval.ApprovalRequired as exc:
             raise _Refused(str(exc)) from exc
         content = build_booksxperts_trial_balance_xlsx(
-            ctx.rows, company_name=settings.company_name, period_end=ctx.end_date)
+            ctx.rows, company_name=settings.company_name,
+            period_end=CompanySettings.financial_year_period_end_inclusive(ctx.end_date))
         filename = export_filename(ctx.end_date)
         key = idempotency_key(ref, current_user.id, ctx)
         outcome = file_trial_balance(ref, filename=filename, content=content,

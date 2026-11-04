@@ -201,6 +201,8 @@ def confirm_receipt():
             amount = float(str(raw_amount).replace(',', '').replace('$', '').strip())
         except (TypeError, ValueError):
             continue
+        if str(raw_amount or '').strip() == '':
+            continue
         # A date we cannot read is NEVER silently replaced with today's date.
         # It used to be, and that is a bookkeeping defect, not a convenience:
         # the transaction lands in whatever VAT/tax period the import happened

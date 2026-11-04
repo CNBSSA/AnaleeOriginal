@@ -147,6 +147,9 @@ def get_financial_context(user_id: int, file_id: Optional[int] = None) -> Dict:
             'income': 0,
             'expenses': 0,
             'balance': 0,
+            'ledger_income': 0,
+            'ledger_expenses': 0,
+            'ledger_net': 0,
             'account_totals': [],
             'account_balances': [],
             'balance_accounts_shown': 0,
@@ -165,9 +168,14 @@ def generate_ai_response(client, message: str, context: Dict) -> str:
         prompt = f"""As a financial AI assistant, help the user with their query. Here's the current context:
 
 Period: the {context.get('period_label') or 'period'} {context.get('period_start', '')} to {context.get('period_end', '')}.
-All amounts are South African rand (R), from the company's own categorised bank statements.
+All amounts are South African rand (R).
 
-Summary for the period:
+Trial balance (ledger view) — income and expenses from categorised postings for this financial year:
+- Income: R{context.get('ledger_income', context.get('income', 0)):,.2f}
+- Expenses: R{context.get('ledger_expenses', context.get('expenses', 0)):,.2f}
+- Net: R{context.get('ledger_net', context.get('balance', 0)):,.2f}
+
+Bank activity (FY) — raw bank-signed lines in the period (not ledger postings):
 - Money in: R{context['income']:,.2f}
 - Money out: R{context['expenses']:,.2f}
 - Net: R{context['balance']:,.2f}
@@ -176,12 +184,12 @@ Summary for the period:
 Totals by account in the period (money in positive, money out negative):
 {format_account_totals_for_prompt(context.get('account_totals', []))}
 
-Trial balance account balances for the same financial year (debit positive, credit negative):
+Trial balance (ledger view) — account balances for the same financial year (debit positive, credit negative):
 {format_account_balances_for_prompt(context.get('account_balances', []))}
 
 {format_statement_block_for_prompt(context.get('statement'))}
 
-Financial-year transactions (newest first{', the latest ' + str(context['lines_shown']) + ' of ' + str(context['total_transactions']) if context.get('lines_shown', 0) < context['total_transactions'] else ''}):
+Bank activity (FY) — transactions (newest first{', the latest ' + str(context['lines_shown']) + ' of ' + str(context['total_transactions']) if context.get('lines_shown', 0) < context['total_transactions'] else ''}):
 {format_transactions_for_prompt(context['recent_transactions'])}
 
 User Query: {message}

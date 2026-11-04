@@ -17,7 +17,8 @@ from services.analyze_processing import (
     provenance_summary,
     transaction_needs_processing,
 )
-from services.workspace_fy import current_financial_year_period
+from services.tb_workspace_metrics import trial_balance_metrics_for_fy
+from services.workspace_fy import current_financial_year_period, default_fy_start_year
 
 # Keep prompts bounded; the cap is stated in the assistant prompt.
 STATEMENT_LINE_CAP = 150
@@ -126,17 +127,26 @@ def _trial_balance_snapshot(user_id: int, end_inclusive: datetime, settings) -> 
 
 def build_chat_context(user_id: int, file_id: Optional[int] = None) -> Dict:
     """Workspace FY totals, trial-balance balances, and the current statement."""
-    start_date, end_exclusive, end_inclusive, _fy_start, period_label, settings = _period_for(
+    start_date, end_exclusive, end_inclusive, fy_start, period_label, settings = _period_for(
         user_id)
+
+    if fy_start is None and settings is not None:
+        fy_start = default_fy_start_year(user_id, settings)
+
+    tb_metrics = trial_balance_metrics_for_fy(user_id, settings, fy_start) if fy_start else {
+        'total_income': 0.0,
+        'total_expenses': 0.0,
+        'net': 0.0,
+    }
 
     fy_transactions = Transaction.query.filter(
         Transaction.user_id == user_id,
         transaction_in_financial_period(Transaction.date, start_date, end_exclusive),
     ).order_by(desc(Transaction.date), desc(Transaction.id)).all()
 
-    income = sum(t.amount for t in fy_transactions if t.amount > 0)
-    expenses = abs(sum(t.amount for t in fy_transactions if t.amount < 0))
-    balance = income - expenses
+    bank_income = sum(t.amount for t in fy_transactions if t.amount > 0)
+    bank_expenses = abs(sum(t.amount for t in fy_transactions if t.amount < 0))
+    bank_net = bank_income - bank_expenses
 
     by_account: Dict[str, Dict] = {}
     uncategorised = 0
@@ -193,9 +203,12 @@ def build_chat_context(user_id: int, file_id: Optional[int] = None) -> Dict:
         'period_label': period_label,
         'period_start': start_date.strftime('%Y-%m-%d'),
         'period_end': end_inclusive.strftime('%Y-%m-%d'),
-        'income': float(income),
-        'expenses': float(expenses),
-        'balance': float(balance),
+        'ledger_income': float(tb_metrics['total_income']),
+        'ledger_expenses': float(tb_metrics['total_expenses']),
+        'ledger_net': float(tb_metrics['net']),
+        'income': float(bank_income),
+        'expenses': float(bank_expenses),
+        'balance': float(bank_net),
         'account_totals': account_totals,
         'account_balances': account_balances,
         'balance_accounts_shown': len(account_balances),
