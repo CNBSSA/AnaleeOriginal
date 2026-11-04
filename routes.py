@@ -1676,7 +1676,6 @@ def process_transaction_rows(df, uploaded_file, user):
                     file_id=uploaded_file.id,
                     user_id=user.id
                 )
-                transaction.statement_notice = verdict == JunkVerdict.FLAG
                 db.session.add(transaction)
                 processed_rows += 1
             except Exception as e:
