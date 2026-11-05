@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% macro optional_setting(value) -%}
+{%- if value is none or value == 'None' -%}{%- else -%}{{ value }}{%- endif -%}
+{%- endmacro %}
+
 {% block content %}
 <div class="row">
     <div class="col-md-12">
@@ -18,23 +22,23 @@
                             <div class="mb-3">
                                 <label for="registration_number" class="form-label">Registration Number</label>
                                 <input type="text" class="form-control" id="registration_number" name="registration_number"
-                                       value="{{ request.form.get('registration_number', '') if request.method == 'POST' else (settings.registration_number if settings else '') }}">
+                                       value="{{ request.form.get('registration_number', '') if request.method == 'POST' else optional_setting(settings.registration_number if settings else none) }}">
                             </div>
                             <div class="mb-3">
                                 <label for="tax_number" class="form-label">Tax Number</label>
                                 <input type="text" class="form-control" id="tax_number" name="tax_number"
-                                       value="{{ request.form.get('tax_number', '') if request.method == 'POST' else (settings.tax_number if settings else '') }}">
+                                       value="{{ request.form.get('tax_number', '') if request.method == 'POST' else optional_setting(settings.tax_number if settings else none) }}">
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="vat_number" class="form-label">VAT Number</label>
                                 <input type="text" class="form-control" id="vat_number" name="vat_number"
-                                       value="{{ request.form.get('vat_number', '') if request.method == 'POST' else (settings.vat_number if settings else '') }}">
+                                       value="{{ request.form.get('vat_number', '') if request.method == 'POST' else optional_setting(settings.vat_number if settings else none) }}">
                             </div>
                             <div class="mb-3">
                                 <label for="address" class="form-label">Address</label>
-                                <textarea class="form-control" id="address" name="address" rows="3">{{ request.form.get('address', '') if request.method == 'POST' else (settings.address if settings else '') }}</textarea>
+                                <textarea class="form-control" id="address" name="address" rows="3">{{ request.form.get('address', '') if request.method == 'POST' else optional_setting(settings.address if settings else none) }}</textarea>
                             </div>
                         </div>
                     </div>

@@ -347,6 +347,13 @@ def import_chart_of_accounts():
     return redirect(url_for('main.settings'))
 
 
+def _display_optional_company_value(value):
+    """Optional CompanySettings fields: SQL NULL and legacy literal 'None' → empty."""
+    if value is None or value == 'None':
+        return ''
+    return value or ''
+
+
 @main.route('/company-settings', methods=['GET', 'POST'])
 @login_required
 def company_settings():
@@ -379,10 +386,10 @@ def company_settings():
                     db.session.add(settings)
 
                 settings.company_name = form.company_name.data
-                settings.registration_number = form.registration_number.data
-                settings.tax_number = form.tax_number.data
-                settings.vat_number = form.vat_number.data
-                settings.address = form.address.data
+                settings.registration_number = (form.registration_number.data or '').strip()
+                settings.tax_number = (form.tax_number.data or '').strip()
+                settings.vat_number = (form.vat_number.data or '').strip()
+                settings.address = (form.address.data or '').strip()
                 settings.financial_year_end = int(form.financial_year_end.data)
                 db.session.flush()
 
@@ -425,10 +432,11 @@ def company_settings():
 
         if settings:
             form.company_name.data = settings.company_name
-            form.registration_number.data = settings.registration_number
-            form.tax_number.data = settings.tax_number
-            form.vat_number.data = settings.vat_number
-            form.address.data = settings.address
+            form.registration_number.data = _display_optional_company_value(
+                settings.registration_number)
+            form.tax_number.data = _display_optional_company_value(settings.tax_number)
+            form.vat_number.data = _display_optional_company_value(settings.vat_number)
+            form.address.data = _display_optional_company_value(settings.address)
             if settings.financial_year_end is not None:
                 form.financial_year_end.data = str(settings.financial_year_end)
             if settings.entity_id:
