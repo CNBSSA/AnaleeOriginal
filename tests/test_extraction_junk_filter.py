@@ -17,6 +17,8 @@ from services.extraction_junk_filter import (
     "description",
     [
         "Schd Trxn No Av Bal",
+        "Schd Trxn No Av Bal Pmt To Payroll",
+        "Schd Trxn No Av Bal Pmt To Festus",
         "SCHEDULED TRXN",
         "Available balance",
         "No Av Bal",
@@ -77,6 +79,39 @@ def test_csv_normalized_rows_drop_notice_lines():
     assert len(kept) == 2
     assert kept[0]["Description"] == "EFT Payment"
     assert kept[1]["Description"] == "Rounding adjustment"
+
+
+def test_payload_to_result_drops_qa_d1_scheduled_payment_notices():
+    """Fresh PDF/OCR import path (Unit 1.7) must not keep QA D1 notice rows."""
+    from ocr.statement_extractor import _payload_to_result
+
+    payload = {
+        "bank": "FNB",
+        "lines": [
+            {
+                "date": "15/03/2026",
+                "description": "Schd Trxn No Av Bal Pmt To Payroll",
+                "amount": "0.00",
+                "confidence": 0.9,
+            },
+            {
+                "date": "16/03/2026",
+                "description": "Schd Trxn No Av Bal Pmt To Festus",
+                "amount": "0",
+                "confidence": 0.9,
+            },
+            {
+                "date": "20/03/2026",
+                "description": "SALARY DEPOSIT",
+                "amount": "2500.00",
+                "confidence": 0.95,
+            },
+        ],
+    }
+    result = _payload_to_result(payload)
+    assert len(result.lines) == 1
+    assert result.lines[0].description == "SALARY DEPOSIT"
+    assert str(result.lines[0].amount) == "2500.00"
 
 
 def test_excel_reader_filters_junk_rows(tmp_path):
