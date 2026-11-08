@@ -63,6 +63,8 @@ class BankStatementExcelReader:
     def __init__(self):
         self.required_columns = ['Date', 'Description', 'Amount']
         self.errors = []
+        self.last_rows_skipped: list[dict[str, str]] = []
+        self.last_processing_notes: list[str] = []
 
     def read_excel(self, file_path: str) -> Optional[pd.DataFrame]:
         """Read bank statement file and return normalized Date/Description/Amount rows."""
@@ -75,7 +77,12 @@ class BankStatementExcelReader:
                 raw_df = pd.read_excel(file_path, engine='openpyxl', header=None, dtype=str)
 
             logger.info('Raw sheet shape: %s', raw_df.shape)
-            df = normalize_bank_statement_dataframe(raw_df)
+            df, skipped = normalize_bank_statement_dataframe(raw_df, collect_skips=True)
+            self.last_rows_skipped = skipped
+            self.last_processing_notes = [
+                f"Skipped row ({item.get('reason', 'invalid')}): {item.get('reason', 'invalid')}"
+                for item in skipped
+            ]
             filtered_rows, dropped, flagged = filter_normalized_rows(
                 df.to_dict('records'),
             )

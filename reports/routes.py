@@ -29,6 +29,7 @@ from .trial_balance_service import (
     PROFIT_AND_LOSS_CATEGORIES,
     SUSPENSE_LINK,
     SUSPENSE_NAME,
+    BANK_LINK_PREFIXES,
     build_booksxperts_trial_balance_xlsx,
     build_trial_balance_payload,
     export_filename,
@@ -66,6 +67,11 @@ assert {INCOME_CATEGORY, EXPENSE_CATEGORY} == set(PROFIT_AND_LOSS_CATEGORIES), (
 def _account_category(account):
     """The account's category, tolerant of blanks and stray whitespace."""
     return (getattr(account, 'category', '') or '').strip()
+
+
+def _link_is_bank(link: str) -> bool:
+    prefix = (link or '').strip()
+    return any(prefix.startswith(p) for p in BANK_LINK_PREFIXES)
 
 
 def _period_end_exclusive(end) -> datetime:
@@ -233,8 +239,19 @@ def cashbook():
             ).order_by(Transaction.date).all()
             display_start, display_end = from_date, to_date
 
+        running_total = 0.0
+        cashbook_rows = []
+        for txn in transactions:
+            running_total += float(txn.amount)
+            cashbook_rows.append({
+                'transaction': txn,
+                'running_balance': running_total,
+            })
+
         return render_template('reports/cashbook.html',
                              transactions=transactions,
+                             cashbook_rows=cashbook_rows,
+                             closing_running_balance=running_total,
                              start_date=display_start,
                              end_date=display_end,
                              min_date=min_date,
@@ -256,11 +273,22 @@ def general_ledger():
         if not company_settings:
             flash('Please configure company settings first.')
             return redirect(url_for('main.company_settings'))
-            
+
+        from services.workspace_fy import default_fy_start_year
+        from services.tb_workspace_metrics import trial_balance_metrics_for_fy
+
+        selected_fy = request.args.get('financial_year', type=int)
+        if selected_fy is None:
+            selected_fy = default_fy_start_year(current_user.id, company_settings)
+        tb_bank_balances = trial_balance_metrics_for_fy(
+            current_user.id, company_settings, selected_fy,
+        ).get('bank_balances_by_link', {})
+
         accounts = Account.query.filter_by(user_id=current_user.id).order_by(Account.link).all()
         
         return render_template('reports/general_ledger.html',
-                             accounts=accounts)
+                             accounts=accounts,
+                             tb_bank_balances=tb_bank_balances)
                              
     except Exception as e:
         logger.error(f"Error generating general ledger: {str(e)}")
@@ -456,7 +484,7 @@ def trial_balance_export():
         xlsx = build_booksxperts_trial_balance_xlsx(
             ctx.rows,
             company_name=company_settings.company_name,
-            period_end=ctx.end_date,
+            period_end=CompanySettings.financial_year_period_end_inclusive(ctx.end_date),
         )
         return send_file(
             BytesIO(xlsx),
@@ -642,6 +670,13 @@ def financial_position():
             display_start = fy_bounds['start'].date()
             display_end = fy_bounds['end_inclusive'].date()
 
+        from services.tb_workspace_metrics import trial_balance_metrics_for_fy
+        tb_bank_balances = {}
+        if selected_fy is not None:
+            tb_bank_balances = trial_balance_metrics_for_fy(
+                current_user.id, company_settings, selected_fy,
+            ).get('bank_balances_by_link', {})
+
         # Get accounts with their transactions for the period
         accounts = Account.query.filter_by(user_id=current_user.id).all()
 
@@ -668,6 +703,8 @@ def financial_position():
             # showed abs(balance) but added only the conventionally-signed ones,
             # so a row could appear on the page and be missing from its total.
             if _account_category(account) == ASSET_CATEGORY:
+                if _link_is_bank(account.link):
+                    balance = tb_bank_balances.get(account.link, balance)
                 asset_accounts.append({'name': account.name, 'balance': balance})
                 total_assets += balance
             elif _account_category(account) == LIABILITY_CATEGORY:

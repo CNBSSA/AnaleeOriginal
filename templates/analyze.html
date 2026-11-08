@@ -308,6 +308,13 @@
         {% endif %}
 
         {% if transactions %}
+        <template id="shared-account-options">
+            {% for account in accounts %}
+            <option value="{{ account.id }}" data-link="{{ account.link }}">
+                {{ account.name }} ({{ account.category }})
+            </option>
+            {% endfor %}
+        </template>
         <form method="POST" id="analyzeForm">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="page" value="{{ page }}">
@@ -362,15 +369,16 @@
                                 <select class="form-select account-select{% if not has_ledger_account %} account-unassigned{% endif %}"
                                         name="account_{{ transaction.id }}"
                                         data-transaction-id="{{ transaction.id }}"
-                                        data-ledger-assigned="{{ '1' if has_ledger_account else '0' }}">
+                                        data-ledger-assigned="{{ '1' if has_ledger_account else '0' }}"
+                                        data-shared-options="1">
                                     <option value="" {% if not has_ledger_account %}selected{% endif %}>— Select account —</option>
-                                    {% for account in accounts %}
-                                    <option value="{{ account.id }}"
-                                            data-link="{{ account.link }}"
-                                            {% if has_ledger_account and transaction.account_id == account.id %}selected{% endif %}>
-                                        {{ account.name }} ({{ account.category }})
+                                    {% if has_ledger_account and transaction.account_id %}
+                                    <option value="{{ transaction.account_id }}" selected
+                                            data-link="{{ transaction.account.link if transaction.account else '' }}">
+                                        {{ transaction.account.name if transaction.account else 'Selected' }}
+                                        ({{ transaction.account.category if transaction.account else '' }})
                                     </option>
-                                    {% endfor %}
+                                    {% endif %}
                                 </select>
                             </td>
                             <td>

@@ -12,7 +12,8 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="link" class="form-label">Link</label>
-                                <input type="text" class="form-control" id="link" name="link" required>
+                                <input type="text" class="form-control" id="link" name="link" required
+                                       value="{{ form_values.link if form_values is defined else '' }}">
                                 <div class="form-text">The account's short code, e.g. <code>ex.100.000</code>.
                                     Codes starting <code>ca.810</code> are bank accounts.</div>
                             </div>
@@ -20,7 +21,8 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="name" class="form-label">Account Name</label>
-                                <input type="text" class="form-control" id="name" name="name" required>
+                                <input type="text" class="form-control" id="name" name="name" required
+                                       value="{{ form_values.name if form_values is defined else '' }}">
                             </div>
                         </div>
                     </div>
@@ -31,7 +33,7 @@
                                 <select class="form-select" id="category" name="category" required>
                                     <option value="" disabled selected>Choose a category…</option>
                                     {% for cat in chart_categories %}
-                                    <option value="{{ cat }}">{{ cat }}</option>
+                                    <option value="{{ cat }}" {% if form_values is defined and form_values.category == cat %}selected{% endif %}>{{ cat }}</option>
                                     {% endfor %}
                                 </select>
                             </div>

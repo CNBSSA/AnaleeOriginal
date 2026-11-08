@@ -130,4 +130,14 @@ def test_generate_insights_stores_statement_analysis_in_session(canary_app):
     with client.session_transaction() as sess:
         advice = sess.get('financial_advice') or {}
     assert advice.get('statement_analysis', {}).get('totals', {}).get('count') == 5
-    assert advice.get('cash_flow_analysis', {}).get('current_status', '').startswith('Net cash flow: R')
+    cash_flow = advice.get('cash_flow_analysis', {})
+    expected = cash_flow_analysis_from_statement(_sample_rows())
+    assert cash_flow.get('current_status') == expected['current_status']
+    assert cash_flow.get('current_status') == (
+        'Recent months show improving net cash flow.'
+    )
+    totals = cash_flow.get('totals') or {}
+    assert totals.get('inflow') == 15000.0
+    assert totals.get('outflow') == 55120.0
+    assert totals.get('net') == -40120.0
+    assert totals.get('count') == 5

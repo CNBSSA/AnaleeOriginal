@@ -39,6 +39,13 @@
                         {% else %}
                         <div class="card bg-light">
                             <div class="card-body">
+                                <p class="mb-3">
+                                    <strong>Period totals:</strong>
+                                    Money in R{{ '{:,.2f}'.format(financial_advice.statement_analysis.totals.inflow) }},
+                                    money out R{{ '{:,.2f}'.format(financial_advice.statement_analysis.totals.outflow) }},
+                                    net R{{ '{:,.2f}'.format(financial_advice.statement_analysis.totals.net) }}
+                                    ({{ financial_advice.statement_analysis.totals.count }} lines)
+                                </p>
                                 <div class="row">
                                     {% if financial_advice.statement_analysis.top_spending %}
                                     <div class="col-md-6 mb-3">
@@ -205,11 +212,13 @@
                                     <h6 class="text-primary">Current Status</h6>
                                     <p>{{ financial_advice.cash_flow_analysis.current_status }}</p>
                                 </div>
-
+                                {% set projected = financial_advice.cash_flow_analysis.projected_trend %}
+                                {% if projected and projected != financial_advice.cash_flow_analysis.current_status %}
                                 <div class="mb-3">
                                     <h6 class="text-primary">Projected Trend</h6>
-                                    <p>{{ financial_advice.cash_flow_analysis.projected_trend }}</p>
+                                    <p>{{ projected }}</p>
                                 </div>
+                                {% endif %}
 
                                 <div class="mb-3">
                                     <h6 class="text-primary">Key Drivers</h6>

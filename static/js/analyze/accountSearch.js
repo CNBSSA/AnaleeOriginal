@@ -8,6 +8,17 @@
  */
 export default function enhanceAccountSelects(root = document) {
     try {
+        const template = root.getElementById('shared-account-options');
+        if (template) {
+            root.querySelectorAll('select.account-select[data-shared-options="1"]').forEach((select) => {
+                if (select.dataset.optionsHydrated) return;
+                const selected = select.value;
+                const fragment = template.content.cloneNode(true);
+                select.appendChild(fragment);
+                select.value = selected;
+                select.dataset.optionsHydrated = '1';
+            });
+        }
         root.querySelectorAll('select.account-select, select.analysis-select')
             .forEach((select) => {
                 if (select.dataset.searchEnhanced) return;

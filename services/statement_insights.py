@@ -252,11 +252,7 @@ def cash_flow_analysis_from_statement(
         'unknown': 'Trend could not be determined.',
     }.get(trend, 'Trend could not be determined.')
 
-    drivers = [
-        f"Total money in: R{totals['inflow']:,.2f}",
-        f"Total money out: R{totals['outflow']:,.2f}",
-        f"Net for period: R{totals['net']:,.2f}",
-    ]
+    drivers = []
     if analysis['top_spending']:
         top = analysis['top_spending'][0]
         drivers.append(
@@ -279,8 +275,9 @@ def cash_flow_analysis_from_statement(
         )
 
     return {
-        'current_status': f"Net cash flow: R{totals['net']:,.2f}",
+        'current_status': trend_text,
         'projected_trend': trend_text,
         'key_drivers': drivers,
         'improvement_suggestions': suggestions,
+        'totals': totals,
     }

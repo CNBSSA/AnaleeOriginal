@@ -12,7 +12,7 @@ PASSWORD = 'Sup3rSecret!'
 
 
 def _setup(app, fy_end=2):
-    from models import db, User, Account, CompanySettings, Transaction
+    from models import db, User, Account, CompanySettings, Transaction, UploadedFile
     with app.app_context():
         user = User(username='dash', email='dash@example.com',
                     subscription_status='active')
@@ -23,20 +23,26 @@ def _setup(app, fy_end=2):
                                        financial_year_end=fy_end))
         bank = Account(name='Bank', link='ca.810.001', category='Assets',
                        user_id=user.id, is_active=True)
-        db.session.add(bank)
-        db.session.commit()
+        sales = Account(name='Sales', link='i.100.000', category='Income',
+                        user_id=user.id, is_active=True)
+        rent = Account(name='Rent', link='e.400.000', category='Expenses',
+                       user_id=user.id, is_active=True)
+        db.session.add_all([bank, sales, rent])
+        db.session.flush()
+        stmt = UploadedFile(filename='dash.csv', user_id=user.id, bank_account_id=bank.id)
+        db.session.add(stmt)
+        db.session.flush()
         rows = [
-            # FY 2024/2025 (Mar 2024 - Feb 2025)
-            (datetime(2024, 6, 1), 'Old deposit', 100.0),
-            (datetime(2025, 1, 15), 'Old fee', -10.0),
-            # FY 2025/2026 (Mar 2025 - Feb 2026)
-            (datetime(2025, 4, 3), 'Salary', 15000.0),
-            (datetime(2025, 5, 3), 'Rent', -5000.0),
-            (datetime(2026, 2, 28), 'Fee', -50.0),
+            (datetime(2024, 6, 1), 'Old deposit', 100.0, sales.id),
+            (datetime(2025, 1, 15), 'Old fee', -10.0, rent.id),
+            (datetime(2025, 4, 3), 'Salary', 15000.0, sales.id),
+            (datetime(2025, 5, 3), 'Rent', -5000.0, rent.id),
+            (datetime(2026, 2, 28), 'Fee', -50.0, rent.id),
         ]
-        for when, desc, amount in rows:
+        for when, desc, amount, acct in rows:
             db.session.add(Transaction(date=when, description=desc, amount=amount,
-                                       user_id=user.id, account_id=bank.id))
+                                       user_id=user.id, account_id=acct,
+                                       file_id=stmt.id))
         db.session.commit()
     client = app.test_client()
     client.post('/auth/login', data={'email': 'dash@example.com', 'password': PASSWORD})

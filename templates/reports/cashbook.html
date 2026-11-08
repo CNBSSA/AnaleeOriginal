@@ -72,15 +72,14 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% set running_balance = 0 %}
-                        {% for transaction in transactions %}
-                        {% set running_balance = running_balance + transaction.amount %}
+                        {% for row in cashbook_rows %}
+                        {% set transaction = row.transaction %}
                         <tr>
                             <td>{{ transaction.date.strftime('%Y-%m-%d') }}</td>
                             <td>{{ transaction.description }}</td>
                             <td class="text-end">{{ '%.2f'|format(transaction.amount) if transaction.amount > 0 else '0.00' }}</td>
                             <td class="text-end">{{ '%.2f'|format(-transaction.amount) if transaction.amount < 0 else '0.00' }}</td>
-                            <td class="text-end">{{ '%.2f'|format(running_balance) }}</td>
+                            <td class="text-end">{{ '%.2f'|format(row.running_balance) }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -89,7 +88,7 @@
                             <th colspan="2">Closing Balance</th>
                             <th class="text-end">{{ '%.2f'|format(transactions|selectattr('amount', 'gt', 0)|sum(attribute='amount')|default(0)) }}</th>
                             <th class="text-end">{{ '%.2f'|format(transactions|selectattr('amount', 'lt', 0)|sum(attribute='amount')|abs|default(0)) }}</th>
-                            <th class="text-end">{{ '%.2f'|format(running_balance|default(0)) }}</th>
+                            <th class="text-end">{{ '%.2f'|format(closing_running_balance|default(0)) }}</th>
                         </tr>
                     </tfoot>
                 </table>

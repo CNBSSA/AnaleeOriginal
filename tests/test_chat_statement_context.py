@@ -80,7 +80,7 @@ def test_prompt_mentions_statement_line_and_balances(canary_app, monkeypatch):
     prompt = seen['prompt']
     assert 'TEST chat line rent' in prompt
     assert 'Current bank statement' in prompt
-    assert 'Trial balance account balances' in prompt
+    assert 'Trial balance (ledger view)' in prompt
     assert 'needs account' in prompt
 
 
